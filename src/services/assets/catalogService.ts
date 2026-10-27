@@ -1,6 +1,6 @@
 import type { CatalogItem, PrimitiveShape } from '@/types/project';
 import { PRIMITIVE_CATALOG } from '@/data/defaults';
-import { apiGet, apiUpload } from '@/services/api';
+import { apiFetch, apiGet, apiUpload } from '@/services/api';
 
 interface CatalogResponse {
   items: Array<{
@@ -57,9 +57,25 @@ export async function uploadCatalogFile(file: File): Promise<void> {
   await apiUpload('/api/catalog/upload', file);
 }
 
-export async function uploadExhibitorPhoto(file: File): Promise<string> {
-  const response = await apiUpload<{ url: string }>('/api/uploads/photo', file);
-  return response.url;
+export interface UploadedPhoto {
+  url: string;
+  notionBlockId?: string;
+  filename?: string;
+}
+
+/**
+ * Sube una fotografía de expositor. El servidor intenta guardarla en Notion
+ * (adjuntándola a `notionBlockId` o a la página padre) y, si no puede, la
+ * deja en KV. La respuesta indica dónde quedó.
+ */
+export async function uploadExhibitorPhoto(
+  file: File,
+  options?: { notionBlockId?: string },
+): Promise<UploadedPhoto> {
+  const form = new FormData();
+  form.append('file', file);
+  if (options?.notionBlockId) form.append('notionBlockId', options.notionBlockId);
+  return apiFetch<UploadedPhoto>('/api/uploads/photo', { method: 'POST', body: form });
 }
 
 export function catalogItemKey(item: CatalogItem): string {

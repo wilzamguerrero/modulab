@@ -1,5 +1,5 @@
 import type { Env } from '../_shared/env';
-import { json, jsonError, requireKv } from '../_shared/env';
+import { json, jsonError } from '../_shared/env';
 import { clearConfig, loadConfig, maskedToken, saveConfig } from '../_shared/config';
 import * as notion from '../_shared/notion';
 import { deletePublished, getPublishedDocument, publishDocument } from '../_shared/publishing';
@@ -53,12 +53,36 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (blob.size > MAX_PHOTO_BYTES) {
         return jsonError(400, 'La imagen supera el límite de 15 MB.');
       }
-      const kv = requireKv(env, 'guardar las fotografías subidas');
+
+      const targetBlock = String(form?.get('notionBlockId') || '').trim();
       const filename = sanitizePhotoName(blob.name || 'imagen');
       const bytes = await blob.arrayBuffer();
-      await kv.put(photoKey(filename), bytes, {
-        metadata: { contentType: blob.type || 'image/jpeg' },
-      });
+      const contentType = blob.type || 'image/jpeg';
+
+      // Preferimos Notion como almacén de la imagen (no consume KV).
+      const config = await loadConfig(env);
+      if (config.notionSecret) {
+        const parent = targetBlock || config.parentPageId;
+        if (parent) {
+          try {
+            const blockId = await notion.uploadImageToBlock(parent, bytes, filename, contentType, config);
+            return json({
+              success: true,
+              url: `/api/notion/image/${encodeURIComponent(blockId)}`,
+              notionBlockId: blockId,
+            });
+          } catch (err) {
+            console.warn('[modulab] Subida a Notion falló; se usa KV:', (err as Error).message);
+          }
+        }
+      }
+
+      // Respaldo: KV (si Notion no está disponible).
+      const kv = env.MODULAB_KV;
+      if (!kv) {
+        return jsonError(400, 'No hay Notion disponible ni almacenamiento KV para guardar la fotografía.');
+      }
+      await kv.put(photoKey(filename), bytes, { metadata: { contentType } });
       return json({ success: true, url: `/uploads/${encodeURIComponent(filename)}`, filename });
     }
 

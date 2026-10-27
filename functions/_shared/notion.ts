@@ -641,3 +641,58 @@ export async function getImageBlockUrl(
   if (block.type !== 'image') return null;
   return block.image?.file?.url || block.image?.external?.url || null;
 }
+
+/**
+ * Sube una imagen al almacenamiento de Notion y la adjunta como bloque de
+ * imagen dentro de `parentBlockId`. Devuelve el id del bloque creado, que luego
+ * se sirve con el proxy `/api/notion/image/:blockId`.
+ */
+export async function uploadImageToBlock(
+  parentBlockId: string,
+  bytes: ArrayBuffer,
+  filename: string,
+  contentType: string,
+  configOverride?: NotionConfig,
+): Promise<string> {
+  const config = resolveConfig(configOverride);
+  if (!config.notionSecret) throw new NotionError('Notion no está configurado.', 400);
+  const mime = contentType || 'application/octet-stream';
+
+  // 1) Crear la subida (single part).
+  const upload = await notionFetch<any>(
+    'POST',
+    '/file_uploads',
+    { filename, content_type: mime },
+    config,
+  );
+  if (!upload?.id) throw new NotionError('No se pudo crear la subida en Notion.', 502);
+
+  // 2) Enviar los bytes como multipart (no usar notionFetch: no es JSON).
+  const form = new FormData();
+  form.append('file', new Blob([bytes], { type: mime }), filename);
+  const sendUrl = upload.upload_url || `${NOTION_BASE}/file_uploads/${upload.id}/send`;
+  const sendRes = await fetch(sendUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.notionSecret}`,
+      'Notion-Version': NOTION_VERSION,
+    },
+    body: form,
+  });
+  const sendData = (await sendRes.json().catch(() => ({}))) as any;
+  if (!sendRes.ok) {
+    throw new NotionError(`Notion: ${sendData?.message || `HTTP ${sendRes.status}`}`, sendRes.status);
+  }
+  if (sendData?.status && sendData.status !== 'uploaded' && sendData.status !== 'complete') {
+    throw new NotionError(`La subida a Notion quedó en estado «${sendData.status}».`, 502);
+  }
+
+  // 3) Adjuntar el bloque de imagen con la referencia al upload.
+  const [block] = await appendChildren(
+    parentBlockId,
+    [{ object: 'block', type: 'image', image: { type: 'file_upload', file_upload: { id: upload.id } } }],
+    config,
+  );
+  if (!block?.id) throw new NotionError('Notion no devolvió el bloque de imagen.', 502);
+  return block.id;
+}

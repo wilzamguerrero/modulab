@@ -587,8 +587,19 @@ function ExhibitorInspector({
     if (!file) return;
     setUploading(true);
     try {
-      const url = await uploadExhibitorPhoto(file);
-      updateExhibitor(exhibitor.id, { photoUrl: url, photoNotionBlockId: undefined });
+      const result = await uploadExhibitorPhoto(file, {
+        // Se adjunta a la página del proyecto para que la sincronización de
+        // personas desde Notion no la sobrescriba; si no hay, a la ficha.
+        notionBlockId: project.notionBlockId || exhibitor.notionBlockId,
+      });
+      if (result.notionBlockId) {
+        updateExhibitor(exhibitor.id, {
+          photoNotionBlockId: result.notionBlockId,
+          photoUrl: undefined,
+        });
+      } else {
+        updateExhibitor(exhibitor.id, { photoUrl: result.url, photoNotionBlockId: undefined });
+      }
       toast('Fotografía actualizada.', 'success');
     } catch (error) {
       toast(`No se pudo subir la foto: ${(error as Error).message}`, 'error');
