@@ -27,7 +27,9 @@ function ExhibitorMarker({
   const snap = useEditorStore((state) => state.project?.settings.snapToGrid ?? false);
   const gridSize = useEditorStore((state) => state.project?.settings.gridSize ?? 0.25);
   const controls = useThree((state) => state.controls) as { enabled: boolean } | null;
-  const color = selected ? '#d7ff4f' : exhibitorColor(exhibitor);
+  // El expositor conserva siempre su color asignado; la selección se marca con
+  // tamaño, opacidad y un halo, no cambiando el tono a amarillo.
+  const color = exhibitorColor(exhibitor);
 
   const finishTransform = () => {
     if (!group) return;
@@ -72,20 +74,20 @@ function ExhibitorMarker({
           <meshBasicMaterial color={color} />
         </mesh>
         {selected ? (
-          <pointLight color={color} intensity={0.8} distance={3.2} position={[0, 1.5, 0]} />
+          <pointLight color={color} intensity={1} distance={3.4} position={[0, 1.5, 0]} />
         ) : null}
         {editor ? (
           <Html
             center
             position={[0, 2.05, 0]}
-            distanceFactor={9}
+            zIndexRange={[100, 0]}
             style={{ pointerEvents: 'none' }}
           >
             <div
               className={`marker-label${selected ? ' is-selected' : ''}`}
-              style={selected ? undefined : { borderColor: color }}
+              style={{ borderColor: color }}
             >
-              <strong style={selected ? undefined : { color }}>{exhibitor.name || 'Expositor'}</strong>
+              <strong style={{ color }}>{exhibitor.name || 'Expositor'}</strong>
               {exhibitor.standCode ? <span>{exhibitor.standCode}</span> : null}
             </div>
           </Html>

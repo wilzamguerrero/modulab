@@ -41,9 +41,30 @@ function finiteVector(vector: unknown): vector is [number, number, number] {
   );
 }
 
+// Cámara del esquema cuando el expositor no tiene una personalizada. Si todos
+// los expositores guardan este valor, el visor enfocaría siempre el mismo punto
+// y la cámara no cambiaría al pasar de uno a otro.
+const SCHEMA_DEFAULT_CAMERA_POSITION: [number, number, number] = [4, 2, 4];
+const SCHEMA_DEFAULT_CAMERA_TARGET: [number, number, number] = [0, 1, 0];
+
+function isSchemaDefaultCamera(
+  position: [number, number, number],
+  target: [number, number, number],
+): boolean {
+  return (
+    position[0] === SCHEMA_DEFAULT_CAMERA_POSITION[0] &&
+    position[1] === SCHEMA_DEFAULT_CAMERA_POSITION[1] &&
+    position[2] === SCHEMA_DEFAULT_CAMERA_POSITION[2] &&
+    target[0] === SCHEMA_DEFAULT_CAMERA_TARGET[0] &&
+    target[1] === SCHEMA_DEFAULT_CAMERA_TARGET[1] &&
+    target[2] === SCHEMA_DEFAULT_CAMERA_TARGET[2]
+  );
+}
+
 /**
  * Usa la cámara configurada por el editor, pero sustituye vistas imposibles
- * (vectores inválidos, cámara bajo el piso o cámara pegada al objetivo).
+ * (vectores inválidos, cámara bajo el piso o cámara pegada al objetivo) y la
+ * cámara genérica del esquema por una vista derivada de la posición real.
  */
 export function focusCameraFor(
   exhibitor: Exhibitor,
@@ -62,6 +83,7 @@ export function focusCameraFor(
   if (
     finiteVector(position) &&
     finiteVector(target) &&
+    !isSchemaDefaultCamera(position, target) &&
     position[1] >= 0.35 &&
     distance >= 0.8 &&
     targetInside &&
