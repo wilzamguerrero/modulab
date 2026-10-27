@@ -292,7 +292,8 @@ app.delete(
 
 const catalogDir = resolveCatalogDir();
 fs.mkdirSync(catalogDir, { recursive: true });
-app.use('/catalog', express.static(catalogDir, { maxAge: '1h', fallthrough: true }));
+// Sin caché prolongada: los modelos se reemplazan en sitio y deben revalidarse.
+app.use('/catalog', express.static(catalogDir, { maxAge: 0, etag: true, fallthrough: true }));
 
 async function start() {
   ensureDataDirs();

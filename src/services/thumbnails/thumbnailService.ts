@@ -107,8 +107,12 @@ function renderObject(root: THREE.Object3D, key: string): string {
   return dataUrl;
 }
 
+function thumbnailKey(item: CatalogItem): string {
+  return `${item.id}:${item.modifiedAt ?? ''}:${item.url ?? ''}`;
+}
+
 async function generate(item: CatalogItem): Promise<string> {
-  const key = `${item.id}:${item.modifiedAt ?? ''}`;
+  const key = thumbnailKey(item);
   const cached = cache.get(key);
   if (cached) return cached;
 
@@ -127,7 +131,7 @@ async function generate(item: CatalogItem): Promise<string> {
 }
 
 export function getCatalogThumbnail(item: CatalogItem): Promise<string> {
-  const key = `${item.id}:${item.modifiedAt ?? ''}`;
+  const key = thumbnailKey(item);
   const cached = cache.get(key);
   if (cached) return Promise.resolve(cached);
   const existing = pending.get(key);

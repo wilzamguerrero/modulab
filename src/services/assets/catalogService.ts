@@ -16,13 +16,24 @@ interface CatalogResponse {
   count: number;
 }
 
+/**
+ * Añade un parámetro de versión (tamaño + fecha de modificación) a la URL.
+ * Si se reemplaza el archivo conservando la ruta, la URL cambia y se evitan
+ * las cachés en memoria y del navegador que devolvían el modelo anterior.
+ */
+function versionedCatalogUrl(item: { url: string; sizeBytes?: number; modifiedAt?: string }): string {
+  const version = encodeURIComponent(`${item.sizeBytes ?? 0}-${item.modifiedAt ?? ''}`);
+  const separator = item.url.includes('?') ? '&' : '?';
+  return `${item.url}${separator}v=${version}`;
+}
+
 export async function loadCatalog(): Promise<{ items: CatalogItem[]; directory: string; glbCount: number }> {
   const response = await apiGet<CatalogResponse>('/api/catalog');
   const glbItems: CatalogItem[] = response.items.map((item) => ({
     id: `glb:${item.id}`,
     name: item.name,
     category: item.category,
-    url: item.url,
+    url: versionedCatalogUrl(item),
     file: item.file,
     kind: 'glb',
     sizeBytes: item.sizeBytes,
