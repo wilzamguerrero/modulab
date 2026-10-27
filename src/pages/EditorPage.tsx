@@ -5,8 +5,10 @@ import {
   ArrowLeft,
   Box,
   Boxes,
+  BrickWall,
   Check,
   Cloud,
+  DoorOpen,
   DraftingCompass,
   Globe2,
   Hand,
@@ -20,6 +22,7 @@ import {
   Move,
   PanelLeft,
   PanelRight,
+  PanelTop,
   PenTool,
   RefreshCcw,
   Redo2,
@@ -103,6 +106,8 @@ export function EditorPage() {
   const duplicateObject = useEditorStore((state) => state.duplicateObject);
   const deleteExhibitor = useEditorStore((state) => state.deleteExhibitor);
   const deleteLight = useEditorStore((state) => state.deleteLight);
+  const deleteInternalWall = useEditorStore((state) => state.deleteInternalWall);
+  const deleteOpening = useEditorStore((state) => state.deleteOpening);
   const removeVertex = useEditorStore((state) => state.removeVertex);
   const setClipboardObject = useEditorStore((state) => state.setClipboardObject);
   const clipboardObject = useEditorStore((state) => state.clipboardObject);
@@ -273,6 +278,8 @@ export function EditorPage() {
         if (state.selection?.type === 'object') deleteObject(state.selection.id);
         else if (state.selection?.type === 'exhibitor') deleteExhibitor(state.selection.id);
         else if (state.selection?.type === 'light') deleteLight(state.selection.id);
+        else if (state.selection?.type === 'internalWall') deleteInternalWall(state.selection.id);
+        else if (state.selection?.type === 'opening') deleteOpening(state.selection.id);
         else if (state.selection?.type === 'vertex') removeVertex(state.selection.index);
         return;
       }
@@ -282,6 +289,9 @@ export function EditorPage() {
       if (key === 'v') { setTool('select'); return; }
       if (key === 'd') { setView('plan'); setTool('draw'); return; }
       if (key === 'm') { setView('plan'); setTool('wall'); return; }
+      if (key === 'f') { setView('plan'); setTool('internalWall'); return; }
+      if (key === 'p') { setView('plan'); setTool('door'); return; }
+      if (key === 'n') { setView('plan'); setTool('window'); return; }
       if (key === 'e') { setTool('exhibitor'); return; }
       if (key === 'g') { setTransformMode('translate'); return; }
       if (key === 'r') { setTransformMode('rotate'); return; }
@@ -292,8 +302,10 @@ export function EditorPage() {
   }, [
     clipboardObject,
     deleteExhibitor,
+    deleteInternalWall,
     deleteLight,
     deleteObject,
+    deleteOpening,
     duplicateObject,
     pasteObject,
     redo,
@@ -348,13 +360,14 @@ export function EditorPage() {
     }
   };
 
+  const planOnlyTools: EditorTool[] = ['draw', 'wall', 'internalWall', 'door', 'window'];
   const chooseTool = (nextTool: EditorTool) => {
-    if (nextTool === 'draw' || nextTool === 'wall') setView('plan');
+    if (planOnlyTools.includes(nextTool)) setView('plan');
     setTool(nextTool);
   };
 
   const changeView = (nextView: EditorView) => {
-    if (nextView === '3d' && (tool === 'draw' || tool === 'wall')) setTool('select');
+    if (nextView === '3d' && planOnlyTools.includes(tool)) setTool('select');
     setView(nextView);
   };
 
@@ -371,7 +384,7 @@ export function EditorPage() {
 
   const area = project ? polygonArea(project.floor.vertices) : 0;
   const validation = project ? validatePolygon(project.floor.vertices) : null;
-  const wallCount = project?.edges.filter((edge) => edge.wall).length ?? 0;
+  const wallCount = (project?.edges.filter((edge) => edge.wall).length ?? 0) + (project?.internalWalls.length ?? 0);
   const selectedObject = project && selection?.type === 'object'
     ? project.objects.find((entry) => entry.id === selection.id)
     : null;
@@ -537,11 +550,20 @@ export function EditorPage() {
             <button type="button" className={`tool-btn${tool === 'select' ? ' is-active' : ''}`} title="Seleccionar (V)" onClick={() => chooseTool('select')}>
               <MousePointer2 size={16} />
             </button>
-            <button type="button" className={`tool-btn${tool === 'draw' ? ' is-active' : ''}`} title="Dibujar contorno (D)" onClick={() => chooseTool('draw')}>
+            <button type="button" className={`tool-btn${tool === 'draw' ? ' is-active' : ''}`} title="Dibujar contorno o división (D)" onClick={() => chooseTool('draw')}>
               <PenTool size={16} />
             </button>
             <button type="button" className={`tool-btn${tool === 'wall' ? ' is-active' : ''}`} title="Muro / acceso (M)" onClick={() => chooseTool('wall')}>
               <DraftingCompass size={16} />
+            </button>
+            <button type="button" className={`tool-btn${tool === 'internalWall' ? ' is-active' : ''}`} title="Muro libre (F)" onClick={() => chooseTool('internalWall')}>
+              <BrickWall size={16} />
+            </button>
+            <button type="button" className={`tool-btn${tool === 'door' ? ' is-active' : ''}`} title="Puerta (P)" onClick={() => chooseTool('door')}>
+              <DoorOpen size={16} />
+            </button>
+            <button type="button" className={`tool-btn${tool === 'window' ? ' is-active' : ''}`} title="Ventana (N)" onClick={() => chooseTool('window')}>
+              <PanelTop size={16} />
             </button>
             <button type="button" className={`tool-btn${tool === 'exhibitor' ? ' is-active' : ''}`} title="Colocar expositor (E)" onClick={() => chooseTool('exhibitor')}>
               <UserPlus size={16} />

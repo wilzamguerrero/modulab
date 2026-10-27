@@ -3,8 +3,11 @@ import { useUiStore } from '@/store/uiStore';
 
 const SHORTCUTS: Array<[string, string]> = [
   ['V', 'Seleccionar'],
-  ['D', 'Dibujar contorno'],
+  ['D', 'Dibujar contorno o división'],
   ['M', 'Muro / acceso'],
+  ['F', 'Muro libre'],
+  ['P', 'Puerta'],
+  ['N', 'Ventana'],
   ['E', 'Colocar expositor'],
   ['1', 'Vista de planta'],
   ['2', 'Vista 3D'],

@@ -1,7 +1,8 @@
-import type { EdgeConfig, Project, Vec2 } from '@/types/project';
+import type { EdgeConfig, Project, Vec2, WallOpening } from '@/types/project';
 import { projectSchema } from '@/types/project';
 import { createEdgeConfig } from './defaults';
 import { createId } from '@/utils/id';
+import { getWallById, wallLength } from '@/utils/walls';
 
 export class ProjectParseError extends Error {
   readonly issues: string[];
@@ -56,6 +57,18 @@ export function parseProject(raw: unknown): Project {
           id: typeof edge?.id === 'string' && edge.id ? edge.id : createId(`edge${index}`),
         }))
       : [],
+    internalWalls: Array.isArray(source.internalWalls)
+      ? source.internalWalls.map((wall: any, index: number) => ({
+          ...wall,
+          id: typeof wall?.id === 'string' && wall.id ? wall.id : createId(`wall${index}`),
+        }))
+      : [],
+    openings: Array.isArray(source.openings)
+      ? source.openings.map((opening: any, index: number) => ({
+          ...opening,
+          id: typeof opening?.id === 'string' && opening.id ? opening.id : createId(`open${index}`),
+        }))
+      : [],
   };
   const result = projectSchema.safeParse(candidate);
   if (!result.success) {
@@ -66,6 +79,10 @@ export function parseProject(raw: unknown): Project {
   }
   const project = result.data;
   project.edges = normalizeEdges(project.floor.vertices, project.edges, project.defaultWall);
+  project.internalWalls = project.internalWalls.filter(
+    (wall) => wallLength(wall.a, wall.b) > 0.05,
+  );
+  project.openings = normalizeOpenings(project);
   // Una ficha sin vínculo a Notion nunca puede estar «ausente» en Notion.
   // Esto repara también proyectos guardados antes de esta regla.
   project.exhibitors = project.exhibitors.map((exhibitor) => ({
@@ -76,6 +93,24 @@ export function parseProject(raw: unknown): Project {
     project.lights = [];
   }
   return project;
+}
+
+export function normalizeOpenings(project: Project): WallOpening[] {
+  return project.openings
+    .map((opening) => {
+      const wall = getWallById(project, opening.wallId);
+      if (!wall) return null;
+      const length = wallLength(wall.a, wall.b);
+      if (length <= 0.05) return null;
+      const width = Math.max(0.2, Math.min(opening.width, Math.max(0.2, length - 0.02)));
+      const offset = Math.max(width / 2, Math.min(length - width / 2, opening.offset));
+      const sillHeight = opening.kind === 'door'
+        ? 0
+        : Math.max(0, Math.min(opening.sillHeight, Math.max(0, wall.height - 0.2)));
+      const height = Math.max(0.2, Math.min(opening.height, Math.max(0.2, wall.height - sillHeight)));
+      return { ...opening, width, offset, sillHeight, height };
+    })
+    .filter((opening): opening is WallOpening => Boolean(opening));
 }
 
 export function cloneProject(project: Project): Project {
@@ -116,7 +151,22 @@ export function duplicateProject(project: Project, name?: string): Project {
     ...object,
     exhibitorId: object.exhibitorId ? exhibitorIdMap.get(object.exhibitorId) ?? null : object.exhibitorId,
   }));
-  copy.edges = copy.edges.map((edge) => ({ ...edge, id: createId('edge') }));
+  const wallIdMap = new Map<string, string>();
+  copy.edges = copy.edges.map((edge) => {
+    const id = createId('edge');
+    wallIdMap.set(edge.id, id);
+    return { ...edge, id };
+  });
+  copy.internalWalls = copy.internalWalls.map((wall) => {
+    const id = createId('wall');
+    wallIdMap.set(wall.id, id);
+    return { ...wall, id };
+  });
+  copy.openings = copy.openings.map((opening) => ({
+    ...opening,
+    id: createId('open'),
+    wallId: wallIdMap.get(opening.wallId) ?? opening.wallId,
+  }));
   return copy;
 }
 

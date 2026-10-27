@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { BrickWall, DraftingCompass, Grid3X3, Layers, PaintBucket, Ruler } from 'lucide-react';
+import {
+  BrickWall,
+  DoorOpen,
+  DraftingCompass,
+  Grid3X3,
+  Layers,
+  PaintBucket,
+  PanelTop,
+  PenTool,
+  Ruler,
+} from 'lucide-react';
 import type { Project, ShadowQuality } from '@/types/project';
 import {
   Badge,
@@ -24,11 +34,13 @@ import {
   polygonBounds,
   validatePolygon,
 } from '@/utils/geometry';
+import { wallLength } from '@/utils/walls';
 
 export function PlanPanel({ project }: { project: Project }) {
   const toast = useUiStore((state) => state.toast);
   const setView = useEditorStore((state) => state.setView);
   const setTool = useEditorStore((state) => state.setTool);
+  const setPlanDrawMode = useEditorStore((state) => state.setPlanDrawMode);
   const replacePlan = useEditorStore((state) => state.replacePlan);
   const setDefaultWall = useEditorStore((state) => state.setDefaultWall);
   const applyWallSettingsToAll = useEditorStore((state) => state.applyWallSettingsToAll);
@@ -47,11 +59,19 @@ export function PlanPanel({ project }: { project: Project }) {
     (total, _vertex, index) => total + edgeLength(project.floor.vertices, index),
     0,
   );
-  const wallCount = project.edges.filter((edge) => edge.wall).length;
+  const wallCount = project.edges.filter((edge) => edge.wall).length + project.internalWalls.length;
+  const openingCount = project.openings.length;
 
-  const startDraw = () => {
+  const startDraw = (mode: 'outline' | 'partition' = 'outline') => {
     setView('plan');
+    setPlanDrawMode(mode);
     setTool('draw');
+    setSelection(null);
+  };
+
+  const startTool = (nextTool: 'internalWall' | 'door' | 'window') => {
+    setView('plan');
+    setTool(nextTool);
     setSelection(null);
   };
 
@@ -78,7 +98,9 @@ export function PlanPanel({ project }: { project: Project }) {
           <div className="prop-row"><span>Perímetro</span><strong>{formatMeters(perimeter, 1)}</strong></div>
           <div className="prop-row"><span>Dimensiones</span><strong>{bounds.width.toFixed(1)} × {bounds.depth.toFixed(1)} m</strong></div>
           <div className="prop-row"><span>Vértices</span><strong>{project.floor.vertices.length}</strong></div>
-          <div className="prop-row"><span>Muros</span><strong>{wallCount} / {project.edges.length}</strong></div>
+          <div className="prop-row"><span>Muros</span><strong>{wallCount} / {project.edges.length + project.internalWalls.length}</strong></div>
+          <div className="prop-row"><span>Divisiones</span><strong>{project.internalWalls.length}</strong></div>
+          <div className="prop-row"><span>Aberturas</span><strong>{openingCount}</strong></div>
         </div>
         {validation.errors.length > 0 ? (
           <div className="settings-status is-error">{validation.errors[0]}</div>
@@ -86,16 +108,28 @@ export function PlanPanel({ project }: { project: Project }) {
           <div className="panel-note">{validation.warnings[0]}</div>
         ) : null}
         <div className="inline-actions">
-          <Button size="sm" variant="primary" onClick={startDraw} icon={<DraftingCompass size={13} />}>
-            {project.floor.vertices.length ? 'Redibujar contorno' : 'Dibujar contorno'}
-          </Button>
+          {project.floor.vertices.length >= 3 ? (
+            <>
+              <Button size="sm" variant="primary" onClick={() => startDraw('partition')} icon={<PenTool size={13} />}>
+                Añadir división
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => startDraw('outline')} icon={<DraftingCompass size={13} />}>
+                Reemplazar contorno
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" variant="primary" onClick={() => startDraw('outline')} icon={<DraftingCompass size={13} />}>
+              Dibujar contorno
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => setView('3d')} icon={<Layers size={13} />}>
             Ver en 3D
           </Button>
         </div>
         <p className="panel-note">
-          Arrastra los vértices en la vista de planta para ajustar el contorno. El piso 3D usa
-          exactamente este polígono, incluidas formas cóncavas.
+          «Añadir división» dibuja un recinto cerrado con muros libres y conserva la planta y los
+          objetos. «Reemplazar contorno» cambia el perímetro y regenera los muros perimetrales.
+          Arrastra los vértices para ajustar el contorno; el piso 3D usa exactamente este polígono.
         </p>
       </section>
 
@@ -129,15 +163,77 @@ export function PlanPanel({ project }: { project: Project }) {
         <Button
           size="sm"
           variant="outline"
-          onClick={() => { applyWallSettingsToAll(); toast('Estilo aplicado a todos los segmentos.', 'success'); }}
+          onClick={() => { applyWallSettingsToAll(); toast('Estilo aplicado a todos los muros y divisiones.', 'success'); }}
           icon={<BrickWall size={13} />}
         >
           Aplicar a todos los muros
         </Button>
         <p className="panel-note">
           Cada segmento puede tener su propia altura, grosor y color. Los segmentos abiertos
-          funcionan como puertas o pasos.
+          funcionan como accesos amplios; para huecos concretos usa puertas y ventanas.
         </p>
+      </section>
+
+      <section className="panel-section">
+        <div className="panel-title">
+          <span><BrickWall size={12} /> Divisiones y aberturas</span>
+          <small>{project.internalWalls.length} muros libres · {openingCount} aberturas</small>
+        </div>
+        <div className="inline-actions">
+          <Button size="sm" variant="outline" onClick={() => startTool('internalWall')} icon={<BrickWall size={13} />}>
+            Muro libre
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => startTool('door')} icon={<DoorOpen size={13} />}>
+            Puerta
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => startTool('window')} icon={<PanelTop size={13} />}>
+            Ventana
+          </Button>
+        </div>
+        <p className="panel-note">
+          Los muros libres crean divisiones interiores sin cambiar el contorno. Con las
+          herramientas Puerta y Ventana, haz clic sobre cualquier muro para abrir un hueco.
+        </p>
+        {project.internalWalls.length || project.openings.length ? (
+          <div className="segment-list">
+            {project.internalWalls.map((wall, index) => (
+              <div className="segment-row" key={wall.id}>
+                <button
+                  type="button"
+                  className="segment-name is-wall"
+                  onClick={() => { setView('plan'); setSelection({ type: 'internalWall', id: wall.id }); }}
+                >
+                  <span>D{index + 1}</span>
+                  <strong>{formatMeters(wallLength(wall.a, wall.b), 2)}</strong>
+                </button>
+                <span className="chip is-active">
+                  {project.openings.filter((opening) => opening.wallId === wall.id).length} aberturas
+                </span>
+              </div>
+            ))}
+            {project.openings.map((opening) => (
+              <div className="segment-row" key={opening.id}>
+                <button
+                  type="button"
+                  className="segment-name"
+                  onClick={() => { setView('plan'); setSelection({ type: 'opening', id: opening.id }); }}
+                >
+                  <span>{opening.kind === 'door' ? 'P' : 'V'}</span>
+                  <strong>{formatMeters(opening.width, 2)}</strong>
+                </button>
+                <button
+                  type="button"
+                  className="chip is-active"
+                  onClick={() => { setView('plan'); setSelection({ type: 'opening', id: opening.id }); }}
+                >
+                  Editar
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="panel-note">Aún no hay divisiones ni aberturas.</p>
+        )}
       </section>
 
       <section className="panel-section">
@@ -259,14 +355,14 @@ export function PlanPanel({ project }: { project: Project }) {
         </div>
         <p className="panel-note">
           Cambiar la plantilla no elimina muebles ni expositores, pero sí sustituye el contorno y
-          regenera todos los segmentos.
+          regenera los segmentos perimetrales. Las divisiones interiores se conservan.
         </p>
       </section>
 
       <ConfirmDialog
         open={confirmTemplate}
         title="Reemplazar la planta"
-        message="Se sustituirá el contorno actual y se regenerarán los muros. Los objetos y expositores conservarán su posición."
+        message="Se sustituirá el contorno actual y se regenerarán los muros perimetrales. Los objetos, expositores y divisiones interiores conservarán su posición. Las aberturas de los muros perimetrales se eliminarán."
         confirmLabel="Reemplazar"
         onConfirm={applyTemplate}
         onCancel={() => setConfirmTemplate(false)}

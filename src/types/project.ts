@@ -64,6 +64,29 @@ export const edgeConfigSchema = z.object({
   color: z.string().default('#e6e0d4'),
 });
 
+export const internalWallSchema = z.object({
+  id: z.string().min(1),
+  a: vec2Schema,
+  b: vec2Schema,
+  height: z.number().min(0.05).max(20).default(2.8),
+  thickness: z.number().min(0.02).max(2).default(0.14),
+  color: z.string().default('#e6e0d4'),
+});
+
+export const openingKindSchema = z.enum(['door', 'window']);
+
+export const wallOpeningSchema = z.object({
+  id: z.string().min(1),
+  /** Id del borde perimetral o del muro libre al que pertenece. */
+  wallId: z.string().min(1),
+  kind: openingKindSchema.default('door'),
+  /** Distancia desde el inicio del muro hasta el centro de la abertura. */
+  offset: z.number().min(0).default(1),
+  width: z.number().min(0.2).max(20).default(0.9),
+  height: z.number().min(0.2).max(20).default(2.1),
+  sillHeight: z.number().min(0).max(20).default(0),
+});
+
 export const floorPlanSchema = z.object({
   vertices: z.array(vec2Schema).default([]),
   color: z.string().default('#b8ae9d'),
@@ -154,6 +177,8 @@ export const projectSchema = z
     units: z.literal('m').default('m'),
     floor: floorPlanSchema.default({}),
     edges: z.array(edgeConfigSchema).default([]),
+    internalWalls: z.array(internalWallSchema).default([]),
+    openings: z.array(wallOpeningSchema).default([]),
     defaultWall: defaultWallSchema.default({}),
     objects: z.array(sceneObjectSchema).default([]),
     lights: z.array(lightConfigSchema).default([]),
@@ -175,6 +200,9 @@ export type CatalogSource = z.infer<typeof catalogSourceSchema>;
 export type MaterialOverride = z.infer<typeof materialOverrideSchema>;
 export type SceneObject = z.infer<typeof sceneObjectSchema>;
 export type EdgeConfig = z.infer<typeof edgeConfigSchema>;
+export type InternalWall = z.infer<typeof internalWallSchema>;
+export type OpeningKind = z.infer<typeof openingKindSchema>;
+export type WallOpening = z.infer<typeof wallOpeningSchema>;
 export type FloorPlan = z.infer<typeof floorPlanSchema>;
 export type LightConfig = z.infer<typeof lightConfigSchema>;
 export type Exhibitor = z.infer<typeof exhibitorSchema>;
@@ -202,14 +230,25 @@ export interface ProjectSummary {
 export type Selection =
   | { type: 'vertex'; index: number }
   | { type: 'edge'; index: number }
+  | { type: 'internalWall'; id: string }
+  | { type: 'opening'; id: string }
   | { type: 'object'; id: string }
   | { type: 'light'; id: string }
   | { type: 'exhibitor'; id: string }
   | null;
 
-export type EditorTool = 'select' | 'draw' | 'wall' | 'exhibitor' | 'pan';
+export type EditorTool =
+  | 'select'
+  | 'draw'
+  | 'wall'
+  | 'internalWall'
+  | 'door'
+  | 'window'
+  | 'exhibitor'
+  | 'pan';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 export type EditorView = 'plan' | '3d';
+export type PlanDrawMode = 'outline' | 'partition';
 
 export interface CatalogItem {
   id: string;

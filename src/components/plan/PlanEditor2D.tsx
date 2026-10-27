@@ -9,7 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { Check, Maximize, Minus, Plus, X } from 'lucide-react';
-import type { SceneObject, Vec2 } from '@/types/project';
+import type { SceneObject, Vec2, WallOpening } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import {
@@ -23,6 +23,14 @@ import {
   snapPoint,
   validatePolygon,
 } from '@/utils/geometry';
+import {
+  getOpeningSpans,
+  getSolidRanges,
+  pointAtWallOffset,
+  pointOffsetOnWall,
+  wallDirection,
+  wallLength,
+} from '@/utils/walls';
 import { Button } from '@/components/ui';
 
 interface Viewport {
@@ -52,6 +60,152 @@ function fitViewport(vertices: Vec2[]): Viewport {
   };
 }
 
+/** Símbolos de puertas y ventanas sobre un muro de la planta. */
+function OpeningMarks({
+  a,
+  b,
+  height,
+  thickness,
+  openings,
+  selectedId,
+  textSize,
+  hitWidth,
+  onSelect,
+}: {
+  a: Vec2;
+  b: Vec2;
+  height: number;
+  thickness: number;
+  openings: WallOpening[];
+  selectedId?: string | null;
+  textSize: number;
+  hitWidth: number;
+  onSelect?: (id: string) => void;
+}) {
+  const length = wallLength(a, b);
+  const spans = getOpeningSpans(length, height, openings);
+  if (!spans.length) return null;
+  const direction = wallDirection(a, b);
+  const normal = { x: -direction.z, z: direction.x };
+  return (
+    <>
+      {spans.map((span) => {
+        const p1 = pointAtWallOffset(a, b, span.start);
+        const p2 = pointAtWallOffset(a, b, span.end);
+        const center = pointAtWallOffset(a, b, span.center);
+        const selected = selectedId === span.opening.id;
+        const color = selected ? '#d7ff4f' : span.opening.kind === 'door' ? '#e8c98a' : '#7dd3fc';
+        const tick = Math.max(thickness * 1.1, 0.055);
+        const leafEnd = {
+          x: p1.x + normal.x * span.width,
+          z: p1.z + normal.z * span.width,
+        };
+        return (
+          <g key={span.opening.id}>
+            {span.opening.kind === 'door' ? (
+              <>
+                <line
+                  x1={p1.x}
+                  y1={p1.z}
+                  x2={p2.x}
+                  y2={p2.z}
+                  stroke="rgba(232,201,138,.4)"
+                  strokeWidth={Math.max(textSize * 0.1, 0.008)}
+                  strokeDasharray={`${textSize * 0.7} ${textSize * 0.55}`}
+                  pointerEvents="none"
+                />
+                <line
+                  x1={p1.x}
+                  y1={p1.z}
+                  x2={leafEnd.x}
+                  y2={leafEnd.z}
+                  stroke={color}
+                  strokeWidth={Math.max(textSize * 0.12, 0.012)}
+                  pointerEvents="none"
+                />
+                <path
+                  d={`M ${leafEnd.x} ${leafEnd.z} A ${span.width} ${span.width} 0 0 1 ${p2.x} ${p2.z}`}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={Math.max(textSize * 0.08, 0.007)}
+                  opacity={0.75}
+                  pointerEvents="none"
+                />
+              </>
+            ) : (
+              <>
+                <line
+                  x1={p1.x}
+                  y1={p1.z}
+                  x2={p2.x}
+                  y2={p2.z}
+                  stroke={color}
+                  strokeWidth={Math.max(thickness * 0.38, 0.018)}
+                  opacity={0.8}
+                  pointerEvents="none"
+                />
+                <line
+                  x1={p1.x + normal.x * thickness * 0.55}
+                  y1={p1.z + normal.z * thickness * 0.55}
+                  x2={p2.x + normal.x * thickness * 0.55}
+                  y2={p2.z + normal.z * thickness * 0.55}
+                  stroke={color}
+                  strokeWidth={Math.max(textSize * 0.06, 0.005)}
+                  opacity={0.65}
+                  pointerEvents="none"
+                />
+              </>
+            )}
+            <line
+              x1={p1.x - normal.x * tick}
+              y1={p1.z - normal.z * tick}
+              x2={p1.x + normal.x * tick}
+              y2={p1.z + normal.z * tick}
+              stroke={color}
+              strokeWidth={Math.max(textSize * 0.1, 0.008)}
+              pointerEvents="none"
+            />
+            <line
+              x1={p2.x - normal.x * tick}
+              y1={p2.z - normal.z * tick}
+              x2={p2.x + normal.x * tick}
+              y2={p2.z + normal.z * tick}
+              stroke={color}
+              strokeWidth={Math.max(textSize * 0.1, 0.008)}
+              pointerEvents="none"
+            />
+            {selected ? (
+              <circle
+                cx={center.x}
+                cy={center.z}
+                r={Math.max(textSize * 0.4, 0.045)}
+                fill={color}
+                opacity={0.9}
+                pointerEvents="none"
+              />
+            ) : null}
+            <line
+              x1={p1.x}
+              y1={p1.z}
+              x2={p2.x}
+              y2={p2.z}
+              stroke="transparent"
+              strokeWidth={hitWidth}
+              style={{ cursor: onSelect ? 'pointer' : 'default' }}
+              pointerEvents={onSelect ? 'stroke' : 'none'}
+              onClick={(event) => {
+                if (!onSelect) return;
+                event.stopPropagation();
+                onSelect(span.opening.id);
+              }}
+            />
+          </g>
+        );
+      })}
+    </>
+  );
+}
+
 export function PlanEditor2D() {
   const project = useEditorStore((state) => state.project);
   const selection = useEditorStore((state) => state.selection);
@@ -68,6 +222,11 @@ export function PlanEditor2D() {
   const beginHistory = useEditorStore((state) => state.beginHistory);
   const commitHistory = useEditorStore((state) => state.commitHistory);
   const replacePlan = useEditorStore((state) => state.replacePlan);
+  const planDrawMode = useEditorStore((state) => state.planDrawMode);
+  const setPlanDrawMode = useEditorStore((state) => state.setPlanDrawMode);
+  const addInternalWall = useEditorStore((state) => state.addInternalWall);
+  const addInternalWallLoop = useEditorStore((state) => state.addInternalWallLoop);
+  const addOpening = useEditorStore((state) => state.addOpening);
   const toast = useUiStore((state) => state.toast);
 
   const gridId = `plan-grid-${useId().replace(/:/g, '')}`;
@@ -83,6 +242,7 @@ export function PlanEditor2D() {
   );
   const [draft, setDraft] = useState<Vec2[]>([]);
   const [hover, setHover] = useState<Vec2 | null>(null);
+  const [wallStart, setWallStart] = useState<Vec2 | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
 
   const vertices = project?.floor.vertices ?? [];
@@ -100,10 +260,9 @@ export function PlanEditor2D() {
   }, [project]);
 
   useEffect(() => {
-    if (tool !== 'draw') {
-      setDraft([]);
-      setHover(null);
-    }
+    if (tool !== 'draw') setDraft([]);
+    if (tool !== 'internalWall') setWallStart(null);
+    if (tool !== 'draw' && tool !== 'internalWall') setHover(null);
   }, [tool]);
 
   const toWorld = useCallback((clientX: number, clientY: number): Vec2 => {
@@ -121,6 +280,28 @@ export function PlanEditor2D() {
   const snapPointIfNeeded = useCallback(
     (point: Vec2) => (snap ? snapPoint(point, gridSize) : point),
     [snap, gridSize],
+  );
+
+  const snapToPlanPoint = useCallback(
+    (point: Vec2) => {
+      const threshold = Math.max(viewport.width / 55, 0.18);
+      const candidates: Vec2[] = [
+        ...(project?.floor.vertices ?? []),
+        ...(project?.internalWalls.flatMap((wall) => [wall.a, wall.b]) ?? []),
+      ];
+      let closest: Vec2 | null = null;
+      let closestDistance = threshold;
+      for (const candidate of candidates) {
+        const candidateDistance = distance(point, candidate);
+        if (candidateDistance < closestDistance) {
+          closest = candidate;
+          closestDistance = candidateDistance;
+        }
+      }
+      if (closest) return { ...closest };
+      return snap ? snapPoint(point, gridSize) : point;
+    },
+    [project?.floor.vertices, project?.internalWalls, viewport.width, snap, gridSize],
   );
 
   const zoomAt = useCallback((factor: number, center?: Vec2) => {
@@ -160,13 +341,30 @@ export function PlanEditor2D() {
       toast(validation.errors[0] || 'La planta no es válida.', 'error');
       return;
     }
+    const canPartition = vertices.length >= 3;
+    if (canPartition && planDrawMode === 'partition') {
+      if (!draft.every((point) => pointInPolygon(point, vertices))) {
+        toast('La división debe quedar dentro de la planta actual.', 'warning');
+        return;
+      }
+      const ids = addInternalWallLoop(draft.map((point) => ({ ...point })));
+      if (!ids.length) {
+        toast('No se pudo crear la división.', 'error');
+        return;
+      }
+      setDraft([]);
+      setHover(null);
+      setTool('select');
+      toast('División añadida. La planta, los objetos y los muros existentes se conservaron.', 'success');
+      return;
+    }
     replacePlan(draft.map((point) => ({ ...point })));
     setViewport(fitViewport(draft));
     setDraft([]);
     setHover(null);
     setTool('select');
-    toast('Planta actualizada. Los muros se generaron de nuevo.', 'success');
-  }, [draft, replacePlan, setTool, toast]);
+    toast('Contorno reemplazado. Las divisiones interiores se conservaron.', 'success');
+  }, [draft, vertices, planDrawMode, addInternalWallLoop, replacePlan, setTool, toast]);
 
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null) => {
@@ -194,6 +392,16 @@ export function PlanEditor2D() {
           event.preventDefault();
           setDraft((current) => current.slice(0, -1));
         }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          setDraft([]);
+          setHover(null);
+        }
+      }
+      if (tool === 'internalWall' && event.key === 'Escape') {
+        event.preventDefault();
+        setWallStart(null);
+        setHover(null);
       }
     };
     const onKeyUp = (event: KeyboardEvent) => {
@@ -243,7 +451,7 @@ export function PlanEditor2D() {
     const point = toWorld(event.clientX, event.clientY);
     const drag = dragRef.current;
     if (!drag) {
-      if (tool === 'draw') setHover(snapPointIfNeeded(point));
+      if (tool === 'draw' || tool === 'internalWall') setHover(snapToPlanPoint(point));
       return;
     }
     if (drag.type === 'pan') {
@@ -299,20 +507,43 @@ export function PlanEditor2D() {
       suppressClickRef.current = false;
       return;
     }
-    const point = snapPointIfNeeded(toWorld(event.clientX, event.clientY));
+    const rawPoint = toWorld(event.clientX, event.clientY);
+    const point = snapPointIfNeeded(rawPoint);
     const state = useEditorStore.getState();
 
     if (state.tool === 'draw') {
+      const drawPoint = snapToPlanPoint(rawPoint);
       const first = draft[0];
       const rect = svgRef.current?.getBoundingClientRect();
       const closeDistance = rect ? (viewport.width / Math.max(rect.width, 1)) * 14 : 0.25;
-      if (first && draft.length >= 3 && distance(point, first) <= closeDistance) {
+      if (first && draft.length >= 3 && distance(drawPoint, first) <= closeDistance) {
         closeDraft();
         return;
       }
-      if (draft.some((entry) => distance(entry, point) < 0.02)) return;
-      setDraft((current) => [...current, point]);
-      setHover(point);
+      if (draft.some((entry) => distance(entry, drawPoint) < 0.02)) return;
+      setDraft((current) => [...current, drawPoint]);
+      setHover(drawPoint);
+      return;
+    }
+
+    if (state.tool === 'internalWall') {
+      const wallPoint = snapToPlanPoint(rawPoint);
+      if (!wallStart) {
+        setWallStart(wallPoint);
+        setHover(wallPoint);
+        return;
+      }
+      if (distance(wallStart, wallPoint) <= 0.08) return;
+      const id = addInternalWall(wallStart, wallPoint);
+      if (id) {
+        setWallStart(wallPoint);
+        setHover(wallPoint);
+      }
+      return;
+    }
+
+    if (state.tool === 'door' || state.tool === 'window') {
+      toast('Haz clic sobre un muro para colocar la abertura.', 'warning');
       return;
     }
 
@@ -376,7 +607,22 @@ export function PlanEditor2D() {
   };
 
   const handleEdgeClick = (event: ReactMouseEvent, index: number) => {
+    if (tool === 'internalWall') return;
     event.stopPropagation();
+    if ((tool === 'door' || tool === 'window') && event.detail > 1) return;
+    const edge = project.edges[index];
+    const a = vertices[index];
+    const b = vertices[(index + 1) % vertices.length];
+    if (!edge || !a || !b) return;
+    if (tool === 'door' || tool === 'window') {
+      if (!edge.wall) {
+        toast('Activa este borde como muro antes de añadir una abertura.', 'warning');
+        return;
+      }
+      const point = toWorld(event.clientX, event.clientY);
+      addOpening(edge.id, tool, pointOffsetOnWall(point, a, b));
+      return;
+    }
     // En el segundo clic de un doble clic no se vuelve a alternar el muro;
     // el doble clic (solo en modo selección) se encarga de esa acción.
     if (tool === 'wall' && event.detail > 1) return;
@@ -386,8 +632,26 @@ export function PlanEditor2D() {
     setSelection({ type: 'edge', index });
   };
 
+  const handleInternalWallClick = (event: ReactMouseEvent, wallId: string) => {
+    if (tool === 'internalWall') return;
+    event.stopPropagation();
+    if ((tool === 'door' || tool === 'window') && event.detail > 1) return;
+    const wall = project.internalWalls.find((entry) => entry.id === wallId);
+    if (!wall) return;
+    if (tool === 'door' || tool === 'window') {
+      const point = toWorld(event.clientX, event.clientY);
+      addOpening(wall.id, tool, pointOffsetOnWall(point, wall.a, wall.b));
+      return;
+    }
+    setSelection({ type: 'internalWall', id: wall.id });
+  };
+
+  const handleOpeningSelect = (id: string) => {
+    setSelection({ type: 'opening', id });
+  };
+
   const area = vertices.length >= 3 ? polygonArea(vertices) : 0;
-  const wallCount = project.edges.filter((edge) => edge.wall).length;
+  const wallCount = project.edges.filter((edge) => edge.wall).length + project.internalWalls.length;
   const validation = validatePolygon(vertices);
   const textSize = Math.max(viewport.width / 115, 0.11);
   const hitWidth = Math.max(viewport.width / 90, 0.22);
@@ -395,7 +659,9 @@ export function PlanEditor2D() {
   const selectedVertex =
     selection?.type === 'vertex' ? selection.index : null;
   const selectedEdge = selection?.type === 'edge' ? selection.index : null;
-  const dimExisting = tool === 'draw' && draft.length > 0;
+  const selectedInternalWall = selection?.type === 'internalWall' ? selection.id : null;
+  const selectedOpening = selection?.type === 'opening' ? selection.id : null;
+  const dimExisting = tool === 'draw' && planDrawMode === 'outline' && draft.length > 0;
 
   const objectFootprints = useMemo(
     () =>
@@ -513,20 +779,61 @@ export function PlanEditor2D() {
               if (!a || !b) return null;
               const isSelected = selectedEdge === index;
               const isOpen = !edge.wall;
+              const length = edgeLength(vertices, index);
+              const edgeOpenings = isOpen
+                ? []
+                : project.openings.filter((opening) => opening.wallId === edge.id);
+              const ranges = isOpen ? [] : getSolidRanges(length, edgeOpenings);
+              const wallColor = isSelected ? '#d7ff4f' : edge.color;
+              const wallWidth = Math.max(edge.thickness, viewport.width / 800);
               return (
                 <g key={edge.id || index}>
-                  <line
-                    x1={a.x}
-                    y1={a.z}
-                    x2={b.x}
-                    y2={b.z}
-                    stroke={isSelected ? '#d7ff4f' : isOpen ? 'rgba(255,255,255,.35)' : edge.color}
-                    strokeWidth={isOpen ? Math.max(viewport.width / 900, 0.012) : Math.max(edge.thickness, viewport.width / 800)}
-                    strokeDasharray={isOpen ? `${viewport.width / 160} ${viewport.width / 220}` : undefined}
-                    strokeLinecap="butt"
-                    opacity={isOpen ? 0.8 : 0.92}
-                    pointerEvents="none"
-                  />
+                  {isOpen ? (
+                    <line
+                      x1={a.x}
+                      y1={a.z}
+                      x2={b.x}
+                      y2={b.z}
+                      stroke={isSelected ? '#d7ff4f' : 'rgba(255,255,255,.35)'}
+                      strokeWidth={Math.max(viewport.width / 900, 0.012)}
+                      strokeDasharray={`${viewport.width / 160} ${viewport.width / 220}`}
+                      strokeLinecap="butt"
+                      opacity={0.8}
+                      pointerEvents="none"
+                    />
+                  ) : (
+                    ranges.map((range, rangeIndex) => {
+                      const p1 = pointAtWallOffset(a, b, range.start);
+                      const p2 = pointAtWallOffset(a, b, range.end);
+                      return (
+                        <line
+                          key={`${edge.id}-solid-${rangeIndex}`}
+                          x1={p1.x}
+                          y1={p1.z}
+                          x2={p2.x}
+                          y2={p2.z}
+                          stroke={wallColor}
+                          strokeWidth={wallWidth}
+                          strokeLinecap="butt"
+                          opacity={0.94}
+                          pointerEvents="none"
+                        />
+                      );
+                    })
+                  )}
+                  {!isOpen ? (
+                    <OpeningMarks
+                      a={a}
+                      b={b}
+                      height={edge.height}
+                      thickness={edge.thickness}
+                      openings={edgeOpenings}
+                      selectedId={selectedOpening}
+                      textSize={textSize}
+                      hitWidth={hitWidth}
+                      onSelect={tool === 'internalWall' ? undefined : handleOpeningSelect}
+                    />
+                  ) : null}
                   <line
                     x1={a.x}
                     y1={a.z}
@@ -538,15 +845,15 @@ export function PlanEditor2D() {
                     onClick={(event) => handleEdgeClick(event, index)}
                     onDoubleClick={(event) => {
                       event.stopPropagation();
-                      if (tool === 'wall') return;
+                      if (tool === 'wall' || tool === 'door' || tool === 'window' || tool === 'internalWall') return;
                       toggleWall(index);
                       setSelection({ type: 'edge', index });
                     }}
                   />
                   {showDimensions ? (
                     <text
-                      x={(a.x + b.x) / 2 + (-(b.z - a.z) / Math.max(edgeLength(vertices, index), 0.001)) * textSize * 1.4}
-                      y={(a.z + b.z) / 2 + ((b.x - a.x) / Math.max(edgeLength(vertices, index), 0.001)) * textSize * 1.4}
+                      x={(a.x + b.x) / 2 + (-(b.z - a.z) / Math.max(length, 0.001)) * textSize * 1.4}
+                      y={(a.z + b.z) / 2 + ((b.x - a.x) / Math.max(length, 0.001)) * textSize * 1.4}
                       textAnchor="middle"
                       dominantBaseline="middle"
                       fill="rgba(255,255,255,.55)"
@@ -554,7 +861,7 @@ export function PlanEditor2D() {
                       fontFamily="var(--mono)"
                       pointerEvents="none"
                     >
-                      {formatMeters(edgeLength(vertices, index), 2)}
+                      {formatMeters(length, 2)}
                     </text>
                   ) : null}
                 </g>
@@ -562,6 +869,75 @@ export function PlanEditor2D() {
             })}
           </g>
         ) : null}
+
+        {project.internalWalls.map((wall) => {
+          const selected = selectedInternalWall === wall.id;
+          const length = wallLength(wall.a, wall.b);
+          if (length <= 0.01) return null;
+          const wallOpenings = project.openings.filter((opening) => opening.wallId === wall.id);
+          const ranges = getSolidRanges(length, wallOpenings);
+          const wallColor = selected ? '#d7ff4f' : wall.color;
+          const wallWidth = Math.max(wall.thickness, viewport.width / 800);
+          const direction = wallDirection(wall.a, wall.b);
+          const center = pointAtWallOffset(wall.a, wall.b, length / 2);
+          return (
+            <g key={wall.id}>
+              {ranges.map((range, rangeIndex) => {
+                const p1 = pointAtWallOffset(wall.a, wall.b, range.start);
+                const p2 = pointAtWallOffset(wall.a, wall.b, range.end);
+                return (
+                  <line
+                    key={`${wall.id}-solid-${rangeIndex}`}
+                    x1={p1.x}
+                    y1={p1.z}
+                    x2={p2.x}
+                    y2={p2.z}
+                    stroke={wallColor}
+                    strokeWidth={wallWidth}
+                    strokeLinecap="butt"
+                    opacity={0.94}
+                    pointerEvents="none"
+                  />
+                );
+              })}
+              <OpeningMarks
+                a={wall.a}
+                b={wall.b}
+                height={wall.height}
+                thickness={wall.thickness}
+                openings={wallOpenings}
+                selectedId={selectedOpening}
+                textSize={textSize}
+                hitWidth={hitWidth}
+                onSelect={tool === 'internalWall' ? undefined : handleOpeningSelect}
+              />
+              <line
+                x1={wall.a.x}
+                y1={wall.a.z}
+                x2={wall.b.x}
+                y2={wall.b.z}
+                stroke="transparent"
+                strokeWidth={hitWidth}
+                style={{ cursor: 'pointer' }}
+                onClick={(event) => handleInternalWallClick(event, wall.id)}
+              />
+              {showDimensions ? (
+                <text
+                  x={center.x - direction.z * textSize * 1.4}
+                  y={center.z + direction.x * textSize * 1.4}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill={selected ? '#d7ff4f' : 'rgba(255,255,255,.55)'}
+                  fontSize={textSize}
+                  fontFamily="var(--mono)"
+                  pointerEvents="none"
+                >
+                  {formatMeters(length, 2)}
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
 
         {objectFootprints.map(({ object, width, depth }) => {
           const selected = selection?.type === 'object' && selection.id === object.id;
@@ -726,12 +1102,42 @@ export function PlanEditor2D() {
             ))}
           </g>
         ) : null}
+
+        {tool === 'internalWall' ? (
+          <g>
+            {wallStart && hover ? (
+              <line
+                x1={wallStart.x}
+                y1={wallStart.z}
+                x2={hover.x}
+                y2={hover.z}
+                stroke="#d7ff4f"
+                strokeWidth={Math.max(viewport.width / 700, 0.018)}
+                strokeDasharray={`${viewport.width / 180} ${viewport.width / 240}`}
+                pointerEvents="none"
+              />
+            ) : null}
+            {wallStart ? (
+              <circle
+                cx={wallStart.x}
+                cy={wallStart.z}
+                r={vertexRadius * 1.4}
+                fill="#d7ff4f"
+                stroke="#d7ff4f"
+                strokeWidth={Math.max(viewport.width / 1200, 0.008)}
+                pointerEvents="none"
+              />
+            ) : null}
+          </g>
+        ) : null}
       </svg>
 
       <div className="plan-hud">
         <span><strong>{formatArea(area)}</strong> área</span>
         <span><strong>{vertices.length}</strong> vértices</span>
         <span><strong>{wallCount}</strong> muros</span>
+        <span><strong>{project.internalWalls.length}</strong> divisiones</span>
+        <span><strong>{project.openings.length}</strong> aberturas</span>
         {!validation.valid ? <span className="status-error">planta incompleta</span> : null}
       </div>
 
@@ -747,14 +1153,52 @@ export function PlanEditor2D() {
         <button type="button" title="Ajustar a la planta" onClick={() => setViewport(fitViewport(vertices))}><Maximize size={15} /></button>
       </div>
 
+      {tool === 'draw' ? (
+        <div className="plan-draw-mode">
+          <span>Al cerrar:</span>
+          <button
+            type="button"
+            className={planDrawMode === 'partition' ? 'is-active' : ''}
+            onClick={() => setPlanDrawMode('partition')}
+            disabled={vertices.length < 3}
+          >
+            Añadir división
+          </button>
+          <button
+            type="button"
+            className={planDrawMode === 'outline' ? 'is-active' : ''}
+            onClick={() => setPlanDrawMode('outline')}
+          >
+            Reemplazar contorno
+          </button>
+        </div>
+      ) : null}
+
       {tool === 'draw' && draft.length > 0 ? (
         <div className="plan-draw-actions">
-          <span>{draft.length} vértice{draft.length === 1 ? '' : 's'} · Enter para cerrar</span>
+          <span>
+            {draft.length} vértice{draft.length === 1 ? '' : 's'} · Enter para{' '}
+            {planDrawMode === 'partition' && vertices.length >= 3 ? 'añadir la división' : 'cerrar'}
+          </span>
           <Button size="sm" variant="ghost" onClick={() => { setDraft([]); setHover(null); }} icon={<X size={13} />}>
             Descartar
           </Button>
           <Button size="sm" variant="primary" onClick={closeDraft} icon={<Check size={13} />} disabled={draft.length < 3}>
-            Cerrar contorno
+            {planDrawMode === 'partition' && vertices.length >= 3 ? 'Añadir división' : 'Cerrar contorno'}
+          </Button>
+        </div>
+      ) : null}
+
+      {tool === 'internalWall' && wallStart ? (
+        <div className="plan-draw-actions">
+          <span>Muro libre · sigue haciendo clic para encadenar tramos</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => { setWallStart(null); setHover(null); }}
+            icon={<X size={13} />}
+          >
+            Terminar
           </Button>
         </div>
       ) : null}
@@ -762,8 +1206,21 @@ export function PlanEditor2D() {
       <div className="plan-help">
         {tool === 'draw' ? (
           <>
-            <strong>Dibujar contorno:</strong> haz clic para añadir vértices. Cierra haciendo clic en el
-            primer punto o pulsa Enter. Retroceso borra el último vértice.
+            <strong>Dibujar:</strong> haz clic para añadir vértices. Cierra haciendo clic en el primer
+            punto o pulsa Enter. Elige «Añadir división» para conservar la planta y los objetos, o
+            «Reemplazar contorno» para redibujar el perímetro.
+          </>
+        ) : tool === 'internalWall' ? (
+          <>
+            <strong>Muro libre:</strong> haz clic para iniciar un tramo y vuelve a hacer clic para
+            terminarlo o encadenar otro. Esc termina la cadena. Los muros libres sirven para dividir
+            espacios sin cambiar la planta.
+          </>
+        ) : tool === 'door' || tool === 'window' ? (
+          <>
+            <strong>{tool === 'door' ? 'Puerta' : 'Ventana'}:</strong> haz clic sobre un muro
+            perimetral o una división para colocar la abertura. Luego ajusta su posición, ancho y
+            altura en el inspector.
           </>
         ) : tool === 'wall' ? (
           <>
@@ -807,7 +1264,15 @@ export function PlanEditor2D() {
         <div className="plan-empty">
           <strong>La planta está vacía</strong>
           <p>Usa «Dibujar contorno» o reemplaza la planta por una plantilla desde el panel de planta.</p>
-          <Button size="sm" variant="primary" onClick={() => setTool('draw')} icon={<Plus size={13} />}>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              setPlanDrawMode('outline');
+              setTool('draw');
+            }}
+            icon={<Plus size={13} />}
+          >
             Dibujar contorno
           </Button>
         </div>

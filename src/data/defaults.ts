@@ -1,10 +1,13 @@
 import type {
   EdgeConfig,
+  InternalWall,
   LightConfig,
+  OpeningKind,
   Project,
   ProjectCamera,
   Vec2,
   Vec3,
+  WallOpening,
 } from '@/types/project';
 import { createId } from '@/utils/id';
 import {
@@ -29,6 +32,28 @@ export function createEdgeConfig(overrides: Partial<EdgeConfig> = {}): EdgeConfi
     color: DEFAULT_WALL_COLOR,
     ...overrides,
   };
+}
+
+export function createInternalWall(
+  a: Vec2,
+  b: Vec2,
+  overrides: Partial<InternalWall> = {},
+): InternalWall {
+  return {
+    id: createId('wall'),
+    a: { ...a },
+    b: { ...b },
+    height: DEFAULT_WALL_HEIGHT,
+    thickness: DEFAULT_WALL_THICKNESS,
+    color: DEFAULT_WALL_COLOR,
+    ...overrides,
+  };
+}
+
+export function openingDefaults(kind: OpeningKind): Pick<WallOpening, 'width' | 'height' | 'sillHeight'> {
+  return kind === 'door'
+    ? { width: 0.9, height: 2.1, sillHeight: 0 }
+    : { width: 1.2, height: 1.2, sillHeight: 1 };
 }
 
 export function createDefaultLights(): LightConfig[] {
@@ -99,6 +124,8 @@ export function createProject(options: {
       metalness: 0.02,
     },
     edges,
+    internalWalls: [],
+    openings: [],
     defaultWall: {
       height: DEFAULT_WALL_HEIGHT,
       thickness: DEFAULT_WALL_THICKNESS,

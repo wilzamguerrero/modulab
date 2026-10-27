@@ -2,18 +2,30 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowUpRight,
   Box,
+  BrickWall,
   Camera,
   Copy,
+  DoorOpen,
   ImagePlus,
   Lightbulb,
   MapPin,
+  PanelTop,
   RotateCcw,
   Sparkles,
   Trash2,
   Users,
   X,
 } from 'lucide-react';
-import type { Exhibitor, LightConfig, Project, SceneObject, ShadowQuality, Vec3 } from '@/types/project';
+import type {
+  Exhibitor,
+  InternalWall,
+  LightConfig,
+  Project,
+  SceneObject,
+  ShadowQuality,
+  Vec3,
+  WallOpening,
+} from '@/types/project';
 import {
   Badge,
   Button,
@@ -36,6 +48,7 @@ import { notionPhotoUrl } from '@/services/notion/notionService';
 import { uploadExhibitorPhoto } from '@/services/assets/catalogService';
 import { formatDateTime } from '@/utils/format';
 import { edgeLength, formatArea, formatMeters, polygonArea, snapValue } from '@/utils/geometry';
+import { getWallById, wallLength } from '@/utils/walls';
 
 function AxisInput({
   value,
@@ -243,10 +256,42 @@ function ObjectInspector({
   const loading = useModelInfoStore((state) => state.loading[modelUrl]);
   const error = useModelInfoStore((state) => state.errors[modelUrl]);
   const ensure = useModelInfoStore((state) => state.ensure);
+  const [realAxis, setRealAxis] = useState<'largest' | 'x' | 'y' | 'z'>('largest');
 
   useEffect(() => {
     ensure(modelUrl);
   }, [modelUrl, ensure]);
+
+  const baseSize = object.size ?? info?.size;
+  const dimensions = baseSize
+    ? baseSize.map((value, index) => Math.abs(value * object.transform.scale[index]))
+    : null;
+  const referenceIndex = dimensions
+    ? realAxis === 'largest'
+      ? dimensions.indexOf(Math.max(...dimensions))
+      : realAxis === 'x'
+        ? 0
+        : realAxis === 'y'
+          ? 1
+          : 2
+    : 0;
+  const referenceCm = dimensions ? dimensions[referenceIndex] * 100 : 0;
+
+  const applyRealScale = (cm: number) => {
+    if (!dimensions || !Number.isFinite(cm) || cm <= 0) return;
+    const referenceMeters = dimensions[referenceIndex];
+    if (referenceMeters <= 0.00001) return;
+    const factor = cm / 100 / referenceMeters;
+    updateObjectTransform(
+      object.id,
+      {
+        scale: object.transform.scale.map((value) =>
+          Math.max(0.001, Math.abs(value) * factor),
+        ) as Vec3,
+      },
+      { coalesceKey: `real-scale:${object.id}` },
+    );
+  };
 
   const snapToFloor = () => {
     updateObjectTransform(object.id, {
@@ -351,6 +396,46 @@ function ObjectInspector({
           />
         </div>
       </Section>
+
+      {object.source.type === 'glb' ? (
+        <Section title="Escala real">
+          {dimensions ? (
+            <>
+              <div className="prop-list">
+                <div className="prop-row"><span>Ancho (X)</span><strong>{(dimensions[0] * 100).toFixed(1)} cm</strong></div>
+                <div className="prop-row"><span>Alto (Y)</span><strong>{(dimensions[1] * 100).toFixed(1)} cm</strong></div>
+                <div className="prop-row"><span>Fondo (Z)</span><strong>{(dimensions[2] * 100).toFixed(1)} cm</strong></div>
+              </div>
+              <Field label="Medida de referencia">
+                <Select
+                  value={realAxis}
+                  onChange={(event) => setRealAxis(event.target.value as typeof realAxis)}
+                >
+                  <option value="largest">Mayor dimensión</option>
+                  <option value="x">Ancho (X)</option>
+                  <option value="y">Alto (Y)</option>
+                  <option value="z">Fondo (Z)</option>
+                </Select>
+              </Field>
+              <Field label="Medida real">
+                <NumberInput
+                  value={Number(referenceCm.toFixed(2))}
+                  onChange={applyRealScale}
+                  step={1}
+                  min={0.1}
+                  suffix="cm"
+                />
+              </Field>
+              <p className="panel-note">
+                Se calcula con el tamaño original del GLB. Al cambiarla, la escala X/Y/Z se
+                multiplica por el mismo factor para conservar las proporciones del modelo.
+              </p>
+            </>
+          ) : (
+            <p className="panel-note">Cargando dimensiones del GLB…</p>
+          )}
+        </Section>
+      ) : null}
 
       <Section title="Expositor asociado">
         <Select
@@ -556,6 +641,10 @@ function ExhibitorInspector({
             suffix="°"
           />
         </Field>
+        <p className="panel-note">
+          En la vista 3D también puedes seleccionar el marcador y arrastrar las flechas X/Z para
+          moverlo con precisión sobre el piso.
+        </p>
       </Section>
 
       <Section title="Cámara del punto de interés">
@@ -788,11 +877,15 @@ function EdgeInspector({ project, index }: { project: Project; index: number }) 
   const toggleWall = useEditorStore((state) => state.toggleWall);
   const insertVertexOnEdge = useEditorStore((state) => state.insertVertexOnEdge);
   const patchProject = useEditorStore((state) => state.patchProject);
+  const addOpening = useEditorStore((state) => state.addOpening);
+  const setSelection = useEditorStore((state) => state.setSelection);
   const toast = useUiStore((state) => state.toast);
   const edge = project.edges[index];
   const a = project.floor.vertices[index];
   const b = project.floor.vertices[(index + 1) % project.floor.vertices.length];
   if (!edge || !a || !b) return null;
+  const length = wallLength(a, b);
+  const openings = project.openings.filter((opening) => opening.wallId === edge.id);
 
   const applyToAll = () => {
     patchProject((draft) => {
@@ -802,8 +895,14 @@ function EdgeInspector({ project, index }: { project: Project; index: number }) 
         thickness: edge.thickness,
         color: edge.color,
       }));
+      draft.internalWalls = draft.internalWalls.map((entry) => ({
+        ...entry,
+        height: edge.height,
+        thickness: edge.thickness,
+        color: edge.color,
+      }));
     });
-    toast('Estilo del muro aplicado a todos los segmentos.', 'success');
+    toast('Estilo aplicado a todos los muros y divisiones.', 'success');
   };
 
   return (
@@ -830,6 +929,46 @@ function EdgeInspector({ project, index }: { project: Project; index: number }) 
       <Field label="Color">
         <ColorInput value={edge.color} onChange={(color) => setEdge(index, { color }, { coalesceKey: `edge-c:${index}` })} />
       </Field>
+      {edge.wall ? (
+        <>
+          <div className="inline-actions">
+            <Button
+              size="sm"
+              variant="outline"
+              icon={<DoorOpen size={13} />}
+              onClick={() => addOpening(edge.id, 'door', length / 2)}
+            >
+              Añadir puerta
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              icon={<PanelTop size={13} />}
+              onClick={() => addOpening(edge.id, 'window', length / 2)}
+            >
+              Añadir ventana
+            </Button>
+          </div>
+          {openings.length ? (
+            <div className="prop-list">
+              {openings.map((opening) => (
+                <div className="prop-row" key={opening.id}>
+                  <span>{opening.kind === 'door' ? 'Puerta' : 'Ventana'} · {formatMeters(opening.width, 2)}</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelection({ type: 'opening', id: opening.id })}
+                  >
+                    Editar
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <p className="panel-note">Activa el muro para poder añadir puertas o ventanas.</p>
+      )}
       <div className="inline-actions">
         <Button
           size="sm"
@@ -840,6 +979,234 @@ function EdgeInspector({ project, index }: { project: Project; index: number }) 
         </Button>
         <Button size="sm" variant="ghost" onClick={applyToAll}>Aplicar a todos</Button>
       </div>
+    </Section>
+  );
+}
+
+function InternalWallInspector({
+  project,
+  wall,
+}: {
+  project: Project;
+  wall: InternalWall;
+}) {
+  const updateInternalWall = useEditorStore((state) => state.updateInternalWall);
+  const deleteInternalWall = useEditorStore((state) => state.deleteInternalWall);
+  const addOpening = useEditorStore((state) => state.addOpening);
+  const setSelection = useEditorStore((state) => state.setSelection);
+  const toast = useUiStore((state) => state.toast);
+  const length = wallLength(wall.a, wall.b);
+  const openings = project.openings.filter((opening) => opening.wallId === wall.id);
+  const updatePoint = (key: 'a' | 'b', axis: 'x' | 'z', value: number) =>
+    updateInternalWall(
+      wall.id,
+      { [key]: { ...wall[key], [axis]: value } },
+      { coalesceKey: `wall-point:${wall.id}:${key}:${axis}` },
+    );
+
+  return (
+    <Section
+      title="Muro libre"
+      action={
+        <IconButton
+          label="Eliminar muro libre"
+          icon={<Trash2 size={13} />}
+          onClick={() => {
+            deleteInternalWall(wall.id);
+            setSelection(null);
+            toast('Muro libre eliminado.', 'success');
+          }}
+        />
+      }
+    >
+      <div className="prop-list">
+        <div className="prop-row"><span>Longitud</span><strong>{formatMeters(length, 2)}</strong></div>
+        <div className="prop-row"><span>Aberturas</span><strong>{openings.length}</strong></div>
+      </div>
+      <div className="grid-2">
+        <Field label="Inicio X">
+          <NumberInput value={wall.a.x} onChange={(value) => updatePoint('a', 'x', value)} step={0.1} suffix="m" />
+        </Field>
+        <Field label="Inicio Z">
+          <NumberInput value={wall.a.z} onChange={(value) => updatePoint('a', 'z', value)} step={0.1} suffix="m" />
+        </Field>
+        <Field label="Fin X">
+          <NumberInput value={wall.b.x} onChange={(value) => updatePoint('b', 'x', value)} step={0.1} suffix="m" />
+        </Field>
+        <Field label="Fin Z">
+          <NumberInput value={wall.b.z} onChange={(value) => updatePoint('b', 'z', value)} step={0.1} suffix="m" />
+        </Field>
+      </div>
+      <div className="grid-2">
+        <Field label="Altura">
+          <NumberInput
+            value={wall.height}
+            onChange={(height) => updateInternalWall(wall.id, { height: Math.max(0.05, height) })}
+            step={0.1}
+            suffix="m"
+          />
+        </Field>
+        <Field label="Grosor">
+          <NumberInput
+            value={wall.thickness}
+            onChange={(thickness) => updateInternalWall(wall.id, { thickness: Math.max(0.02, thickness) })}
+            step={0.01}
+            suffix="m"
+          />
+        </Field>
+      </div>
+      <Field label="Color">
+        <ColorInput
+          value={wall.color}
+          onChange={(color) => updateInternalWall(wall.id, { color }, { coalesceKey: `wall-color:${wall.id}` })}
+        />
+      </Field>
+      <div className="inline-actions">
+        <Button
+          size="sm"
+          variant="outline"
+          icon={<DoorOpen size={13} />}
+          onClick={() => addOpening(wall.id, 'door', length / 2)}
+        >
+          Añadir puerta
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          icon={<PanelTop size={13} />}
+          onClick={() => addOpening(wall.id, 'window', length / 2)}
+        >
+          Añadir ventana
+        </Button>
+      </div>
+      {openings.length ? (
+        <div className="prop-list">
+          {openings.map((opening) => (
+            <div className="prop-row" key={opening.id}>
+              <span>{opening.kind === 'door' ? 'Puerta' : 'Ventana'} · {formatMeters(opening.width, 2)}</span>
+              <Button size="sm" variant="ghost" onClick={() => setSelection({ type: 'opening', id: opening.id })}>
+                Editar
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <p className="panel-note">
+        Los muros libres dividen el espacio sin modificar el contorno de la planta.
+      </p>
+    </Section>
+  );
+}
+
+function OpeningInspector({
+  project,
+  opening,
+}: {
+  project: Project;
+  opening: WallOpening;
+}) {
+  const updateOpening = useEditorStore((state) => state.updateOpening);
+  const deleteOpening = useEditorStore((state) => state.deleteOpening);
+  const setSelection = useEditorStore((state) => state.setSelection);
+  const toast = useUiStore((state) => state.toast);
+  const wall = getWallById(project, opening.wallId);
+  const length = wall ? wallLength(wall.a, wall.b) : 0;
+  const isDoor = opening.kind === 'door';
+
+  return (
+    <Section
+      title={isDoor ? 'Puerta' : 'Ventana'}
+      action={
+        <IconButton
+          label="Eliminar abertura"
+          icon={<Trash2 size={13} />}
+          onClick={() => {
+            deleteOpening(opening.id);
+            setSelection(null);
+            toast('Abertura eliminada.', 'success');
+          }}
+        />
+      }
+    >
+      <div className="prop-list">
+        <div className="prop-row">
+          <span>Muro</span>
+          <strong>{wall?.internalWall ? 'Muro libre' : 'Muro perimetral'}</strong>
+        </div>
+        <div className="prop-row"><span>Longitud del muro</span><strong>{formatMeters(length, 2)}</strong></div>
+      </div>
+      <Field label="Tipo">
+        <Select
+          value={opening.kind}
+          onChange={(event) => {
+            const kind = event.target.value as 'door' | 'window';
+            updateOpening(opening.id, {
+              kind,
+              ...(kind === 'window' ? { sillHeight: opening.sillHeight || 1 } : { sillHeight: 0 }),
+            });
+          }}
+        >
+          <option value="door">Puerta</option>
+          <option value="window">Ventana</option>
+        </Select>
+      </Field>
+      <Field label="Posición desde el inicio">
+        <NumberInput
+          value={opening.offset}
+          onChange={(offset) => updateOpening(
+            opening.id,
+            { offset: Math.max(opening.width / 2, Math.min(length - opening.width / 2, offset)) },
+            { coalesceKey: `opening-offset:${opening.id}` },
+          )}
+          step={0.05}
+          min={0}
+          max={Math.max(length, 0.2)}
+          suffix="m"
+        />
+      </Field>
+      <div className="grid-2">
+        <Field label="Ancho">
+          <NumberInput
+            value={opening.width}
+            onChange={(width) => updateOpening(opening.id, { width: Math.max(0.2, width) })}
+            step={0.05}
+            min={0.2}
+            suffix="m"
+          />
+        </Field>
+        <Field label="Alto">
+          <NumberInput
+            value={opening.height}
+            onChange={(height) => updateOpening(opening.id, { height: Math.max(0.2, height) })}
+            step={0.05}
+            min={0.2}
+            suffix="m"
+          />
+        </Field>
+      </div>
+      {!isDoor ? (
+        <Field label="Altura del alféizar">
+          <NumberInput
+            value={opening.sillHeight}
+            onChange={(sillHeight) => updateOpening(opening.id, { sillHeight: Math.max(0, sillHeight) })}
+            step={0.05}
+            min={0}
+            suffix="m"
+          />
+        </Field>
+      ) : null}
+      <div className="inline-actions">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => updateOpening(opening.id, { offset: length / 2 })}
+        >
+          Centrar en el muro
+        </Button>
+      </div>
+      <p className="panel-note">
+        La abertura se recorta en el muro y se mantiene al mover o cambiar el grosor del muro.
+      </p>
     </Section>
   );
 }
@@ -863,6 +1230,12 @@ export function Inspector({
     : null;
   const light = selection?.type === 'light'
     ? project.lights.find((entry) => entry.id === selection.id)
+    : null;
+  const internalWall = selection?.type === 'internalWall'
+    ? project.internalWalls.find((entry) => entry.id === selection.id)
+    : null;
+  const opening = selection?.type === 'opening'
+    ? project.openings.find((entry) => entry.id === selection.id)
     : null;
 
   let title = 'Proyecto';
@@ -889,6 +1262,14 @@ export function Inspector({
     title = `Segmento ${selection.index + 1}`;
     subtitle = 'Muro o acceso';
     icon = <MapPin size={14} />;
+  } else if (internalWall) {
+    title = 'Muro libre';
+    subtitle = 'División interior';
+    icon = <BrickWall size={14} />;
+  } else if (opening) {
+    title = opening.kind === 'door' ? 'Puerta' : 'Ventana';
+    subtitle = 'Abertura en un muro';
+    icon = opening.kind === 'door' ? <DoorOpen size={14} /> : <PanelTop size={14} />;
   }
 
   return (
@@ -913,6 +1294,10 @@ export function Inspector({
           <VertexInspector project={project} index={selection.index} />
         ) : selection?.type === 'edge' ? (
           <EdgeInspector project={project} index={selection.index} />
+        ) : internalWall ? (
+          <InternalWallInspector project={project} wall={internalWall} />
+        ) : opening ? (
+          <OpeningInspector project={project} opening={opening} />
         ) : (
           <ProjectInspector project={project} onPublish={onPublish} />
         )}

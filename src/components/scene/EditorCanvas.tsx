@@ -12,6 +12,7 @@ import { ExhibitorMarkers } from './ExhibitorMarkers';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { pointInPolygon, polygonBounds, snapPoint } from '@/utils/geometry';
+import { getWallById, pointOffsetOnWall, type WallTarget } from '@/utils/walls';
 
 export interface CameraRequest {
   mode: 'project' | 'top';
@@ -148,6 +149,7 @@ function EditorSceneContents({
   const setSelection = useEditorStore((state) => state.setSelection);
   const addObject = useEditorStore((state) => state.addObject);
   const addExhibitor = useEditorStore((state) => state.addExhibitor);
+  const addOpening = useEditorStore((state) => state.addOpening);
   const toggleWall = useEditorStore((state) => state.toggleWall);
   const toast = useUiStore((state) => state.toast);
   const shadowBounds = useMemo(
@@ -178,17 +180,40 @@ function EditorSceneContents({
       toast('Selecciona un muro de la escena para abrirlo o cerrarlo.', 'info');
       return;
     }
+    if (state.tool === 'door' || state.tool === 'window') {
+      toast('Haz clic sobre un muro para colocar la abertura.', 'info');
+      return;
+    }
+    if (state.tool === 'internalWall') {
+      toast('Los muros libres se dibujan en la vista de planta.', 'info');
+      return;
+    }
     setSelection(null);
   };
 
-  const handleEdgeClick = (index: number) => {
+  const handleWallClick = (target: WallTarget, point: Vec2) => {
     const state = useEditorStore.getState();
-    if (state.tool === 'wall') {
-      toggleWall(index);
-      setSelection({ type: 'edge', index });
+    const activeProject = state.project;
+    if (!activeProject) return;
+    if (state.tool === 'door' || state.tool === 'window') {
+      const wall = getWallById(
+        activeProject,
+        target.type === 'edge' ? activeProject.edges[target.index]?.id ?? '' : target.id,
+      );
+      if (!wall) return;
+      addOpening(wall.id, state.tool, pointOffsetOnWall(point, wall.a, wall.b));
       return;
     }
-    setSelection({ type: 'edge', index });
+    if (state.tool === 'wall' && target.type === 'edge') {
+      toggleWall(target.index);
+      setSelection({ type: 'edge', index: target.index });
+      return;
+    }
+    setSelection(
+      target.type === 'edge'
+        ? { type: 'edge', index: target.index }
+        : { type: 'internalWall', id: target.id },
+    );
   };
 
   return (
@@ -210,7 +235,7 @@ function EditorSceneContents({
       <Architecture
         project={project}
         onFloorClick={handleFloorClick}
-        onSelectEdge={handleEdgeClick}
+        onWallClick={handleWallClick}
       />
       <SceneObjects
         project={project}

@@ -2505,6 +2505,54 @@ input[type="range"] {
   color: var(--text);
 }
 
+.plan-draw-mode {
+  position: absolute;
+  left: 50%;
+  top: 60px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: rgba(18, 23, 28, 0.94);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+  z-index: 9;
+}
+
+.plan-draw-mode > span {
+  color: var(--muted);
+  font-size: 10px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.plan-draw-mode button {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.plan-draw-mode button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.plan-draw-mode button.is-active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.plan-draw-mode button:disabled {
+  opacity: 0.35;
+}
+
 .plan-draw-actions {
   position: absolute;
   left: 50%;

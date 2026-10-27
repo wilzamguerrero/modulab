@@ -4,18 +4,29 @@ import type {
   EditorTool,
   EditorView,
   Exhibitor,
+  InternalWall,
   LightConfig,
+  OpeningKind,
+  PlanDrawMode,
   Project,
   SceneObject,
   Selection,
   TransformMode,
   Vec2,
   Vec3,
+  WallOpening,
 } from '@/types/project';
-import { createEdgeConfig, defaultExhibitorCamera, primitiveSize } from '@/data/defaults';
-import { normalizeEdges } from '@/data/projectSchema';
+import {
+  createEdgeConfig,
+  createInternalWall,
+  defaultExhibitorCamera,
+  openingDefaults,
+  primitiveSize,
+} from '@/data/defaults';
+import { normalizeEdges, normalizeOpenings } from '@/data/projectSchema';
 import { createId } from '@/utils/id';
 import { polygonCentroid } from '@/utils/geometry';
+import { getWallById, wallLength } from '@/utils/walls';
 
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
@@ -35,6 +46,7 @@ interface EditorState {
   tool: EditorTool;
   view: EditorView;
   transformMode: TransformMode;
+  planDrawMode: PlanDrawMode;
   pendingCatalogItem: CatalogItem | null;
   clipboardObject: SceneObject | null;
 
@@ -66,6 +78,7 @@ interface EditorState {
   setTool: (tool: EditorTool) => void;
   setView: (view: EditorView) => void;
   setTransformMode: (mode: TransformMode) => void;
+  setPlanDrawMode: (mode: PlanDrawMode) => void;
   setPendingCatalogItem: (item: CatalogItem | null) => void;
   setClipboardObject: (object: SceneObject | null) => void;
 
@@ -83,6 +96,14 @@ interface EditorState {
   setDefaultWall: (patch: Partial<Project['defaultWall']>) => void;
   applyWallSettingsToAll: () => void;
   setFloorMaterial: (patch: Partial<Project['floor']>) => void;
+
+  addInternalWall: (a: Vec2, b: Vec2) => string | null;
+  addInternalWallLoop: (points: Vec2[]) => string[];
+  updateInternalWall: (id: string, patch: Partial<InternalWall>, options?: PatchOptions) => void;
+  deleteInternalWall: (id: string) => void;
+  addOpening: (wallId: string, kind: OpeningKind, offset: number) => string | null;
+  updateOpening: (id: string, patch: Partial<WallOpening>, options?: PatchOptions) => void;
+  deleteOpening: (id: string) => void;
 
   addObject: (item: CatalogItem, position: Vec2) => string | null;
   updateObject: (id: string, patch: Partial<SceneObject>, options?: PatchOptions) => void;
@@ -124,6 +145,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   tool: 'select',
   view: 'plan',
   transformMode: 'translate',
+  planDrawMode: 'partition',
   pendingCatalogItem: null,
   clipboardObject: null,
   past: [],
@@ -145,6 +167,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       loadError: null,
       selection: null,
       tool: 'select',
+      planDrawMode: project.floor.vertices.length >= 3 ? 'partition' : 'outline',
       pendingCatalogItem: null,
       past: [],
       future: [],
@@ -283,6 +306,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   setTool: (tool) => set({ tool, pendingCatalogItem: tool === 'select' ? get().pendingCatalogItem : null }),
   setView: (view) => set({ view }),
   setTransformMode: (transformMode) => set({ transformMode }),
+  setPlanDrawMode: (planDrawMode) => set({ planDrawMode }),
   setPendingCatalogItem: (pendingCatalogItem) => set({ pendingCatalogItem }),
   setClipboardObject: (clipboardObject) => set({ clipboardObject }),
 
@@ -295,10 +319,12 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     get().patchProject((draft) => {
       draft.floor.vertices = vertices.map((vertex) => ({ ...vertex }));
       draft.edges = normalizeEdges(draft.floor.vertices, draft.edges, draft.defaultWall);
+      draft.openings = normalizeOpenings(draft);
     }, options),
 
   replacePlan: (vertices) =>
     get().patchProject((draft) => {
+      const oldEdgeIds = new Set(draft.edges.map((edge) => edge.id));
       draft.floor.vertices = vertices.map((vertex) => ({ ...vertex }));
       draft.edges = draft.floor.vertices.map(() =>
         createEdgeConfig({
@@ -307,6 +333,9 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
           color: draft.defaultWall.color,
         }),
       );
+      // Las aberturas perimetrales pertenecen a los bordes anteriores. Las
+      // divisiones interiores y sus aberturas se conservan.
+      draft.openings = draft.openings.filter((opening) => !oldEdgeIds.has(opening.wallId));
     }),
 
   insertVertexOnEdge: (edgeIndex, point) => {
@@ -342,6 +371,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       draft.floor.vertices.splice(index, 1);
       draft.edges.splice(index, 1);
       draft.edges = normalizeEdges(draft.floor.vertices, draft.edges, draft.defaultWall);
+      draft.openings = normalizeOpenings(draft);
     });
     set({ selection: null });
   },
@@ -350,6 +380,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     get().patchProject((draft) => {
       if (!draft.floor.vertices[index]) return;
       draft.floor.vertices[index] = { ...point };
+      draft.openings = normalizeOpenings(draft);
     }, options),
 
   setEdge: (index, patch, options = {}) =>
@@ -377,12 +408,121 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
         thickness: draft.defaultWall.thickness,
         color: draft.defaultWall.color,
       }));
+      draft.internalWalls = draft.internalWalls.map((wall) => ({
+        ...wall,
+        height: draft.defaultWall.height,
+        thickness: draft.defaultWall.thickness,
+        color: draft.defaultWall.color,
+      }));
+      draft.openings = normalizeOpenings(draft);
     }),
 
   setFloorMaterial: (patch) =>
     get().patchProject((draft) => {
       draft.floor = { ...draft.floor, ...patch };
     }, { coalesceKey: 'floor-material' }),
+
+  addInternalWall: (a, b) => {
+    const project = get().project;
+    if (!project || wallLength(a, b) <= 0.05) return null;
+    const wall = createInternalWall(a, b, {
+      height: project.defaultWall.height,
+      thickness: project.defaultWall.thickness,
+      color: project.defaultWall.color,
+    });
+    get().patchProject((draft) => {
+      draft.internalWalls.push(wall);
+    });
+    set({ selection: { type: 'internalWall', id: wall.id } });
+    return wall.id;
+  },
+
+  addInternalWallLoop: (points) => {
+    const project = get().project;
+    if (!project || points.length < 3) return [];
+    const walls = points
+      .map((point, index) =>
+        createInternalWall(point, points[(index + 1) % points.length], {
+          height: project.defaultWall.height,
+          thickness: project.defaultWall.thickness,
+          color: project.defaultWall.color,
+        }),
+      )
+      .filter((wall) => wallLength(wall.a, wall.b) > 0.05);
+    if (!walls.length) return [];
+    get().patchProject((draft) => {
+      draft.internalWalls.push(...walls);
+    });
+    set({ selection: null });
+    return walls.map((wall) => wall.id);
+  },
+
+  updateInternalWall: (id, patch, options = {}) =>
+    get().patchProject((draft) => {
+      const index = draft.internalWalls.findIndex((wall) => wall.id === id);
+      if (index < 0) return;
+      draft.internalWalls[index] = { ...draft.internalWalls[index], ...patch, id };
+      draft.openings = normalizeOpenings(draft);
+    }, { coalesceKey: `internal-wall:${id}`, ...options }),
+
+  deleteInternalWall: (id) => {
+    get().patchProject((draft) => {
+      draft.internalWalls = draft.internalWalls.filter((wall) => wall.id !== id);
+      draft.openings = draft.openings.filter((opening) => opening.wallId !== id);
+    });
+    const selection = get().selection;
+    if (
+      (selection?.type === 'internalWall' && selection.id === id) ||
+      (selection?.type === 'opening' && !get().project?.openings.some((opening) => opening.id === selection.id))
+    ) {
+      set({ selection: null });
+    }
+  },
+
+  addOpening: (wallId, kind, offset) => {
+    const project = get().project;
+    if (!project) return null;
+    const wall = getWallById(project, wallId);
+    if (!wall || (wall.edge && !wall.edge.wall)) return null;
+    const length = wallLength(wall.a, wall.b);
+    if (length < 0.25) return null;
+    const defaults = openingDefaults(kind);
+    const width = Math.min(defaults.width, Math.max(0.2, length - 0.1));
+    const sillHeight = Math.min(defaults.sillHeight, Math.max(0, wall.height - 0.2));
+    const height = Math.max(0.2, Math.min(defaults.height, wall.height - sillHeight));
+    const opening: WallOpening = {
+      id: createId('open'),
+      wallId,
+      kind,
+      offset: Math.max(width / 2, Math.min(length - width / 2, offset)),
+      width,
+      height,
+      sillHeight,
+    };
+    get().patchProject((draft) => {
+      draft.openings.push(opening);
+    });
+    set({ selection: { type: 'opening', id: opening.id } });
+    return opening.id;
+  },
+
+  updateOpening: (id, patch, options = {}) =>
+    get().patchProject((draft) => {
+      const index = draft.openings.findIndex((opening) => opening.id === id);
+      if (index < 0) return;
+      const next = { ...draft.openings[index], ...patch, id };
+      if (next.kind === 'door') next.sillHeight = 0;
+      draft.openings[index] = next;
+      draft.openings = normalizeOpenings(draft);
+    }, { coalesceKey: `opening:${id}`, ...options }),
+
+  deleteOpening: (id) => {
+    get().patchProject((draft) => {
+      draft.openings = draft.openings.filter((opening) => opening.id !== id);
+    });
+    const selection = get().selection;
+    if (selection?.type === 'opening' && selection.id === id) set({ selection: null });
+  },
 
   addObject: (item, position) => {
     const project = get().project;
