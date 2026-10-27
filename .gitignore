@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+
+# Datos locales del servidor (credenciales, publicaciones y subidas)
+data/notion-config.json
+data/published/*
+!data/published/.gitkeep
+data/uploads/*
+!data/uploads/.gitkeep
+
+# Referencia de otro proyecto, no forma parte del build
+Reference/
+
+# Sistema
+.DS_Store
+Thumbs.db
