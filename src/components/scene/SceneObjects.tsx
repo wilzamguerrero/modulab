@@ -13,6 +13,7 @@ import {
 import { useEditorStore } from '@/store/editorStore';
 import { useModelInfoStore } from '@/store/modelInfoStore';
 import { snapValue } from '@/utils/geometry';
+import { markSceneDragActive, markSceneDragEnd } from './sceneDragGuard';
 import {
   exhibitorColor,
   exhibitorPaintAmount,
@@ -273,6 +274,7 @@ function EditableObjectInstance({
     );
     commitHistory();
     if (controls) controls.enabled = true;
+    markSceneDragEnd();
   };
 
   return (
@@ -300,6 +302,7 @@ function EditableObjectInstance({
           mode={transformMode}
           size={0.72}
           onMouseDown={() => {
+            markSceneDragActive();
             beginHistory();
             if (controls) controls.enabled = false;
           }}

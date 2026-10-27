@@ -14,6 +14,7 @@ import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { pointInPolygon, polygonBounds, snapPoint } from '@/utils/geometry';
 import { getWallById, pointOffsetOnWall, type WallTarget } from '@/utils/walls';
+import { isSceneDragClickBlocked } from './sceneDragGuard';
 
 export interface CameraRequest {
   mode: 'project' | 'top';
@@ -214,6 +215,8 @@ function EditorSceneContents({
   );
 
   const handleFloorClick = (point: Vec2) => {
+    // Un clic que cierra el arrastre de un gizmo no debe deseleccionar el objeto.
+    if (isSceneDragClickBlocked()) return;
     const state = useEditorStore.getState();
     const activeProject = state.project;
     if (!activeProject) return;

@@ -4,6 +4,7 @@ import { useThree, type ThreeEvent } from '@react-three/fiber';
 import type { InternalWall, Vec2, WallOpening } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { snapPoint, snapValue } from '@/utils/geometry';
+import { markSceneDragActive, markSceneDragEnd } from './sceneDragGuard';
 import {
   getOpeningSpans,
   getWallById,
@@ -94,6 +95,7 @@ function useHistoryDrag(
   return usePlanarDrag({
     onStart: (event) => {
       moved.current = false;
+      markSceneDragActive();
       beginHistory();
       onStart(event);
     },
@@ -104,6 +106,7 @@ function useHistoryDrag(
     onEnd: () => {
       if (moved.current) commitHistory();
       else cancelHistory();
+      markSceneDragEnd();
     },
   });
 }
