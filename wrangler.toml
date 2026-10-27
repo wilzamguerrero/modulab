@@ -1,0 +1,6 @@
+# Configuración para desarrollo local con `wrangler pages dev`.
+# En producción (Pages vía GitHub) los bindings y variables se definen en el
+# panel de Cloudflare; este archivo no declara bindings para no interferir.
+name = "modulab"
+compatibility_date = "2025-01-01"
+pages_build_output_dir = "dist"

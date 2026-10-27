@@ -6,6 +6,7 @@
   "description": "Editor web 3D de espacios expositivos con catálogo GLB dinámico y almacenamiento en Notion.",
   "scripts": {
     "dev": "tsx watch server.ts",
+    "prebuild": "node scripts/build-catalog-manifest.mjs",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs --production",
     "lint": "tsc --noEmit",
@@ -39,6 +40,7 @@
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "vite": "^7.2.4",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "^4.153.0"
   }
 }

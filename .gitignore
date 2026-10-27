@@ -14,6 +14,13 @@ data/uploads/*
 # Referencia de otro proyecto, no forma parte del build
 Reference/
 
+# Manifest de catálogo generado en el build (Cloudflare Pages)
+public/catalog/manifest.json
+
+# Desarrollo local de Cloudflare Pages (wrangler)
+.dev.vars
+.wrangler/
+
 # Sistema
 .DS_Store
 Thumbs.db
