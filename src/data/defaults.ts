@@ -30,6 +30,7 @@ export function createEdgeConfig(overrides: Partial<EdgeConfig> = {}): EdgeConfi
     height: DEFAULT_WALL_HEIGHT,
     thickness: DEFAULT_WALL_THICKNESS,
     color: DEFAULT_WALL_COLOR,
+    exhibitorId: null,
     ...overrides,
   };
 }
@@ -46,6 +47,7 @@ export function createInternalWall(
     height: DEFAULT_WALL_HEIGHT,
     thickness: DEFAULT_WALL_THICKNESS,
     color: DEFAULT_WALL_COLOR,
+    exhibitorId: null,
     ...overrides,
   };
 }
@@ -142,6 +144,8 @@ export function createProject(options: {
       autoSaveNotion: true,
       showDimensions: true,
       shadowQuality: 'medium',
+      exhibitorColorMode: 'rings',
+      exhibitorColorOpacity: 0.35,
     },
   };
 }

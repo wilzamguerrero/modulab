@@ -5,6 +5,7 @@ import { useThree } from '@react-three/fiber';
 import type { Exhibitor } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { snapValue } from '@/utils/geometry';
+import { exhibitorColor } from '@/utils/exhibitorColors';
 
 const MARKER_Y = 0.02;
 
@@ -26,7 +27,7 @@ function ExhibitorMarker({
   const snap = useEditorStore((state) => state.project?.settings.snapToGrid ?? false);
   const gridSize = useEditorStore((state) => state.project?.settings.gridSize ?? 0.25);
   const controls = useThree((state) => state.controls) as { enabled: boolean } | null;
-  const color = selected ? '#d7ff4f' : '#7dd3fc';
+  const color = selected ? '#d7ff4f' : exhibitorColor(exhibitor);
 
   const finishTransform = () => {
     if (!group) return;
@@ -71,7 +72,7 @@ function ExhibitorMarker({
           <meshBasicMaterial color={color} />
         </mesh>
         {selected ? (
-          <pointLight color="#d7ff4f" intensity={0.8} distance={3.2} position={[0, 1.5, 0]} />
+          <pointLight color={color} intensity={0.8} distance={3.2} position={[0, 1.5, 0]} />
         ) : null}
         {editor ? (
           <Html
@@ -80,8 +81,11 @@ function ExhibitorMarker({
             distanceFactor={9}
             style={{ pointerEvents: 'none' }}
           >
-            <div className={`marker-label${selected ? ' is-selected' : ''}`}>
-              <strong>{exhibitor.name || 'Expositor'}</strong>
+            <div
+              className={`marker-label${selected ? ' is-selected' : ''}`}
+              style={selected ? undefined : { borderColor: color }}
+            >
+              <strong style={selected ? undefined : { color }}>{exhibitor.name || 'Expositor'}</strong>
               {exhibitor.standCode ? <span>{exhibitor.standCode}</span> : null}
             </div>
           </Html>

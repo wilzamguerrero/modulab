@@ -32,6 +32,14 @@ import {
   wallLength,
 } from '@/utils/walls';
 import { Button } from '@/components/ui';
+import {
+  exhibitorColor,
+  exhibitorPaintAmount,
+  findExhibitor,
+  hexToRgba,
+  mixHexColors,
+  paintedExhibitorColor,
+} from '@/utils/exhibitorColors';
 
 interface Viewport {
   x: number;
@@ -43,6 +51,7 @@ interface Viewport {
 type DragState =
   | { type: 'pan'; startClient: { x: number; y: number }; startViewport: Viewport }
   | { type: 'vertex'; index: number }
+  | { type: 'internalWallPoint'; id: string; endpoint: 'a' | 'b' }
   | { type: 'object'; id: string; offset: Vec2 }
   | { type: 'exhibitor'; id: string; offset: Vec2 };
 
@@ -70,6 +79,7 @@ function OpeningMarks({
   selectedId,
   textSize,
   hitWidth,
+  paintColorFor,
   onSelect,
 }: {
   a: Vec2;
@@ -80,6 +90,7 @@ function OpeningMarks({
   selectedId?: string | null;
   textSize: number;
   hitWidth: number;
+  paintColorFor?: (opening: WallOpening) => string | undefined;
   onSelect?: (id: string) => void;
 }) {
   const length = wallLength(a, b);
@@ -94,14 +105,17 @@ function OpeningMarks({
         const p2 = pointAtWallOffset(a, b, span.end);
         const center = pointAtWallOffset(a, b, span.center);
         const selected = selectedId === span.opening.id;
-        const color = selected ? '#d7ff4f' : span.opening.kind === 'door' ? '#e8c98a' : '#7dd3fc';
+        const painted = paintColorFor?.(span.opening);
+        const color = selected
+          ? '#d7ff4f'
+          : painted ?? (span.opening.kind === 'door' ? '#e8c98a' : '#7dd3fc');
         const tick = Math.max(thickness * 1.1, 0.055);
         const leafEnd = {
           x: p1.x + normal.x * span.width,
           z: p1.z + normal.z * span.width,
         };
         return (
-          <g key={span.opening.id}>
+          <g key={span.opening.id} data-opening-id={span.opening.id}>
             {span.opening.kind === 'door' ? (
               <>
                 <line
@@ -226,6 +240,8 @@ export function PlanEditor2D() {
   const setPlanDrawMode = useEditorStore((state) => state.setPlanDrawMode);
   const addInternalWall = useEditorStore((state) => state.addInternalWall);
   const addInternalWallLoop = useEditorStore((state) => state.addInternalWallLoop);
+  const moveInternalWallPoint = useEditorStore((state) => state.moveInternalWallPoint);
+  const insertVertexOnInternalWall = useEditorStore((state) => state.insertVertexOnInternalWall);
   const addOpening = useEditorStore((state) => state.addOpening);
   const toast = useUiStore((state) => state.toast);
 
@@ -474,6 +490,13 @@ export function PlanEditor2D() {
       moveVertex(drag.index, snapPointIfNeeded(point), { history: false, touch: false });
       return;
     }
+    if (drag.type === 'internalWallPoint') {
+      moveInternalWallPoint(drag.id, drag.endpoint, snapPointIfNeeded(point), {
+        history: false,
+        touch: false,
+      });
+      return;
+    }
     if (drag.type === 'object') {
       const next = snapPointIfNeeded({
         x: point.x + drag.offset.x,
@@ -577,6 +600,18 @@ export function PlanEditor2D() {
     setSelection({ type: 'vertex', index });
   };
 
+  const onInternalWallPointPointerDown = (
+    event: ReactPointerEvent,
+    id: string,
+    endpoint: 'a' | 'b',
+  ) => {
+    if (tool !== 'select') return;
+    event.stopPropagation();
+    event.preventDefault();
+    beginDrag(event, { type: 'internalWallPoint', id, endpoint });
+    setSelection({ type: 'internalWall', id });
+  };
+
   const onObjectPointerDown = (event: ReactPointerEvent, object: SceneObject) => {
     if (tool !== 'select') return;
     event.stopPropagation();
@@ -661,6 +696,14 @@ export function PlanEditor2D() {
   const selectedEdge = selection?.type === 'edge' ? selection.index : null;
   const selectedInternalWall = selection?.type === 'internalWall' ? selection.id : null;
   const selectedOpening = selection?.type === 'opening' ? selection.id : null;
+  const selectedExhibitorId = selection?.type === 'exhibitor' ? selection.id : null;
+  const openingPaintColor = (opening: WallOpening) => {
+    const exhibitor = findExhibitor(project, opening.exhibitorId);
+    const amount = exhibitorPaintAmount(project, opening.exhibitorId, selectedExhibitorId);
+    if (!exhibitor || amount <= 0) return undefined;
+    const base = opening.kind === 'door' ? '#e8c98a' : '#7dd3fc';
+    return mixHexColors(base, exhibitorColor(exhibitor), amount);
+  };
   const dimExisting = tool === 'draw' && planDrawMode === 'outline' && draft.length > 0;
 
   const objectFootprints = useMemo(
@@ -784,7 +827,9 @@ export function PlanEditor2D() {
                 ? []
                 : project.openings.filter((opening) => opening.wallId === edge.id);
               const ranges = isOpen ? [] : getSolidRanges(length, edgeOpenings);
-              const wallColor = isSelected ? '#d7ff4f' : edge.color;
+              const wallColor = isSelected
+                ? '#d7ff4f'
+                : paintedExhibitorColor(project, edge.exhibitorId, edge.color, selectedExhibitorId);
               const wallWidth = Math.max(edge.thickness, viewport.width / 800);
               return (
                 <g key={edge.id || index}>
@@ -808,6 +853,7 @@ export function PlanEditor2D() {
                       return (
                         <line
                           key={`${edge.id}-solid-${rangeIndex}`}
+                          data-edge-id={edge.id}
                           x1={p1.x}
                           y1={p1.z}
                           x2={p2.x}
@@ -821,20 +867,8 @@ export function PlanEditor2D() {
                       );
                     })
                   )}
-                  {!isOpen ? (
-                    <OpeningMarks
-                      a={a}
-                      b={b}
-                      height={edge.height}
-                      thickness={edge.thickness}
-                      openings={edgeOpenings}
-                      selectedId={selectedOpening}
-                      textSize={textSize}
-                      hitWidth={hitWidth}
-                      onSelect={tool === 'internalWall' ? undefined : handleOpeningSelect}
-                    />
-                  ) : null}
                   <line
+                    data-edge-hit={edge.id}
                     x1={a.x}
                     y1={a.z}
                     x2={b.x}
@@ -850,6 +884,20 @@ export function PlanEditor2D() {
                       setSelection({ type: 'edge', index });
                     }}
                   />
+                  {!isOpen ? (
+                    <OpeningMarks
+                      a={a}
+                      b={b}
+                      height={edge.height}
+                      thickness={edge.thickness}
+                      openings={edgeOpenings}
+                      selectedId={selectedOpening}
+                      textSize={textSize}
+                      hitWidth={hitWidth}
+                      paintColorFor={openingPaintColor}
+                      onSelect={tool === 'internalWall' ? undefined : handleOpeningSelect}
+                    />
+                  ) : null}
                   {showDimensions ? (
                     <text
                       x={(a.x + b.x) / 2 + (-(b.z - a.z) / Math.max(length, 0.001)) * textSize * 1.4}
@@ -876,7 +924,9 @@ export function PlanEditor2D() {
           if (length <= 0.01) return null;
           const wallOpenings = project.openings.filter((opening) => opening.wallId === wall.id);
           const ranges = getSolidRanges(length, wallOpenings);
-          const wallColor = selected ? '#d7ff4f' : wall.color;
+          const wallColor = selected
+            ? '#d7ff4f'
+            : paintedExhibitorColor(project, wall.exhibitorId, wall.color, selectedExhibitorId);
           const wallWidth = Math.max(wall.thickness, viewport.width / 800);
           const direction = wallDirection(wall.a, wall.b);
           const center = pointAtWallOffset(wall.a, wall.b, length / 2);
@@ -888,6 +938,7 @@ export function PlanEditor2D() {
                 return (
                   <line
                     key={`${wall.id}-solid-${rangeIndex}`}
+                    data-internal-wall-id={wall.id}
                     x1={p1.x}
                     y1={p1.z}
                     x2={p2.x}
@@ -900,6 +951,34 @@ export function PlanEditor2D() {
                   />
                 );
               })}
+              <line
+                data-internal-wall-hit={wall.id}
+                x1={wall.a.x}
+                y1={wall.a.z}
+                x2={wall.b.x}
+                y2={wall.b.z}
+                stroke="transparent"
+                strokeWidth={hitWidth}
+                style={{ cursor: 'pointer' }}
+                onClick={(event) => handleInternalWallClick(event, wall.id)}
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                  if (tool !== 'select') return;
+                  const point = toWorld(event.clientX, event.clientY);
+                  const offset = pointOffsetOnWall(point, wall.a, wall.b);
+                  if (offset <= 0.1 || length - offset <= 0.1) return;
+                  insertVertexOnInternalWall(
+                    wall.id,
+                    pointAtWallOffset(wall.a, wall.b, offset),
+                  );
+                  toast(
+                    'Nodo insertado. Arrastra los nodos del muro para cambiar su forma.',
+                    'success',
+                  );
+                }}
+              >
+                <title>Doble clic para insertar un nodo</title>
+              </line>
               <OpeningMarks
                 a={wall.a}
                 b={wall.b}
@@ -909,17 +988,8 @@ export function PlanEditor2D() {
                 selectedId={selectedOpening}
                 textSize={textSize}
                 hitWidth={hitWidth}
+                paintColorFor={openingPaintColor}
                 onSelect={tool === 'internalWall' ? undefined : handleOpeningSelect}
-              />
-              <line
-                x1={wall.a.x}
-                y1={wall.a.z}
-                x2={wall.b.x}
-                y2={wall.b.z}
-                stroke="transparent"
-                strokeWidth={hitWidth}
-                style={{ cursor: 'pointer' }}
-                onClick={(event) => handleInternalWallClick(event, wall.id)}
               />
               {showDimensions ? (
                 <text
@@ -939,8 +1009,46 @@ export function PlanEditor2D() {
           );
         })}
 
+        {selectedInternalWall && tool === 'select'
+          ? (() => {
+              const wall = project.internalWalls.find((entry) => entry.id === selectedInternalWall);
+              if (!wall) return null;
+              return (['a', 'b'] as const).map((endpoint) => {
+                const point = wall[endpoint];
+                return (
+                  <circle
+                    key={`${wall.id}-${endpoint}-handle`}
+                    data-wall-id={wall.id}
+                    data-wall-endpoint={endpoint}
+                    cx={point.x}
+                    cy={point.z}
+                    r={vertexRadius * 1.2}
+                    fill="#0e1114"
+                    stroke="#d7ff4f"
+                    strokeWidth={Math.max(viewport.width / 1400, 0.006)}
+                    style={{ cursor: 'grab' }}
+                    onPointerDown={(event) =>
+                      onInternalWallPointPointerDown(event, wall.id, endpoint)
+                    }
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelection({ type: 'internalWall', id: wall.id });
+                    }}
+                  />
+                );
+              });
+            })()
+          : null}
+
         {objectFootprints.map(({ object, width, depth }) => {
           const selected = selection?.type === 'object' && selection.id === object.id;
+          const exhibitor = findExhibitor(project, object.exhibitorId);
+          const paintAmount = exhibitorPaintAmount(
+            project,
+            object.exhibitorId,
+            selectedExhibitorId,
+          );
+          const paintColor = exhibitor && paintAmount > 0 ? exhibitorColor(exhibitor) : undefined;
           return (
             <g
               key={object.id}
@@ -959,8 +1067,14 @@ export function PlanEditor2D() {
                 width={width}
                 height={depth}
                 rx={Math.min(width, depth) * 0.08}
-                fill={selected ? 'rgba(215,255,79,.2)' : 'rgba(255,255,255,.09)'}
-                stroke={selected ? '#d7ff4f' : 'rgba(255,255,255,.4)'}
+                fill={
+                  selected
+                    ? 'rgba(215,255,79,.2)'
+                    : paintColor
+                      ? hexToRgba(paintColor, 0.18 + paintAmount * 0.25)
+                      : 'rgba(255,255,255,.09)'
+                }
+                stroke={selected ? '#d7ff4f' : paintColor ?? 'rgba(255,255,255,.4)'}
                 strokeWidth={Math.max(viewport.width / 1000, 0.006)}
               />
               {width * (viewport.width / Math.max(svgRef.current?.clientWidth ?? 800, 1)) > 34 ? (
@@ -983,9 +1097,15 @@ export function PlanEditor2D() {
         {project.exhibitors.map((exhibitor) => {
           const selected = selection?.type === 'exhibitor' && selection.id === exhibitor.id;
           const radius = Math.max(viewport.width / 120, 0.18);
+          const color = exhibitor.notionMissing
+            ? '#ff5d5d'
+            : selected
+              ? '#d7ff4f'
+              : exhibitorColor(exhibitor);
           return (
             <g
               key={exhibitor.id}
+              data-exhibitor-id={exhibitor.id}
               transform={`translate(${exhibitor.position.x} ${exhibitor.position.z})`}
               opacity={exhibitor.visible ? 1 : 0.35}
               style={{ cursor: tool === 'select' ? 'move' : 'pointer' }}
@@ -997,17 +1117,23 @@ export function PlanEditor2D() {
             >
               <circle
                 r={radius}
-                fill={exhibitor.notionMissing ? 'rgba(255,93,93,.25)' : selected ? 'rgba(215,255,79,.35)' : 'rgba(125,211,252,.2)'}
-                stroke={exhibitor.notionMissing ? '#ff5d5d' : selected ? '#d7ff4f' : '#7dd3fc'}
+                fill={
+                  exhibitor.notionMissing
+                    ? 'rgba(255,93,93,.25)'
+                    : selected
+                      ? 'rgba(215,255,79,.35)'
+                      : hexToRgba(color, 0.2)
+                }
+                stroke={color}
                 strokeWidth={Math.max(viewport.width / 900, 0.012)}
                 strokeDasharray={exhibitor.notionMissing ? `${radius * 0.35} ${radius * 0.25}` : undefined}
               />
-              <circle r={radius * 0.3} fill={selected ? '#d7ff4f' : '#7dd3fc'} />
+              <circle r={radius * 0.3} fill={color} />
               <text
                 x={0}
                 y={-radius * 1.55}
                 textAnchor="middle"
-                fill={selected ? '#d7ff4f' : 'rgba(220,240,250,.78)'}
+                fill={selected ? '#d7ff4f' : color}
                 fontSize={textSize * 0.9}
                 fontFamily="var(--font)"
                 pointerEvents="none"
@@ -1041,6 +1167,7 @@ export function PlanEditor2D() {
                 style={{ cursor: tool === 'select' ? 'grab' : 'pointer' }}
                 onPointerDown={(event) => onVertexPointerDown(event, index)}
                 onClick={(event) => {
+                  if (tool !== 'select') return;
                   event.stopPropagation();
                   setSelection({ type: 'vertex', index });
                 }}
@@ -1213,14 +1340,14 @@ export function PlanEditor2D() {
         ) : tool === 'internalWall' ? (
           <>
             <strong>Muro libre:</strong> haz clic para iniciar un tramo y vuelve a hacer clic para
-            terminarlo o encadenar otro. Esc termina la cadena. Los muros libres sirven para dividir
-            espacios sin cambiar la planta.
+            terminarlo o encadenar otro. Esc termina la cadena. Selecciona un muro libre y arrastra
+            sus nodos, o haz doble clic sobre él para insertar un nodo y cambiar su forma.
           </>
         ) : tool === 'door' || tool === 'window' ? (
           <>
             <strong>{tool === 'door' ? 'Puerta' : 'Ventana'}:</strong> haz clic sobre un muro
-            perimetral o una división para colocar la abertura. Luego ajusta su posición, ancho y
-            altura en el inspector.
+            perimetral o una división para colocar la abertura. Después selecciónala en 2D o 3D para
+            moverla y cambiar su ancho y altura con los tiradores o el inspector.
           </>
         ) : tool === 'wall' ? (
           <>
@@ -1244,7 +1371,8 @@ export function PlanEditor2D() {
           </>
         ) : (
           <>
-            <strong>Seleccionar:</strong> arrastra vértices, muebles o expositores. Arrastra el fondo
+            <strong>Seleccionar:</strong> arrastra vértices, nodos de muros libres, muebles o
+            expositores. Haz doble clic en un muro libre para insertar un nodo. Arrastra el fondo
             con la rueda pulsada (o con Espacio) para mover la vista.
           </>
         )}

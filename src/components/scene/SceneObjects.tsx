@@ -5,6 +5,7 @@ import { TransformControls } from '@react-three/drei';
 import type { MaterialOverride, PrimitiveShape, Project, SceneObject } from '@/types/project';
 import {
   applyOverridesToMaterials,
+  applyTintToMaterials,
   cloneModelScene,
   loadGltf,
   modelInfoFromScene,
@@ -12,6 +13,16 @@ import {
 import { useEditorStore } from '@/store/editorStore';
 import { useModelInfoStore } from '@/store/modelInfoStore';
 import { snapValue } from '@/utils/geometry';
+import {
+  exhibitorColor,
+  exhibitorPaintAmount,
+  findExhibitor,
+} from '@/utils/exhibitorColors';
+
+interface ObjectTint {
+  color: string;
+  opacity: number;
+}
 
 function disposeCloneMaterials(root: THREE.Object3D) {
   const seen = new Set<THREE.Material>();
@@ -31,9 +42,11 @@ function disposeCloneMaterials(root: THREE.Object3D) {
 function PrimitiveModel({
   shape,
   overrides,
+  tint,
 }: {
   shape: PrimitiveShape;
   overrides: Record<string, MaterialOverride>;
+  tint?: ObjectTint;
 }) {
   const geometry = useMemo(() => {
     switch (shape) {
@@ -66,8 +79,9 @@ function PrimitiveModel({
     material.opacity = override?.opacity ?? 1;
     material.transparent = material.opacity < 1;
     material.visible = override?.visible ?? true;
+    if (tint) material.color.lerp(new THREE.Color(tint.color), tint.opacity);
     material.needsUpdate = true;
-  }, [material, overrides]);
+  }, [material, overrides, tint?.color, tint?.opacity]);
 
   useEffect(
     () => () => {
@@ -84,10 +98,12 @@ function GlbModel({
   url,
   object,
   overrides,
+  tint,
 }: {
   url: string;
   object: SceneObject;
   overrides: Record<string, MaterialOverride>;
+  tint?: ObjectTint;
 }) {
   const [root, setRoot] = useState<THREE.Object3D | null>(null);
   const [offset, setOffset] = useState<[number, number, number]>([0, 0, 0]);
@@ -143,8 +159,10 @@ function GlbModel({
   }, [url, object.id]);
 
   useEffect(() => {
-    if (root) applyOverridesToMaterials(root, overrides);
-  }, [root, overrides]);
+    if (!root) return;
+    applyOverridesToMaterials(root, overrides);
+    if (tint) applyTintToMaterials(root, tint.color, tint.opacity);
+  }, [root, overrides, tint?.color, tint?.opacity]);
 
   if (error) {
     return (
@@ -169,19 +187,21 @@ function GlbModel({
   return <primitive object={root} position={offset} />;
 }
 
-function ObjectModel({ object }: { object: SceneObject }) {
+function ObjectModel({ object, tint }: { object: SceneObject; tint?: ObjectTint }) {
   if (object.source.type === 'primitive') {
-    return <PrimitiveModel shape={object.source.shape} overrides={object.overrides} />;
+    return <PrimitiveModel shape={object.source.shape} overrides={object.overrides} tint={tint} />;
   }
-  return <GlbModel url={object.source.url} object={object} overrides={object.overrides} />;
+  return <GlbModel url={object.source.url} object={object} overrides={object.overrides} tint={tint} />;
 }
 
 function SelectionRing({
   object,
   highlighted,
+  color = '#d7ff4f',
 }: {
   object: SceneObject;
   highlighted?: boolean;
+  color?: string;
 }) {
   const size = object.size ?? [0.8, 1, 0.8];
   const radius =
@@ -195,7 +215,7 @@ function SelectionRing({
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]}>
       <ringGeometry args={[radius, radius + (highlighted ? 0.09 : 0.055), 48]} />
       <meshBasicMaterial
-        color={highlighted ? '#d7ff4f' : '#d7ff4f'}
+        color={highlighted ? color : '#d7ff4f'}
         transparent
         opacity={highlighted ? 0.95 : 0.65}
         depthWrite={false}
@@ -208,11 +228,15 @@ function EditableObjectInstance({
   object,
   selected,
   highlighted,
+  tint,
+  ringColor,
   onSelect,
 }: {
   object: SceneObject;
   selected: boolean;
   highlighted?: boolean;
+  tint?: ObjectTint;
+  ringColor?: string;
   onSelect?: (id: string) => void;
 }) {
   const [group, setGroup] = useState<THREE.Group | null>(null);
@@ -265,8 +289,10 @@ function EditableObjectInstance({
           onSelect(object.id);
         }}
       >
-        <ObjectModel object={object} />
-        {selected || highlighted ? <SelectionRing object={object} highlighted={highlighted} /> : null}
+        <ObjectModel object={object} tint={tint} />
+        {selected || highlighted ? (
+          <SelectionRing object={object} highlighted={highlighted} color={ringColor} />
+        ) : null}
       </group>
       {selected && group ? (
         <TransformControls
@@ -287,10 +313,14 @@ function EditableObjectInstance({
 function ReadOnlyObjectInstance({
   object,
   highlighted,
+  tint,
+  ringColor,
   onSelect,
 }: {
   object: SceneObject;
   highlighted?: boolean;
+  tint?: ObjectTint;
+  ringColor?: string;
   onSelect?: (object: SceneObject) => void;
 }) {
   return (
@@ -305,8 +335,8 @@ function ReadOnlyObjectInstance({
         onSelect(object);
       }}
     >
-      <ObjectModel object={object} />
-      {highlighted ? <SelectionRing object={object} highlighted /> : null}
+      <ObjectModel object={object} tint={tint} />
+      {highlighted ? <SelectionRing object={object} highlighted color={ringColor} /> : null}
     </group>
   );
 }
@@ -328,12 +358,25 @@ export function SceneObjects({
 }) {
   return (
     <group>
-      {project.objects.map((object) =>
-        editable ? (
+      {project.objects.map((object) => {
+        const exhibitor = findExhibitor(project, object.exhibitorId);
+        const paintAmount = exhibitorPaintAmount(
+          project,
+          object.exhibitorId,
+          selectedExhibitorId,
+        );
+        const tint =
+          exhibitor && paintAmount > 0
+            ? { color: exhibitorColor(exhibitor), opacity: paintAmount }
+            : undefined;
+        const ringColor = exhibitor ? exhibitorColor(exhibitor) : undefined;
+        return editable ? (
           <EditableObjectInstance
             key={object.id}
             object={object}
             selected={selectedObjectId === object.id}
+            tint={tint}
+            ringColor={ringColor}
             onSelect={onSelectObject}
           />
         ) : (
@@ -343,12 +386,14 @@ export function SceneObjects({
             highlighted={Boolean(
               selectedExhibitorId && object.exhibitorId === selectedExhibitorId,
             )}
+            tint={tint}
+            ringColor={ringColor}
             onSelect={(entry) => {
               if (entry.exhibitorId) onSelectExhibitor?.(entry.exhibitorId);
             }}
           />
-        ),
-      )}
+        );
+      })}
     </group>
   );
 }

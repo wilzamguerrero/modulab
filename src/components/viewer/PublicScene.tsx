@@ -128,7 +128,7 @@ export function PublicScene({
           shadowQuality={project.settings.shadowQuality}
           shadowBounds={shadowBounds}
         />
-        <Architecture project={project} />
+        <Architecture project={project} selectedExhibitorId={selectedExhibitorId} />
         <SceneObjects
           project={project}
           selectedExhibitorId={selectedExhibitorId}

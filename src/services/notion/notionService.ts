@@ -3,6 +3,7 @@ import type { NotionConfigStatus, NotionExhibitorsResponse, NotionPerson } from 
 import { apiDelete, apiGet, apiPost } from '@/services/api';
 import { defaultExhibitorCamera } from '@/data/defaults';
 import { createId } from '@/utils/id';
+import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
 import { distanceToSegment, pointInPolygon, polygonBounds } from '@/utils/geometry';
 
 export function getNotionStatus(): Promise<NotionConfigStatus> {
@@ -132,6 +133,7 @@ export async function syncPeopleIntoProject(
         name: person.name,
         standCode: person.standCode,
         description: person.description,
+        color: DEFAULT_EXHIBITOR_COLOR,
         photoNotionBlockId: person.photoNotionBlockId,
         notionBlockId: person.notionBlockId,
         notionUrl: person.notionUrl,
@@ -180,6 +182,7 @@ export function personToExhibitor(
     name: person.name,
     standCode: person.standCode,
     description: person.description,
+    color: DEFAULT_EXHIBITOR_COLOR,
     photoNotionBlockId: person.photoNotionBlockId,
     notionBlockId: person.notionBlockId,
     notionUrl: person.notionUrl,

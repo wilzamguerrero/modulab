@@ -190,6 +190,31 @@ export function cloneModelScene(scene: THREE.Object3D): THREE.Object3D {
   return clone;
 }
 
+/**
+ * Tiñe temporalmente los materiales de una instancia con el color de su
+ * expositor. Se aplica después de las sobrescrituras para que el color
+ * original pueda recuperarse al desactivar la pintura.
+ */
+export function applyTintToMaterials(root: THREE.Object3D, color: string, opacity: number): void {
+  const ratio = Math.max(0, Math.min(1, Number.isFinite(opacity) ? opacity : 0));
+  if (ratio <= 0) return;
+  const tint = new THREE.Color(color);
+  const seen = new Set<string>();
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.material) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) {
+      if (!material || seen.has(material.uuid)) continue;
+      seen.add(material.uuid);
+      const standard = material as THREE.MeshStandardMaterial;
+      if (!standard.color) continue;
+      standard.color.lerp(tint, ratio);
+      material.needsUpdate = true;
+    }
+  });
+}
+
 export function applyOverridesToMaterials(
   root: THREE.Object3D,
   overrides: Record<string, import('@/types/project').MaterialOverride>,

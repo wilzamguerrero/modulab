@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { applyOverridesToMaterials, cloneModelScene } from './modelLoader';
+import { applyOverridesToMaterials, applyTintToMaterials, cloneModelScene } from './modelLoader';
 
 function sceneWithMaterial(): { scene: THREE.Scene; mesh: THREE.Mesh } {
   const material = new THREE.MeshStandardMaterial({
@@ -69,5 +69,14 @@ describe('sobrescrituras de materiales', () => {
     expect(material.roughness).toBe(0.25);
     expect(material.color.getHexString()).toBe('b04a2f');
     expect(material.metalness).toBe(0.12);
+  });
+
+  it('tiñe los materiales de una instancia sin modificar el original', () => {
+    const { scene, mesh } = sceneWithMaterial();
+    const clone = cloneModelScene(scene);
+    applyTintToMaterials(clone, '#00ff00', 0.5);
+    const material = clonedMaterial(clone.children[0] as THREE.Mesh);
+    expect(material.color.equals(new THREE.Color('#b04a2f'))).toBe(false);
+    expect((mesh.material as THREE.MeshStandardMaterial).color.getHexString()).toBe('b04a2f');
   });
 });

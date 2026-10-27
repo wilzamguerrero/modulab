@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type {
   Exhibitor,
+  ExhibitorColorMode,
   InternalWall,
   LightConfig,
   Project,
@@ -49,6 +50,7 @@ import { uploadExhibitorPhoto } from '@/services/assets/catalogService';
 import { formatDateTime } from '@/utils/format';
 import { edgeLength, formatArea, formatMeters, polygonArea, snapValue } from '@/utils/geometry';
 import { getWallById, wallLength } from '@/utils/walls';
+import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
 
 function AxisInput({
   value,
@@ -95,6 +97,31 @@ function Section({ title, children, action }: { title: string; children: ReactNo
       </div>
       {children}
     </section>
+  );
+}
+
+function ExhibitorSelect({
+  project,
+  value,
+  onChange,
+}: {
+  project: Project;
+  value: string | null | undefined;
+  onChange: (exhibitorId: string | null) => void;
+}) {
+  return (
+    <Select
+      value={value ?? ''}
+      onChange={(event) => onChange(event.target.value || null)}
+    >
+      <option value="">Sin asociar</option>
+      {project.exhibitors.map((exhibitor) => (
+        <option key={exhibitor.id} value={exhibitor.id}>
+          {exhibitor.name}
+          {exhibitor.standCode ? ` · ${exhibitor.standCode}` : ''}
+        </option>
+      ))}
+    </Select>
   );
 }
 
@@ -169,6 +196,31 @@ function ProjectInspector({ project, onPublish }: { project: Project; onPublish:
             ))}
           </Select>
         </Field>
+        <Field label="Color de expositores">
+          <Select
+            value={project.settings.exhibitorColorMode}
+            onChange={(event) =>
+              setSettings({ exhibitorColorMode: event.target.value as ExhibitorColorMode })
+            }
+          >
+            <option value="rings">Aros de color</option>
+            <option value="paint">Pintar elementos</option>
+            <option value="both">Aros + pintura</option>
+          </Select>
+        </Field>
+        <RangeInput
+          label="Intensidad de pintura"
+          value={project.settings.exhibitorColorOpacity}
+          onChange={(exhibitorColorOpacity) => setSettings({ exhibitorColorOpacity })}
+          min={0.05}
+          max={0.9}
+          step={0.05}
+          format={(value) => `${Math.round(value * 100)} %`}
+        />
+        <p className="panel-note">
+          La pintura tiñe muros, aberturas y objetos asociados. Al seleccionar un expositor, sus
+          elementos se resaltan siempre, aunque solo estén activos los aros.
+        </p>
         <Switch
           checked={project.settings.showGrid}
           onChange={(showGrid) => setSettings({ showGrid })}
@@ -438,18 +490,15 @@ function ObjectInspector({
       ) : null}
 
       <Section title="Expositor asociado">
-        <Select
-          value={object.exhibitorId ?? ''}
-          onChange={(event) => assignObjectToExhibitor(object.id, event.target.value || null)}
-        >
-          <option value="">Sin asociar</option>
-          {project.exhibitors.map((exhibitor) => (
-            <option key={exhibitor.id} value={exhibitor.id}>
-              {exhibitor.name}{exhibitor.standCode ? ` · ${exhibitor.standCode}` : ''}
-            </option>
-          ))}
-        </Select>
-        <p className="panel-note">Al asociarlo, el objeto se resaltará al seleccionar ese expositor en el visor público.</p>
+        <ExhibitorSelect
+          project={project}
+          value={object.exhibitorId}
+          onChange={(exhibitorId) => assignObjectToExhibitor(object.id, exhibitorId)}
+        />
+        <p className="panel-note">
+          El objeto usa el color de su expositor en el visor y puede pintarse con él según la
+          configuración de «Vista y edición».
+        </p>
       </Section>
 
       <Section
@@ -516,11 +565,23 @@ function ExhibitorInspector({
   const updateExhibitor = useEditorStore((state) => state.updateExhibitor);
   const deleteExhibitor = useEditorStore((state) => state.deleteExhibitor);
   const assignObjectToExhibitor = useEditorStore((state) => state.assignObjectToExhibitor);
+  const setEdge = useEditorStore((state) => state.setEdge);
+  const updateInternalWall = useEditorStore((state) => state.updateInternalWall);
+  const updateOpening = useEditorStore((state) => state.updateOpening);
   const setSelection = useEditorStore((state) => state.setSelection);
   const toast = useUiStore((state) => state.toast);
   const photoRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const photo = notionPhotoUrl(exhibitor);
+  const associatedWallCount =
+    project.edges.filter((edge) => edge.exhibitorId === exhibitor.id).length +
+    project.internalWalls.filter((wall) => wall.exhibitorId === exhibitor.id).length;
+  const associatedOpeningCount = project.openings.filter(
+    (opening) => opening.exhibitorId === exhibitor.id,
+  ).length;
+
+  const wallKindLabel = (wallId: string) =>
+    getWallById(project, wallId)?.internalWall ? 'muro libre' : 'muro perimetral';
 
   const uploadPhoto = async (file: File | undefined) => {
     if (!file) return;
@@ -569,6 +630,15 @@ function ExhibitorInspector({
           <TextArea
             value={exhibitor.description}
             onChange={(event) => updateExhibitor(exhibitor.id, { description: event.target.value })}
+          />
+        </Field>
+        <Field
+          label="Color del expositor"
+          hint="Se usa en el marcador, en los aros y en la pintura de sus elementos."
+        >
+          <ColorInput
+            value={exhibitor.color ?? DEFAULT_EXHIBITOR_COLOR}
+            onChange={(color) => updateExhibitor(exhibitor.id, { color })}
           />
         </Field>
         {exhibitor.notionUrl ? (
@@ -695,6 +765,65 @@ function ExhibitorInspector({
           })}
           {project.objects.length === 0 ? <p className="panel-note">Aún no hay objetos en la escena.</p> : null}
         </div>
+      </Section>
+
+      <Section
+        title={`Muros y aberturas asociados (${associatedWallCount + associatedOpeningCount})`}
+      >
+        <div className="related-list">
+          {project.edges.map((edge, index) => (
+            <label className="check-row" key={edge.id}>
+              <input
+                type="checkbox"
+                checked={edge.exhibitorId === exhibitor.id}
+                onChange={(event) =>
+                  setEdge(index, {
+                    exhibitorId: event.target.checked ? exhibitor.id : null,
+                  })
+                }
+              />
+              <span>
+                Segmento {index + 1}
+                {edge.wall ? '' : ' · acceso'}
+              </span>
+            </label>
+          ))}
+          {project.internalWalls.map((wall, index) => (
+            <label className="check-row" key={wall.id}>
+              <input
+                type="checkbox"
+                checked={wall.exhibitorId === exhibitor.id}
+                onChange={(event) =>
+                  updateInternalWall(wall.id, {
+                    exhibitorId: event.target.checked ? exhibitor.id : null,
+                  })
+                }
+              />
+              <span>Muro libre {index + 1}</span>
+            </label>
+          ))}
+          {project.openings.map((opening, index) => (
+            <label className="check-row" key={opening.id}>
+              <input
+                type="checkbox"
+                checked={opening.exhibitorId === exhibitor.id}
+                onChange={(event) =>
+                  updateOpening(opening.id, {
+                    exhibitorId: event.target.checked ? exhibitor.id : null,
+                  })
+                }
+              />
+              <span>
+                {opening.kind === 'door' ? 'Puerta' : 'Ventana'} {index + 1} ·{' '}
+                {wallKindLabel(opening.wallId)}
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="panel-note">
+          Los elementos asociados adoptan el color del expositor en el visor. También puedes
+          asignarlos desde el inspector de cada muro o abertura.
+        </p>
       </Section>
 
       {Object.keys(exhibitor.metadata).length ? (
@@ -929,6 +1058,13 @@ function EdgeInspector({ project, index }: { project: Project; index: number }) 
       <Field label="Color">
         <ColorInput value={edge.color} onChange={(color) => setEdge(index, { color }, { coalesceKey: `edge-c:${index}` })} />
       </Field>
+      <Field label="Expositor asociado">
+        <ExhibitorSelect
+          project={project}
+          value={edge.exhibitorId}
+          onChange={(exhibitorId) => setEdge(index, { exhibitorId })}
+        />
+      </Field>
       {edge.wall ? (
         <>
           <div className="inline-actions">
@@ -991,6 +1127,7 @@ function InternalWallInspector({
   wall: InternalWall;
 }) {
   const updateInternalWall = useEditorStore((state) => state.updateInternalWall);
+  const insertVertexOnInternalWall = useEditorStore((state) => state.insertVertexOnInternalWall);
   const deleteInternalWall = useEditorStore((state) => state.deleteInternalWall);
   const addOpening = useEditorStore((state) => state.addOpening);
   const setSelection = useEditorStore((state) => state.setSelection);
@@ -1061,6 +1198,13 @@ function InternalWallInspector({
           onChange={(color) => updateInternalWall(wall.id, { color }, { coalesceKey: `wall-color:${wall.id}` })}
         />
       </Field>
+      <Field label="Expositor asociado">
+        <ExhibitorSelect
+          project={project}
+          value={wall.exhibitorId}
+          onChange={(exhibitorId) => updateInternalWall(wall.id, { exhibitorId })}
+        />
+      </Field>
       <div className="inline-actions">
         <Button
           size="sm"
@@ -1078,6 +1222,19 @@ function InternalWallInspector({
         >
           Añadir ventana
         </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            insertVertexOnInternalWall(wall.id, {
+              x: (wall.a.x + wall.b.x) / 2,
+              z: (wall.a.z + wall.b.z) / 2,
+            });
+            toast('Nodo insertado en el muro libre.', 'success');
+          }}
+        >
+          Insertar nodo
+        </Button>
       </div>
       {openings.length ? (
         <div className="prop-list">
@@ -1092,7 +1249,9 @@ function InternalWallInspector({
         </div>
       ) : null}
       <p className="panel-note">
-        Los muros libres dividen el espacio sin modificar el contorno de la planta.
+        Los muros libres dividen el espacio sin modificar el contorno de la planta. En 2D puedes
+        arrastrar sus nodos o hacer doble clic para insertar uno; en 3D, selecciona el muro y arrastra
+        los tiradores de sus extremos.
       </p>
     </Section>
   );
@@ -1195,6 +1354,13 @@ function OpeningInspector({
           />
         </Field>
       ) : null}
+      <Field label="Expositor asociado">
+        <ExhibitorSelect
+          project={project}
+          value={opening.exhibitorId}
+          onChange={(exhibitorId) => updateOpening(opening.id, { exhibitorId })}
+        />
+      </Field>
       <div className="inline-actions">
         <Button
           size="sm"
@@ -1205,7 +1371,8 @@ function OpeningInspector({
         </Button>
       </div>
       <p className="panel-note">
-        La abertura se recorta en el muro y se mantiene al mover o cambiar el grosor del muro.
+        La abertura se recorta en el muro y se mantiene al mover o cambiar el grosor del muro. En 3D
+        puedes seleccionarla y arrastrar sus tiradores para moverla, cambiar su ancho o su altura.
       </p>
     </Section>
   );

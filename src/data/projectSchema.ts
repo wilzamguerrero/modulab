@@ -2,6 +2,7 @@ import type { EdgeConfig, Project, Vec2, WallOpening } from '@/types/project';
 import { projectSchema } from '@/types/project';
 import { createEdgeConfig } from './defaults';
 import { createId } from '@/utils/id';
+import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
 import { getWallById, wallLength } from '@/utils/walls';
 
 export class ProjectParseError extends Error {
@@ -87,12 +88,36 @@ export function parseProject(raw: unknown): Project {
   // Esto repara también proyectos guardados antes de esta regla.
   project.exhibitors = project.exhibitors.map((exhibitor) => ({
     ...exhibitor,
+    color: exhibitor.color || DEFAULT_EXHIBITOR_COLOR,
     notionMissing: exhibitor.notionBlockId ? exhibitor.notionMissing : false,
   }));
+  normalizeExhibitorLinks(project);
   if (!project.lights.length) {
     project.lights = [];
   }
   return project;
+}
+
+/** Elimina vínculos huérfanos después de borrar o sincronizar expositores. */
+export function normalizeExhibitorLinks(project: Project): void {
+  const ids = new Set(project.exhibitors.map((exhibitor) => exhibitor.id));
+  const valid = (id: string | null | undefined) => (id && ids.has(id) ? id : null);
+  project.objects = project.objects.map((object) => ({
+    ...object,
+    exhibitorId: valid(object.exhibitorId),
+  }));
+  project.edges = project.edges.map((edge) => ({
+    ...edge,
+    exhibitorId: valid(edge.exhibitorId),
+  }));
+  project.internalWalls = project.internalWalls.map((wall) => ({
+    ...wall,
+    exhibitorId: valid(wall.exhibitorId),
+  }));
+  project.openings = project.openings.map((opening) => ({
+    ...opening,
+    exhibitorId: valid(opening.exhibitorId),
+  }));
 }
 
 export function normalizeOpenings(project: Project): WallOpening[] {
@@ -151,21 +176,24 @@ export function duplicateProject(project: Project, name?: string): Project {
     ...object,
     exhibitorId: object.exhibitorId ? exhibitorIdMap.get(object.exhibitorId) ?? null : object.exhibitorId,
   }));
+  const remapExhibitor = (exhibitorId: string | null | undefined) =>
+    exhibitorId ? exhibitorIdMap.get(exhibitorId) ?? null : null;
   const wallIdMap = new Map<string, string>();
   copy.edges = copy.edges.map((edge) => {
     const id = createId('edge');
     wallIdMap.set(edge.id, id);
-    return { ...edge, id };
+    return { ...edge, id, exhibitorId: remapExhibitor(edge.exhibitorId) };
   });
   copy.internalWalls = copy.internalWalls.map((wall) => {
     const id = createId('wall');
     wallIdMap.set(wall.id, id);
-    return { ...wall, id };
+    return { ...wall, id, exhibitorId: remapExhibitor(wall.exhibitorId) };
   });
   copy.openings = copy.openings.map((opening) => ({
     ...opening,
     id: createId('open'),
     wallId: wallIdMap.get(opening.wallId) ?? opening.wallId,
+    exhibitorId: remapExhibitor(opening.exhibitorId),
   }));
   return copy;
 }

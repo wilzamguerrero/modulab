@@ -10,7 +10,7 @@ import {
   PenTool,
   Ruler,
 } from 'lucide-react';
-import type { Project, ShadowQuality } from '@/types/project';
+import type { ExhibitorColorMode, Project, ShadowQuality } from '@/types/project';
 import {
   Badge,
   Button,
@@ -322,6 +322,31 @@ export function PlanPanel({ project }: { project: Project }) {
         <p className="panel-note">
           Más resolución mejora los bordes de las sombras, pero consume más GPU. En móviles,
           empieza por la calidad baja.
+        </p>
+        <Field label="Color de expositores">
+          <Select
+            value={project.settings.exhibitorColorMode}
+            onChange={(event) =>
+              setSettings({ exhibitorColorMode: event.target.value as ExhibitorColorMode })
+            }
+          >
+            <option value="rings">Aros de color</option>
+            <option value="paint">Pintar elementos</option>
+            <option value="both">Aros + pintura</option>
+          </Select>
+        </Field>
+        <RangeInput
+          label="Intensidad de pintura"
+          value={project.settings.exhibitorColorOpacity}
+          onChange={(exhibitorColorOpacity) => setSettings({ exhibitorColorOpacity })}
+          min={0.05}
+          max={0.9}
+          step={0.05}
+          format={(value) => `${Math.round(value * 100)} %`}
+        />
+        <p className="panel-note">
+          La pintura tiñe muros, aberturas y objetos asociados. La selección de un expositor
+          resalta sus elementos incluso en el modo de solo aros.
         </p>
         <Switch
           checked={project.settings.snapToGrid}

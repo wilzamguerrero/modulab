@@ -23,10 +23,11 @@ import {
   openingDefaults,
   primitiveSize,
 } from '@/data/defaults';
-import { normalizeEdges, normalizeOpenings } from '@/data/projectSchema';
+import { normalizeEdges, normalizeExhibitorLinks, normalizeOpenings } from '@/data/projectSchema';
 import { createId } from '@/utils/id';
+import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
 import { polygonCentroid } from '@/utils/geometry';
-import { getWallById, wallLength } from '@/utils/walls';
+import { getWallById, pointAtWallOffset, pointOffsetOnWall, wallLength } from '@/utils/walls';
 
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
@@ -100,6 +101,13 @@ interface EditorState {
   addInternalWall: (a: Vec2, b: Vec2) => string | null;
   addInternalWallLoop: (points: Vec2[]) => string[];
   updateInternalWall: (id: string, patch: Partial<InternalWall>, options?: PatchOptions) => void;
+  moveInternalWallPoint: (
+    id: string,
+    endpoint: 'a' | 'b',
+    point: Vec2,
+    options?: PatchOptions,
+  ) => void;
+  insertVertexOnInternalWall: (id: string, point: Vec2) => void;
   deleteInternalWall: (id: string) => void;
   addOpening: (wallId: string, kind: OpeningKind, offset: number) => string | null;
   updateOpening: (id: string, patch: Partial<WallOpening>, options?: PatchOptions) => void;
@@ -343,23 +351,40 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     if (!project) return;
     const count = project.floor.vertices.length;
     if (edgeIndex < 0 || edgeIndex >= count) return;
+    const source = project.edges[edgeIndex];
+    const sourceA = project.floor.vertices[edgeIndex];
+    const sourceB = project.floor.vertices[(edgeIndex + 1) % count];
+    const splitOffset = sourceA && sourceB
+      ? pointOffsetOnWall(point, sourceA, sourceB)
+      : 0;
     get().patchProject((draft) => {
       const vertices = [...draft.floor.vertices];
       vertices.splice(edgeIndex + 1, 0, { ...point });
       const edges = [...draft.edges];
-      const source = edges[edgeIndex];
-      edges.splice(
-        edgeIndex + 1,
-        0,
-        createEdgeConfig({
-          wall: source?.wall ?? true,
-          height: source?.height ?? draft.defaultWall.height,
-          thickness: source?.thickness ?? draft.defaultWall.thickness,
-          color: source?.color ?? draft.defaultWall.color,
-        }),
-      );
+      const current = edges[edgeIndex];
+      const newEdge = createEdgeConfig({
+        wall: current?.wall ?? true,
+        height: current?.height ?? draft.defaultWall.height,
+        thickness: current?.thickness ?? draft.defaultWall.thickness,
+        color: current?.color ?? draft.defaultWall.color,
+        exhibitorId: current?.exhibitorId ?? null,
+      });
+      edges.splice(edgeIndex + 1, 0, newEdge);
       draft.floor.vertices = vertices;
       draft.edges = edges;
+      // Las aberturas que quedan en la segunda mitad se trasladan al nuevo
+      // borde para que no se deformen al insertar un vértice.
+      if (current?.id) {
+        draft.openings = draft.openings.map((opening) => {
+          if (opening.wallId !== current.id || opening.offset <= splitOffset) return opening;
+          return {
+            ...opening,
+            wallId: newEdge.id,
+            offset: Math.max(0.1, opening.offset - splitOffset),
+          };
+        });
+      }
+      draft.openings = normalizeOpenings(draft);
     });
     set({ selection: { type: 'vertex', index: edgeIndex + 1 } });
   },
@@ -465,6 +490,61 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       draft.openings = normalizeOpenings(draft);
     }, { coalesceKey: `internal-wall:${id}`, ...options }),
 
+  moveInternalWallPoint: (id, endpoint, point, options = {}) =>
+    get().patchProject((draft) => {
+      const wall = draft.internalWalls.find((entry) => entry.id === id);
+      if (!wall) return;
+      const oldPoint = wall[endpoint];
+      const tolerance = 0.002;
+      draft.internalWalls = draft.internalWalls.map((entry) => {
+        if (entry.id === id) {
+          return { ...entry, [endpoint]: { ...point } };
+        }
+        const sharesA = Math.hypot(entry.a.x - oldPoint.x, entry.a.z - oldPoint.z) <= tolerance;
+        const sharesB = Math.hypot(entry.b.x - oldPoint.x, entry.b.z - oldPoint.z) <= tolerance;
+        if (!sharesA && !sharesB) return entry;
+        return {
+          ...entry,
+          ...(sharesA ? { a: { ...point } } : {}),
+          ...(sharesB ? { b: { ...point } } : {}),
+        };
+      });
+      draft.openings = normalizeOpenings(draft);
+    }, { coalesceKey: `internal-point:${id}:${endpoint}`, ...options }),
+
+  insertVertexOnInternalWall: (id, point) => {
+    const project = get().project;
+    const wall = project?.internalWalls.find((entry) => entry.id === id);
+    if (!project || !wall) return;
+    const length = wallLength(wall.a, wall.b);
+    const offset = pointOffsetOnWall(point, wall.a, wall.b);
+    if (offset <= 0.1 || length - offset <= 0.1) return;
+    const splitPoint = pointAtWallOffset(wall.a, wall.b, offset);
+    get().patchProject((draft) => {
+      const index = draft.internalWalls.findIndex((entry) => entry.id === id);
+      if (index < 0) return;
+      const current = draft.internalWalls[index];
+      const newWall = createInternalWall(splitPoint, current.b, {
+        height: current.height,
+        thickness: current.thickness,
+        color: current.color,
+        exhibitorId: current.exhibitorId ?? null,
+      });
+      draft.internalWalls[index] = { ...current, b: { ...splitPoint } };
+      draft.internalWalls.splice(index + 1, 0, newWall);
+      draft.openings = draft.openings.map((opening) => {
+        if (opening.wallId !== current.id || opening.offset <= offset) return opening;
+        return {
+          ...opening,
+          wallId: newWall.id,
+          offset: Math.max(0.1, opening.offset - offset),
+        };
+      });
+      draft.openings = normalizeOpenings(draft);
+    });
+    set({ selection: { type: 'internalWall', id } });
+  },
+
   deleteInternalWall: (id) => {
     get().patchProject((draft) => {
       draft.internalWalls = draft.internalWalls.filter((wall) => wall.id !== id);
@@ -498,6 +578,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       width,
       height,
       sillHeight,
+      exhibitorId: null,
     };
     get().patchProject((draft) => {
       draft.openings.push(opening);
@@ -663,6 +744,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       name: `Expositor ${project.exhibitors.length + 1}`,
       standCode: '',
       description: '',
+      color: DEFAULT_EXHIBITOR_COLOR,
       position: { ...position },
       rotation: 0,
       cameraPosition: camera.position,
@@ -699,6 +781,16 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       draft.objects = draft.objects.map((object) =>
         object.exhibitorId === id ? { ...object, exhibitorId: null } : object,
       );
+      draft.edges = draft.edges.map((edge) =>
+        edge.exhibitorId === id ? { ...edge, exhibitorId: null } : edge,
+      );
+      draft.internalWalls = draft.internalWalls.map((wall) =>
+        wall.exhibitorId === id ? { ...wall, exhibitorId: null } : wall,
+      );
+      draft.openings = draft.openings.map((opening) =>
+        opening.exhibitorId === id ? { ...opening, exhibitorId: null } : opening,
+      );
+      normalizeExhibitorLinks(draft);
     });
     const selection = get().selection;
     if (selection?.type === 'exhibitor' && selection.id === id) set({ selection: null });
@@ -711,6 +803,16 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       draft.objects = draft.objects.map((object) =>
         object.exhibitorId && missingIds.has(object.exhibitorId) ? { ...object, exhibitorId: null } : object,
       );
+      draft.edges = draft.edges.map((edge) =>
+        edge.exhibitorId && missingIds.has(edge.exhibitorId) ? { ...edge, exhibitorId: null } : edge,
+      );
+      draft.internalWalls = draft.internalWalls.map((wall) =>
+        wall.exhibitorId && missingIds.has(wall.exhibitorId) ? { ...wall, exhibitorId: null } : wall,
+      );
+      draft.openings = draft.openings.map((opening) =>
+        opening.exhibitorId && missingIds.has(opening.exhibitorId) ? { ...opening, exhibitorId: null } : opening,
+      );
+      normalizeExhibitorLinks(draft);
     }),
 
   addLight: (type) => {

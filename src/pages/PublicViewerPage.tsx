@@ -21,6 +21,7 @@ import { fetchPublished } from '@/services/publishing/publishService';
 import { notionPhotoUrl } from '@/services/notion/notionService';
 import { defaultExhibitorCamera, isExhibitorCameraUsable } from '@/data/defaults';
 import { pointInPolygon } from '@/utils/geometry';
+import { exhibitorColor } from '@/utils/exhibitorColors';
 
 function initials(name: string): string {
   const words = name
@@ -110,11 +111,20 @@ function ViewerSidebar({
                 className={`viewer-card${active ? ' is-active' : ''}`}
                 onClick={() => onSelect(exhibitor)}
               >
-                <span className="viewer-card-thumb">
+                <span
+                  className="viewer-card-thumb"
+                  style={{ borderColor: exhibitorColor(exhibitor) }}
+                >
                   {photo ? <img src={photo} alt="" /> : initials(exhibitor.name)}
                 </span>
                 <span className="viewer-card-main">
-                  <span className="viewer-card-name">{exhibitor.name || 'Expositor'}</span>
+                  <span className="viewer-card-name">
+                    <span
+                      className="color-dot"
+                      style={{ background: exhibitorColor(exhibitor) }}
+                    />
+                    {exhibitor.name || 'Expositor'}
+                  </span>
                   <span className="viewer-card-sub">
                     {exhibitor.standCode ? (
                       <>
@@ -152,15 +162,34 @@ function ExhibitorCard({
     (object) =>
       object.exhibitorId === exhibitor.id || exhibitor.relatedObjectIds.includes(object.id),
   );
+  const relatedWalls =
+    project.edges.filter((edge) => edge.exhibitorId === exhibitor.id).length +
+    project.internalWalls.filter((wall) => wall.exhibitorId === exhibitor.id).length;
+  const relatedOpenings = project.openings.filter(
+    (opening) => opening.exhibitorId === exhibitor.id,
+  ).length;
+  const relatedTotal = related.length + relatedWalls + relatedOpenings;
 
   return (
     <aside className="viewer-info-card" aria-live="polite">
       <div className="viewer-info-head">
         <div style={{ minWidth: 0 }}>
-          <h3>{exhibitor.name || 'Expositor'}</h3>
+          <h3>
+            <span
+              className="color-dot"
+              style={{ background: exhibitorColor(exhibitor) }}
+            />
+            {exhibitor.name || 'Expositor'}
+          </h3>
           <div className="viewer-info-meta">
             {exhibitor.standCode ? <Badge tone="accent">Stand {exhibitor.standCode}</Badge> : null}
-            {related.length ? <span>{related.length} objeto{related.length === 1 ? '' : 's'} asociado{related.length === 1 ? '' : 's'}</span> : null}
+            {relatedTotal ? (
+              <span>
+                {related.length} objeto{related.length === 1 ? '' : 's'} · {relatedWalls} muro
+                {relatedWalls === 1 ? '' : 's'} · {relatedOpenings} abertura
+                {relatedOpenings === 1 ? '' : 's'}
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="viewer-info-actions">

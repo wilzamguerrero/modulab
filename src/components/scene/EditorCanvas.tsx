@@ -9,6 +9,7 @@ import { SceneEnvironment } from './SceneEnvironment';
 import { SceneShadows } from './SceneShadows';
 import { SceneObjects } from './SceneObjects';
 import { ExhibitorMarkers } from './ExhibitorMarkers';
+import { WallEditHandles } from './WallEditHandles';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { pointInPolygon, polygonBounds, snapPoint } from '@/utils/geometry';
@@ -138,6 +139,61 @@ function CameraRig({ project, request }: { project: Project; request: CameraRequ
   return null;
 }
 
+function DebugBridge() {
+  const camera = useThree((state) => state.camera);
+  const scene = useThree((state) => state.scene);
+  const gl = useThree((state) => state.gl);
+  const controls = useThree((state) => state.controls) as
+    | { target?: THREE.Vector3 }
+    | null;
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const projectPoint = (point: [number, number, number]) => {
+      const vector = new THREE.Vector3(point[0], point[1], point[2]).project(camera);
+      const rect = gl.domElement.getBoundingClientRect();
+      return {
+        x: rect.left + (vector.x * 0.5 + 0.5) * rect.width,
+        y: rect.top + (-vector.y * 0.5 + 0.5) * rect.height,
+        z: vector.z,
+      };
+    };
+    const debug = {
+      camera: () => ({
+        position: camera.position.toArray(),
+        target: controls?.target?.toArray() ?? null,
+      }),
+      project: projectPoint,
+      handles: () => {
+        const result: Array<{
+          label: string;
+          world: number[];
+          screen: { x: number; y: number; z: number };
+        }> = [];
+        scene.traverse((object) => {
+          const label = object.userData?.modulabHandle;
+          if (typeof label !== 'string') return;
+          const world = object.getWorldPosition(new THREE.Vector3()).toArray();
+          result.push({
+            label,
+            world,
+            screen: projectPoint(world as [number, number, number]),
+          });
+        });
+        return result;
+      },
+    };
+    (window as unknown as { __modulabDebug?: typeof debug }).__modulabDebug = debug;
+    return () => {
+      if ((window as unknown as { __modulabDebug?: typeof debug }).__modulabDebug === debug) {
+        delete (window as unknown as { __modulabDebug?: typeof debug }).__modulabDebug;
+      }
+    };
+  }, [camera, controls, gl, scene]);
+
+  return null;
+}
+
 function EditorSceneContents({
   project,
   cameraRequest,
@@ -191,6 +247,8 @@ function EditorSceneContents({
     setSelection(null);
   };
 
+  const selectedExhibitorId = selection?.type === 'exhibitor' ? selection.id : null;
+
   const handleWallClick = (target: WallTarget, point: Vec2) => {
     const state = useEditorStore.getState();
     const activeProject = state.project;
@@ -234,15 +292,19 @@ function EditorSceneContents({
       <gridHelper args={[80, 80, '#1d252d', '#12181d']} position={[0, -0.015, 0]} />
       <Architecture
         project={project}
+        selectedExhibitorId={selectedExhibitorId}
         onFloorClick={handleFloorClick}
         onWallClick={handleWallClick}
+        onOpeningClick={(id) => setSelection({ type: 'opening', id })}
       />
       <SceneObjects
         project={project}
         editable
         selectedObjectId={selection?.type === 'object' ? selection.id : null}
+        selectedExhibitorId={selectedExhibitorId}
         onSelectObject={(id) => setSelection({ type: 'object', id })}
       />
+      <WallEditHandles />
       <ExhibitorMarkers
         exhibitors={project.exhibitors}
         editor
@@ -259,6 +321,7 @@ function EditorSceneContents({
       />
       <CameraRig project={project} request={cameraRequest} />
       <FloorDropHandler />
+      <DebugBridge />
     </>
   );
 }

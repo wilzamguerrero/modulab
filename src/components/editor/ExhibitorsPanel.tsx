@@ -15,6 +15,7 @@ import { useUiStore } from '@/store/uiStore';
 import { notionPhotoUrl, syncPeopleIntoProject } from '@/services/notion/notionService';
 import { polygonBounds, polygonCentroid, pointInPolygon } from '@/utils/geometry';
 import { formatRelativeDate } from '@/utils/format';
+import { exhibitorColor } from '@/utils/exhibitorColors';
 
 function freePosition(project: Project): Vec2 {
   if (project.floor.vertices.length < 3) return { x: 0, z: 0 };
@@ -101,8 +102,9 @@ export function ExhibitorsPanel({
           ) : null}
         </div>
         <p className="panel-note">
-          Cada expositor es un punto de interés con ficha, fotografía y cámara propia. En el visor
-          público se puede saltar a su stand.
+          Cada expositor es un punto de interés con ficha, fotografía, color y cámara propia. En el
+          visor público se puede saltar a su stand y resaltar los muros, aberturas y objetos que
+          tenga asociados.
         </p>
       </section>
 
@@ -180,7 +182,10 @@ export function ExhibitorsPanel({
                   setView('3d');
                 }}
               >
-                <div className="list-thumb">
+                <div
+                  className="list-thumb"
+                  style={{ borderColor: exhibitorColor(exhibitor) }}
+                >
                   {photo ? (
                     <img
                       src={photo}
@@ -194,7 +199,13 @@ export function ExhibitorsPanel({
                   )}
                 </div>
                 <div className="list-card-main">
-                  <div className="list-card-title">{exhibitor.name || 'Sin nombre'}</div>
+                  <div className="list-card-title">
+                    <span
+                      className="color-dot"
+                      style={{ background: exhibitorColor(exhibitor) }}
+                    />
+                    {exhibitor.name || 'Sin nombre'}
+                  </div>
                   <div className="list-card-sub">
                     {exhibitor.standCode || 'Sin stand'}
                     {exhibitor.notionMissing ? ' · no está en Notion' : ''}

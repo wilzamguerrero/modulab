@@ -62,6 +62,8 @@ export const edgeConfigSchema = z.object({
   height: z.number().min(0.05).max(20).default(2.8),
   thickness: z.number().min(0.02).max(2).default(0.14),
   color: z.string().default('#e6e0d4'),
+  /** Expositor al que pertenece este muro perimetral. */
+  exhibitorId: z.string().nullable().optional(),
 });
 
 export const internalWallSchema = z.object({
@@ -71,6 +73,8 @@ export const internalWallSchema = z.object({
   height: z.number().min(0.05).max(20).default(2.8),
   thickness: z.number().min(0.02).max(2).default(0.14),
   color: z.string().default('#e6e0d4'),
+  /** Expositor al que pertenece este muro libre. */
+  exhibitorId: z.string().nullable().optional(),
 });
 
 export const openingKindSchema = z.enum(['door', 'window']);
@@ -85,6 +89,8 @@ export const wallOpeningSchema = z.object({
   width: z.number().min(0.2).max(20).default(0.9),
   height: z.number().min(0.2).max(20).default(2.1),
   sillHeight: z.number().min(0).max(20).default(0),
+  /** Expositor al que pertenece esta puerta o ventana. */
+  exhibitorId: z.string().nullable().optional(),
 });
 
 export const floorPlanSchema = z.object({
@@ -128,6 +134,8 @@ export const exhibitorSchema = z.object({
   name: z.string(),
   standCode: z.string().default(''),
   description: z.string().default(''),
+  /** Color con el que se identifica el expositor en el editor y el visor. */
+  color: z.string().optional(),
   photoUrl: z.string().optional(),
   photoNotionBlockId: z.string().optional(),
   notionBlockId: z.string().optional(),
@@ -155,6 +163,7 @@ export const publishedInfoSchema = z.object({
 });
 
 export const shadowQualitySchema = z.enum(['low', 'medium', 'high']);
+export const exhibitorColorModeSchema = z.enum(['rings', 'paint', 'both']);
 
 export const projectSettingsSchema = z.object({
   gridSize: z.number().min(0.05).max(2).default(0.25),
@@ -163,6 +172,10 @@ export const projectSettingsSchema = z.object({
   autoSaveNotion: z.boolean().default(true),
   showDimensions: z.boolean().default(true),
   shadowQuality: shadowQualitySchema.default('medium'),
+  /** Aros, pintura de elementos asociados o ambas cosas. */
+  exhibitorColorMode: exhibitorColorModeSchema.default('rings'),
+  /** Intensidad de la pintura de elementos asociados (0–1). */
+  exhibitorColorOpacity: z.number().min(0).max(1).default(0.35),
 });
 
 export const projectSchema = z
@@ -209,6 +222,7 @@ export type Exhibitor = z.infer<typeof exhibitorSchema>;
 export type ProjectCamera = z.infer<typeof projectCameraSchema>;
 export type PublishedInfo = z.infer<typeof publishedInfoSchema>;
 export type ShadowQuality = z.infer<typeof shadowQualitySchema>;
+export type ExhibitorColorMode = z.infer<typeof exhibitorColorModeSchema>;
 export type ProjectSettings = z.infer<typeof projectSettingsSchema>;
 export type Project = z.infer<typeof projectSchema>;
 

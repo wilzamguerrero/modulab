@@ -12,6 +12,7 @@ export interface WallDefinition {
   height: number;
   thickness: number;
   color: string;
+  exhibitorId?: string | null;
   edge?: EdgeConfig;
   internalWall?: InternalWall;
 }
@@ -58,6 +59,7 @@ export function getWalls(project: Project): WallDefinition[] {
       height: edge.height,
       thickness: edge.thickness,
       color: edge.color,
+      exhibitorId: edge.exhibitorId ?? null,
       edge,
     });
   });
@@ -70,6 +72,7 @@ export function getWalls(project: Project): WallDefinition[] {
       height: wall.height,
       thickness: wall.thickness,
       color: wall.color,
+      exhibitorId: wall.exhibitorId ?? null,
       internalWall: wall,
     });
   }
@@ -91,6 +94,7 @@ export function getWallById(project: Project, wallId: string): WallDefinition | 
       height: edge.height,
       thickness: edge.thickness,
       color: edge.color,
+      exhibitorId: edge.exhibitorId ?? null,
       edge,
     };
   }
@@ -104,6 +108,7 @@ export function getWallById(project: Project, wallId: string): WallDefinition | 
     height: internalWall.height,
     thickness: internalWall.thickness,
     color: internalWall.color,
+    exhibitorId: internalWall.exhibitorId ?? null,
     internalWall,
   };
 }
