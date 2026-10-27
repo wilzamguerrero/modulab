@@ -328,6 +328,25 @@ export async function getPageTitle(pageId: string, configOverride?: NotionConfig
   return undefined;
 }
 
+/**
+ * Valida el token y devuelve el título de la página padre. Lanza si el token
+ * es inválido (401/403), para que el estado refleje el error real.
+ */
+export async function verifyParentPage(
+  pageId: string,
+  configOverride?: NotionConfig,
+): Promise<string | undefined> {
+  const page = await retrievePage(pageId, configOverride);
+  const properties = page?.properties || {};
+  for (const property of Object.values<any>(properties)) {
+    if (property?.type === 'title') {
+      const title = richTextToPlain(property.title).trim();
+      if (title) return title;
+    }
+  }
+  return undefined;
+}
+
 export const PROJECT_MARKER = '__modulab_project__';
 export const PUBLISHED_MARKER = '__modulab_published__';
 

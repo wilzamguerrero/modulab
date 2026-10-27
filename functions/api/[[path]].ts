@@ -66,14 +66,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (path === '/notion/config') {
       if (method === 'GET') {
         const config = await loadConfig(env);
-        const configured = Boolean(config.notionSecret && config.parentPageId);
+        let configured = Boolean(config.notionSecret && config.parentPageId);
         let parentPageTitle: string | undefined;
         let error: string | undefined;
         if (configured) {
           try {
-            parentPageTitle = await notion.getPageTitle(config.parentPageId, config);
+            parentPageTitle = await notion.verifyParentPage(config.parentPageId, config);
+            if (!parentPageTitle) {
+              error = 'La página responde, pero no se pudo leer su título. Verifica que esté compartida con la integración.';
+            }
           } catch (err) {
             error = (err as Error).message;
+            const status = Number((err as any)?.status);
+            if (status === 401 || status === 403) configured = false;
           }
         }
         return json({
@@ -93,21 +98,24 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           return jsonError(400, 'Indica el token y la página padre de Notion.');
         }
         const config = await saveConfig(env, { notionSecret, parentPageId });
+        let configured = Boolean(config.notionSecret && config.parentPageId);
         let parentPageTitle: string | undefined;
         let error: string | undefined;
-        if (config.notionSecret && config.parentPageId) {
+        if (configured) {
           try {
-            parentPageTitle = await notion.getPageTitle(config.parentPageId, config);
+            parentPageTitle = await notion.verifyParentPage(config.parentPageId, config);
             if (!parentPageTitle) {
               error = 'La página responde, pero no se pudo leer su título. Verifica que esté compartida con la integración.';
             }
           } catch (err) {
             error = (err as Error).message;
+            const status = Number((err as any)?.status);
+            if (status === 401 || status === 403) configured = false;
           }
         }
         return json({
           success: true,
-          configured: Boolean(config.notionSecret && config.parentPageId),
+          configured,
           parentPageId: config.parentPageId,
           parentPageTitle,
           maskedToken: maskedToken(config.notionSecret),

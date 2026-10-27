@@ -1145,4 +1145,4 @@ Después:
 Si se despliega solo la carpeta `dist/`, los modelos deben estar en `dist/catalog/` (Vite copia `public/` al compilar) o mantenerse `public/catalog/` junto al servidor. Para añadir modelos después de compilar sin recompilar, conservar `public/catalog/` en el servidor; `resolveCatalogDir()` prioriza esa carpeta.
 
 No hace falta renombrar los archivos para que aparezcan: el nombre del archivo, sin extensión, es el nombre visible. Solo conviene usar nombres claros y sin caracteres problemáticos.
- 
+  
