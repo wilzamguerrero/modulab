@@ -61,6 +61,24 @@ function isSchemaDefaultCamera(
   );
 }
 
+function sameVec(a: [number, number, number], b: [number, number, number]): boolean {
+  return Math.abs(a[0] - b[0]) < 1e-3 && Math.abs(a[1] - b[1]) < 1e-3 && Math.abs(a[2] - b[2]) < 1e-3;
+}
+
+/**
+ * Detecta cámaras duplicadas entre fichas. Si varias comparten exactamente la
+ * misma cámara (dato heredado o copiado) no sirven para viajar a cada stand:
+ * en ese caso el visor recalcula una vista desde la posición del expositor.
+ */
+function sharesCameraWithOther(exhibitor: Exhibitor, project: Project): boolean {
+  return project.exhibitors.some(
+    (other) =>
+      other.id !== exhibitor.id &&
+      sameVec(other.cameraPosition, exhibitor.cameraPosition) &&
+      sameVec(other.cameraTarget, exhibitor.cameraTarget),
+  );
+}
+
 /**
  * Usa la cámara configurada por el editor, pero sustituye vistas imposibles
  * (vectores inválidos, cámara bajo el piso o cámara pegada al objetivo) y la
@@ -84,6 +102,7 @@ export function focusCameraFor(
     finiteVector(position) &&
     finiteVector(target) &&
     !isSchemaDefaultCamera(position, target) &&
+    !sharesCameraWithOther(exhibitor, project) &&
     position[1] >= 0.35 &&
     distance >= 0.8 &&
     targetInside &&
