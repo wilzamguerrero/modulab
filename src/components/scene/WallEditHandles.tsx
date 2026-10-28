@@ -18,6 +18,7 @@ import {
 const HANDLE_COLOR = '#d7ff4f';
 const WIDTH_HANDLE_COLOR = '#7dd3fc';
 const HEIGHT_HANDLE_COLOR = '#ffcc66';
+const VERTEX_HANDLE_COLOR = '#9be7ff';
 const MIN_OPENING_WIDTH = 0.2;
 const MIN_OPENING_HEIGHT = 0.2;
 
@@ -140,6 +141,30 @@ function Handle({
         opacity={0.96}
       />
     </mesh>
+  );
+}
+
+/** Arrastra un vértice del perímetro (los muros iniciales) sobre el suelo. */
+function FloorVertexHandle({ index }: { index: number }) {
+  const moveVertex = useEditorStore((state) => state.moveVertex);
+  const snap = useEditorStore((state) => state.project?.settings.snapToGrid ?? false);
+  const gridSize = useEditorStore((state) => state.project?.settings.gridSize ?? 0.25);
+  const vertex = useEditorStore((state) => state.project?.floor.vertices[index]);
+  const drag = useHistoryDrag(
+    () => undefined,
+    (point) => {
+      const next = snap ? snapPoint(point, gridSize) : point;
+      moveVertex(index, next, { history: false, touch: false });
+    },
+  );
+  if (!vertex) return null;
+  return (
+    <Handle
+      position={[vertex.x, 0.14, vertex.z]}
+      color={VERTEX_HANDLE_COLOR}
+      radius={0.12}
+      onPointerDown={drag.start}
+    />
   );
 }
 
@@ -311,6 +336,22 @@ export function WallEditHandles() {
   const project = useEditorStore((state) => state.project);
   const selection = useEditorStore((state) => state.selection);
   if (!project || !selection) return null;
+
+  if (selection.type === 'vertex') {
+    return <FloorVertexHandle index={selection.index} />;
+  }
+
+  if (selection.type === 'edge') {
+    const count = project.floor.vertices.length;
+    if (selection.index < 0 || selection.index >= count) return null;
+    const next = (selection.index + 1) % count;
+    return (
+      <group>
+        <FloorVertexHandle index={selection.index} />
+        <FloorVertexHandle index={next} />
+      </group>
+    );
+  }
 
   if (selection.type === 'internalWall') {
     const wall = project.internalWalls.find((entry) => entry.id === selection.id);

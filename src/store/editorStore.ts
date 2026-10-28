@@ -31,10 +31,23 @@ import { getWallById, pointAtWallOffset, pointOffsetOnWall, wallLength } from '@
 
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
+/** Eje al que se puede bloquear el segundo punto de una medida. */
+export type MeasureAxis = 'none' | 'x' | 'y' | 'z';
+
 interface PatchOptions {
   history?: boolean;
   coalesceKey?: string;
   touch?: boolean;
+}
+
+function revokePreviewUrl(url?: string | null): void {
+  if (url && url.startsWith('blob:')) {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // Ignorar si ya no es válido.
+    }
+  }
 }
 
 export interface Measurement {
@@ -162,10 +175,19 @@ interface EditorState {
   measureMode: boolean;
   measurePending: Vec3 | null;
   measurements: Measurement[];
+  /** Eje bloqueado para el segundo punto; 'none' = libre. */
+  measureAxis: MeasureAxis;
+  /** Si es false, los puntos no se pegan a la superficie del splat/geometría. */
+  measureSnap: boolean;
+  /** Punto bajo el cursor mientras se mide, para la guía en vivo. */
+  measureHover: Vec3 | null;
   toggleMeasureMode: () => void;
   addMeasurePoint: (point: Vec3) => void;
   updateMeasurementPoint: (id: string, end: 'a' | 'b', point: Vec3) => void;
   clearMeasurements: () => void;
+  setMeasureAxis: (axis: MeasureAxis) => void;
+  setMeasureSnap: (snap: boolean) => void;
+  setMeasureHover: (point: Vec3 | null) => void;
 
   setSettings: (patch: Partial<Project['settings']>) => void;
 }
@@ -198,8 +220,12 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   measureMode: false,
   measurePending: null,
   measurements: [],
+  measureAxis: 'none',
+  measureSnap: true,
+  measureHover: null,
 
-  loadProjectData: (project) =>
+  loadProjectData: (project) => {
+    revokePreviewUrl(get().environmentPreview?.url);
     set({
       project,
       projectId: project.id,
@@ -219,9 +245,16 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       notionSaveStatus: 'idle',
       notionError: null,
       lastSavedAt: new Date().toISOString(),
-    }),
+      environmentPreview: null,
+      measureMode: false,
+      measurePending: null,
+      measureHover: null,
+      measurements: [],
+    });
+  },
 
-  clearProject: () =>
+  clearProject: () => {
+    revokePreviewUrl(get().environmentPreview?.url);
     set({
       project: null,
       projectId: null,
@@ -233,7 +266,12 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       pendingHistory: null,
       dirty: false,
       saveStatus: 'idle',
-    }),
+      environmentPreview: null,
+      measurePending: null,
+      measureHover: null,
+      measurements: [],
+    });
+  },
 
   setLoading: (loading) => set({ loading }),
   setLoadError: (loadError) => set({ loadError, loading: false }),
@@ -918,12 +956,19 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       draft.environment = { ...draft.environment, ...patch };
     }, { coalesceKey: 'environment' }),
 
-  setEnvironmentPreview: (preview) => set({ environmentPreview: preview }),
+  setEnvironmentPreview: (preview) =>
+    set((state) => {
+      if (state.environmentPreview?.url !== preview?.url) {
+        revokePreviewUrl(state.environmentPreview?.url);
+      }
+      return { environmentPreview: preview };
+    }),
 
   setEnvironmentGizmo: (enabled) => set({ environmentGizmo: enabled }),
   setEnvironmentGizmoMode: (mode) => set({ environmentGizmoMode: mode }),
 
-  toggleMeasureMode: () => set((state) => ({ measureMode: !state.measureMode, measurePending: null })),
+  toggleMeasureMode: () =>
+    set((state) => ({ measureMode: !state.measureMode, measurePending: null, measureHover: null })),
   addMeasurePoint: (point) =>
     set((state) => {
       if (!state.measurePending) return { measurePending: point };
@@ -936,7 +981,10 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
         measurement.id === id ? { ...measurement, [end]: point } : measurement,
       ),
     })),
-  clearMeasurements: () => set({ measurements: [], measurePending: null }),
+  clearMeasurements: () => set({ measurements: [], measurePending: null, measureHover: null }),
+  setMeasureAxis: (measureAxis) => set({ measureAxis }),
+  setMeasureSnap: (measureSnap) => set({ measureSnap }),
+  setMeasureHover: (measureHover) => set({ measureHover }),
 
   setSettings: (patch) =>
     get().patchProject((draft) => {

@@ -630,3 +630,170 @@ export async function fetchNotionImage(
     contentType: response.headers.get('content-type') || 'image/jpeg',
   };
 }
+
+// --- Subida de archivos grandes (Gaussian splat) a Notion -------------------
+
+export const SPLAT_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MiB por parte
+const MULTI_PART_THRESHOLD = 20 * 1024 * 1024; // > 20 MiB usa multi-part
+const MAX_UPLOAD_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB (plan de Notion de pago)
+
+export interface FileUploadInit {
+  id: string;
+  mode: 'single_part' | 'multi_part';
+  numberOfParts: number;
+  chunkSize: number;
+  /** Nombre finalmente aceptado por Notion (puede cambiar de extensión). */
+  filename: string;
+}
+
+const UPLOAD_EXTENSION_FALLBACKS: Array<{ ext: string; contentType: string }> = [
+  { ext: '.bin', contentType: 'application/octet-stream' },
+  { ext: '.zip', contentType: 'application/zip' },
+  { ext: '.txt', contentType: 'text/plain' },
+];
+
+function buildUploadNameCandidates(
+  filename: string,
+  contentType: string,
+): Array<{ filename: string; contentType: string }> {
+  const dot = filename.lastIndexOf('.');
+  const base = dot > 0 ? filename.slice(0, dot) : filename || 'splat';
+  const originalExt = dot > 0 ? filename.slice(dot) : '';
+  const candidates: Array<{ filename: string; contentType: string }> = [
+    { filename, contentType: contentType || 'application/octet-stream' },
+  ];
+  for (const fallback of UPLOAD_EXTENSION_FALLBACKS) {
+    candidates.push({
+      filename: `${base}${originalExt}${fallback.ext}`,
+      contentType: fallback.contentType,
+    });
+  }
+  return candidates;
+}
+
+function isUnsupportedExtensionError(error: unknown): boolean {
+  return (
+    error instanceof NotionError && /extension that is not supported/i.test(error.message)
+  );
+}
+
+export async function createFileUpload(
+  opts: { filename: string; contentType: string; sizeBytes: number },
+  configOverride?: NotionConfig,
+): Promise<FileUploadInit> {
+  const config = configOverride ?? loadNotionConfig();
+  if (!config.notionSecret) throw new NotionError('Notion no está configurado.', 400);
+  if (opts.sizeBytes > MAX_UPLOAD_SIZE) {
+    throw new NotionError('El archivo supera el límite de 5 GB de Notion.', 413);
+  }
+  const isMulti = opts.sizeBytes > MULTI_PART_THRESHOLD;
+  const numberOfParts = isMulti ? Math.ceil(opts.sizeBytes / SPLAT_CHUNK_SIZE) : 1;
+
+  let lastError: unknown = null;
+  for (const candidate of buildUploadNameCandidates(opts.filename, opts.contentType)) {
+    const body: Record<string, unknown> = {
+      filename: candidate.filename,
+      content_type: candidate.contentType,
+    };
+    if (isMulti) {
+      body.mode = 'multi_part';
+      body.number_of_parts = numberOfParts;
+    }
+    try {
+      const upload = await notionFetch<any>('POST', '/file_uploads', body, config);
+      if (!upload?.id) throw new NotionError('No se pudo crear la subida en Notion.', 502);
+      return {
+        id: upload.id,
+        mode: isMulti ? 'multi_part' : 'single_part',
+        numberOfParts,
+        // En single-part la única parte es el archivo completo (no 10 MB).
+        chunkSize: isMulti ? SPLAT_CHUNK_SIZE : opts.sizeBytes,
+        filename: candidate.filename,
+      };
+    } catch (error) {
+      if (!isUnsupportedExtensionError(error)) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new NotionError('Notion no aceptó el tipo de archivo del entorno.', 400);
+}
+
+/** Reenvía el cuerpo multipart tal cual (sin parsearlo) para no gastar CPU. */
+export async function sendFileUploadPart(
+  uploadId: string,
+  contentType: string,
+  body: Uint8Array | ReadableStream<Uint8Array>,
+  configOverride?: NotionConfig,
+): Promise<void> {
+  const config = configOverride ?? loadNotionConfig();
+  if (!config.notionSecret) throw new NotionError('Notion no está configurado.', 400);
+  const res = await fetch(`${NOTION_BASE}/file_uploads/${uploadId}/send`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.notionSecret}`,
+      'Notion-Version': NOTION_VERSION,
+      'Content-Type': contentType,
+    },
+    // Node acepta Buffer/Uint8Array en runtime; los tipos DOM piden BodyInit.
+    body: body as unknown as BodyInit,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const transient = [429, 500, 502, 503, 504, 529].includes(res.status);
+    throw new NotionError(`Notion rechazó el trozo: ${res.status} ${text}`.trim(), transient ? 503 : 502);
+  }
+}
+
+export async function completeFileUpload(
+  uploadId: string,
+  configOverride?: NotionConfig,
+): Promise<void> {
+  const config = configOverride ?? loadNotionConfig();
+  if (!config.notionSecret) throw new NotionError('Notion no está configurado.', 400);
+  const res = await fetch(`${NOTION_BASE}/file_uploads/${uploadId}/complete`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.notionSecret}`,
+      'Notion-Version': NOTION_VERSION,
+      'Content-Type': 'application/json',
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new NotionError(`Notion rechazó el cierre de subida: ${res.status} ${text}`.trim(), 502);
+  }
+  const data = (await res.json().catch(() => ({}))) as any;
+  if (data?.status && data.status !== 'uploaded' && data.status !== 'complete') {
+    throw new NotionError(`La subida quedó en estado «${data.status}».`, 502);
+  }
+}
+
+export async function appendFileUploadBlock(
+  parentBlockId: string,
+  uploadId: string,
+  configOverride?: NotionConfig,
+): Promise<string> {
+  const [block] = await appendChildren(
+    parentBlockId,
+    [{ object: 'block', type: 'file', file: { type: 'file_upload', file_upload: { id: uploadId } } }],
+    configOverride,
+  );
+  if (!block?.id) throw new NotionError('Notion no devolvió el bloque de archivo.', 502);
+  return block.id;
+}
+
+export async function getFileBlockUrl(
+  blockId: string,
+  configOverride?: NotionConfig,
+): Promise<string | null> {
+  const block = await retrieveBlock(blockId, configOverride);
+  return (
+    block.file?.file?.url ||
+    block.file?.external?.url ||
+    block.image?.file?.url ||
+    block.image?.external?.url ||
+    null
+  );
+}

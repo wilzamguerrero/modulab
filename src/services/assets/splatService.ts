@@ -15,6 +15,8 @@ interface InitResponse {
   mode: 'single_part' | 'multi_part';
   numberOfParts: number;
   chunkSize: number;
+  /** Nombre aceptado por Notion; puede llevar otra extensión que el original. */
+  filename?: string;
 }
 
 export interface UploadSplatResult {
@@ -37,12 +39,14 @@ export async function uploadSplatToNotion(
     sizeBytes: file.size,
   });
 
+  const partName = init.filename || file.name;
+
   for (let part = 1; part <= init.numberOfParts; part++) {
     const start = (part - 1) * init.chunkSize;
     const end = Math.min(start + init.chunkSize, file.size);
     const form = new FormData();
     if (init.mode === 'multi_part') form.append('part_number', String(part));
-    form.append('file', file.slice(start, end), file.name);
+    form.append('file', file.slice(start, end), partName);
 
     const response = await fetch(`/api/splat/part?upload_id=${encodeURIComponent(init.uploadId)}`, {
       method: 'POST',

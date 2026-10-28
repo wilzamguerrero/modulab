@@ -2655,6 +2655,63 @@ input[type="range"] {
   flex: 0 0 auto;
 }
 
+.measure-bar {
+  position: absolute;
+  left: 50%;
+  top: 60px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(18, 23, 28, 0.95);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
+  color: var(--text-soft);
+  font-size: 10px;
+  white-space: nowrap;
+  z-index: 9;
+}
+
+.measure-bar span {
+  padding: 0 4px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.measure-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 4px 7px;
+  border-radius: 6px;
+}
+
+.measure-bar button:hover {
+  color: var(--text);
+}
+
+.measure-bar button.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.measure-bar .measure-sep {
+  display: block;
+  flex: 0 0 auto;
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  padding: 0;
+  background: var(--border);
+}
+
 .plan-empty {
   position: absolute;
   left: 50%;

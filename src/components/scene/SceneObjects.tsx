@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
-import { TransformControls } from '@react-three/drei';
+import { Html, TransformControls } from '@react-three/drei';
 import type { MaterialOverride, PrimitiveShape, Project, SceneObject } from '@/types/project';
 import {
   applyOverridesToMaterials,
@@ -24,6 +24,18 @@ interface ObjectTint {
   color: string;
   opacity: number;
 }
+
+const DIMENSION_LABEL_STYLE: CSSProperties = {
+  background: 'rgba(10, 13, 16, 0.9)',
+  border: '1px solid #d7ff4f',
+  color: '#d7ff4f',
+  padding: '2px 7px',
+  borderRadius: 4,
+  fontSize: 11,
+  lineHeight: 1.2,
+  whiteSpace: 'nowrap',
+  fontFamily: 'var(--mono)',
+};
 
 function disposeCloneMaterials(root: THREE.Object3D) {
   const seen = new Set<THREE.Material>();
@@ -241,6 +253,7 @@ function EditableObjectInstance({
   onSelect?: (id: string) => void;
 }) {
   const [group, setGroup] = useState<THREE.Group | null>(null);
+  const gizmoRef = useRef<any>(null);
   const transformMode = useEditorStore((state) => state.transformMode);
   const beginHistory = useEditorStore((state) => state.beginHistory);
   const commitHistory = useEditorStore((state) => state.commitHistory);
@@ -277,6 +290,26 @@ function EditableObjectInstance({
     markSceneDragEnd();
   };
 
+  // `onMouseUp` no siempre se dispara; confirmamos el fin del arrastre también
+  // con el evento del propio gizmo para no perder la transformación.
+  const finishRef = useRef(finishTransform);
+  useEffect(() => {
+    finishRef.current = finishTransform;
+  });
+  useEffect(() => {
+    const gizmo = gizmoRef.current;
+    if (!gizmo) return;
+    const onDragging = (event: { value: boolean }) => {
+      if (!event.value) finishRef.current();
+    };
+    gizmo.addEventListener('dragging-changed', onDragging);
+    return () => gizmo.removeEventListener('dragging-changed', onDragging);
+  }, [group, selected]);
+
+  const dimensions = object.size
+    ? object.size.map((value, index) => Math.abs(value * object.transform.scale[index]))
+    : null;
+
   return (
     <>
       <group
@@ -296,8 +329,26 @@ function EditableObjectInstance({
           <SelectionRing object={object} highlighted={highlighted} color={ringColor} />
         ) : null}
       </group>
+      {selected && dimensions ? (
+        <Html
+          center
+          position={[
+            object.transform.position[0],
+            object.transform.position[1] + dimensions[1] + 0.24,
+            object.transform.position[2],
+          ]}
+          zIndexRange={[110, 0]}
+          style={{ pointerEvents: 'none' }}
+        >
+          <div style={DIMENSION_LABEL_STYLE}>
+            A {dimensions[0].toFixed(2)} · H {dimensions[1].toFixed(2)} · F{' '}
+            {dimensions[2].toFixed(2)} m
+          </div>
+        </Html>
+      ) : null}
       {selected && group ? (
         <TransformControls
+          ref={gizmoRef}
           object={group}
           mode={transformMode}
           size={0.72}

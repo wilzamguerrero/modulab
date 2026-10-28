@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Globe2, HardDriveUpload, Upload } from 'lucide-react';
 import type { Project, Vec3 } from '@/types/project';
-import { Badge, Button, Field, NumberInput, Switch, TextInput } from '@/components/ui';
+import { Badge, Button, Field, NumberInput, Select, Switch, TextInput } from '@/components/ui';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { detectSplatFormat, uploadSplatToNotion } from '@/services/assets/splatService';
@@ -48,6 +48,10 @@ export function EnvironmentPanel({ project }: { project: Project }) {
   const toggleMeasureMode = useEditorStore((state) => state.toggleMeasureMode);
   const measurements = useEditorStore((state) => state.measurements);
   const clearMeasurements = useEditorStore((state) => state.clearMeasurements);
+  const measureAxis = useEditorStore((state) => state.measureAxis);
+  const setMeasureAxis = useEditorStore((state) => state.setMeasureAxis);
+  const measureSnap = useEditorStore((state) => state.measureSnap);
+  const setMeasureSnap = useEditorStore((state) => state.setMeasureSnap);
   const toast = useUiStore((state) => state.toast);
 
   const [urlInput, setUrlInput] = useState(project.environment.url ?? '');
@@ -56,7 +60,6 @@ export function EnvironmentPanel({ project }: { project: Project }) {
   const [progress, setProgress] = useState(0);
   const [realLength, setRealLength] = useState(1.5);
   const fileRef = useRef<HTMLInputElement>(null);
-  const objectUrlRef = useRef<string | null>(null);
   const env = project.environment;
 
   const lastMeasurement = measurements[measurements.length - 1];
@@ -83,29 +86,17 @@ export function EnvironmentPanel({ project }: { project: Project }) {
   };
 
   const clearPreview = () => {
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = null;
-    }
+    // El store revoca el blob URL anterior al reemplazarlo por null.
     setEnvironmentPreview(null);
     setSelectedFile(null);
   };
 
-  useEffect(() => {
-    return () => {
-      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-      setEnvironmentPreview(null);
-    };
-    // Solo al desmontar.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const chooseLocalFile = (file?: File) => {
     if (!file) return;
-    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     const url = URL.createObjectURL(file);
-    objectUrlRef.current = url;
     setSelectedFile(file);
+    // El blob vive en el store, así que el splat sigue visible aunque cambies
+    // de pestaña o de vista (no se revoca al desmontar este panel).
     setEnvironmentPreview({ url, format: detectSplatFormat(file.name) });
     setEnvironment({ visible: true });
     toast('Vista previa local cargada.', 'success');
@@ -119,7 +110,15 @@ export function EnvironmentPanel({ project }: { project: Project }) {
       return;
     }
     clearPreview();
-    setEnvironment({ url, blockId: undefined, format: detectSplatFormat(url), visible: true });
+    // Si la URL no trae extensión (p. ej. /api/splat/<id>) conservamos el
+    // formato ya conocido; si no, la librería no podría interpretar el archivo.
+    const detected = detectSplatFormat(url);
+    setEnvironment({
+      url,
+      blockId: undefined,
+      format: detected ?? project.environment.format,
+      visible: true,
+    });
     toast('Entorno actualizado desde URL.', 'success');
   };
 
@@ -248,6 +247,25 @@ export function EnvironmentPanel({ project }: { project: Project }) {
           </Button>
         </div>
 
+        <Field
+          label="Formato del archivo"
+          hint="Necesario cuando la URL no tiene extensión (por ejemplo /api/splat/…)."
+        >
+          <Select
+            value={env.format ?? ''}
+            onChange={(event) =>
+              setEnvironment({
+                format: (event.target.value || undefined) as typeof env.format,
+              })
+            }
+          >
+            <option value="">Detectar por extensión</option>
+            <option value="ply">PLY</option>
+            <option value="splat">SPLAT</option>
+            <option value="ksplat">KSPLAT</option>
+          </Select>
+        </Field>
+
         <Switch
           checked={env.visible}
           onChange={(visible) => setEnvironment({ visible })}
@@ -291,8 +309,56 @@ export function EnvironmentPanel({ project }: { project: Project }) {
           checked={measureMode}
           onChange={() => toggleMeasureMode()}
           label="Herramienta de medida"
-          hint="Clic sobre cualquier superficie (o el splat): primer punto A, segundo B. Arrastra un extremo para moverlo. Distancia en metros."
+          hint="Clic sobre la superficie (o el splat) para el punto A y otro para el B. Arrastra un extremo para moverlo."
         />
+        <Switch
+          checked={measureSnap}
+          onChange={setMeasureSnap}
+          label="Pegar a la superficie (snap)"
+          hint="Desactívalo para colocar los puntos libremente, sin que salten a la superficie del splat."
+        />
+        <Field label="Bloquear el segundo punto a un eje">
+          <div className="inline-actions">
+            <Button
+              size="sm"
+              variant={measureAxis === 'none' ? 'primary' : 'outline'}
+              onClick={() => setMeasureAxis('none')}
+            >
+              Libre
+            </Button>
+            <Button
+              size="sm"
+              variant={measureAxis === 'x' ? 'primary' : 'outline'}
+              onClick={() => setMeasureAxis('x')}
+            >
+              X · ancho
+            </Button>
+            <Button
+              size="sm"
+              variant={measureAxis === 'y' ? 'primary' : 'outline'}
+              onClick={() => setMeasureAxis('y')}
+            >
+              Y · alto
+            </Button>
+            <Button
+              size="sm"
+              variant={measureAxis === 'z' ? 'primary' : 'outline'}
+              onClick={() => setMeasureAxis('z')}
+            >
+              Z · fondo
+            </Button>
+          </div>
+        </Field>
+        <p className="panel-note">
+          Atajos: X/Y/Z bloquean el eje y L lo libera. Mantén Shift para colocar sin snap.
+          {lastMeasurement
+            ? ` Última: ${measuredLast.toFixed(2)} m (ΔX ${(
+                lastMeasurement.b[0] - lastMeasurement.a[0]
+              ).toFixed(2)} · ΔY ${(lastMeasurement.b[1] - lastMeasurement.a[1]).toFixed(
+                2,
+              )} · ΔZ ${(lastMeasurement.b[2] - lastMeasurement.a[2]).toFixed(2)}).`
+            : ''}
+        </p>
         <Button size="sm" variant="ghost" onClick={clearMeasurements}>
           Borrar medidas ({measurements.length})
         </Button>

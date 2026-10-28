@@ -358,9 +358,12 @@ function EditorSceneContents({
 export function EditorCanvas({
   project,
   cameraRequest,
+  active = true,
 }: {
   project: Project;
   cameraRequest: CameraRequest;
+  /** Mantiene el canvas montado pero pausa el render cuando la vista 2D lo cubre. */
+  active?: boolean;
 }) {
   const camera = useMemo(
     () => ({
@@ -375,12 +378,13 @@ export function EditorCanvas({
   );
 
   return (
-    <div className="three-canvas">
+    <div className="three-canvas" aria-hidden={!active}>
       <Canvas
         shadows="soft"
         dpr={[1, 2]}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         camera={camera}
+        frameloop={active ? 'always' : 'demand'}
         onPointerMissed={() => {
           const state = useEditorStore.getState();
           if (!state.pendingCatalogItem) state.setSelection(null);

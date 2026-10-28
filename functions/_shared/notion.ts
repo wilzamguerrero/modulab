@@ -708,6 +708,45 @@ export interface FileUploadInit {
   mode: 'single_part' | 'multi_part';
   numberOfParts: number;
   chunkSize: number;
+  /** Nombre finalmente aceptado por Notion (puede cambiar de extensión). */
+  filename: string;
+}
+
+/**
+ * Notion solo acepta ciertas extensiones en su File Upload API y los formatos
+ * de Gaussian splat (.ply/.splat/.ksplat) no están entre ellas. Como solo valida
+ * el nombre, probamos la original y luego extensiones compatibles conservando el
+ * binario intacto. El formato real se guarda aparte en el proyecto.
+ */
+const UPLOAD_EXTENSION_FALLBACKS: Array<{ ext: string; contentType: string }> = [
+  { ext: '.bin', contentType: 'application/octet-stream' },
+  { ext: '.zip', contentType: 'application/zip' },
+  { ext: '.txt', contentType: 'text/plain' },
+];
+
+function buildUploadNameCandidates(
+  filename: string,
+  contentType: string,
+): Array<{ filename: string; contentType: string }> {
+  const dot = filename.lastIndexOf('.');
+  const base = dot > 0 ? filename.slice(0, dot) : filename || 'splat';
+  const originalExt = dot > 0 ? filename.slice(dot) : '';
+  const candidates: Array<{ filename: string; contentType: string }> = [
+    { filename, contentType: contentType || 'application/octet-stream' },
+  ];
+  for (const fallback of UPLOAD_EXTENSION_FALLBACKS) {
+    candidates.push({
+      filename: `${base}${originalExt}${fallback.ext}`,
+      contentType: fallback.contentType,
+    });
+  }
+  return candidates;
+}
+
+function isUnsupportedExtensionError(error: unknown): boolean {
+  return (
+    error instanceof NotionError && /extension that is not supported/i.test(error.message)
+  );
 }
 
 export async function createFileUpload(
@@ -720,22 +759,36 @@ export async function createFileUpload(
   }
   const isMulti = opts.sizeBytes > MULTI_PART_THRESHOLD;
   const numberOfParts = isMulti ? Math.ceil(opts.sizeBytes / SPLAT_CHUNK_SIZE) : 1;
-  const body: Record<string, unknown> = {
-    filename: opts.filename,
-    content_type: opts.contentType || 'application/octet-stream',
-  };
-  if (isMulti) {
-    body.mode = 'multi_part';
-    body.number_of_parts = numberOfParts;
+
+  let lastError: unknown = null;
+  for (const candidate of buildUploadNameCandidates(opts.filename, opts.contentType)) {
+    const body: Record<string, unknown> = {
+      filename: candidate.filename,
+      content_type: candidate.contentType,
+    };
+    if (isMulti) {
+      body.mode = 'multi_part';
+      body.number_of_parts = numberOfParts;
+    }
+    try {
+      const upload = await notionFetch<any>('POST', '/file_uploads', body, config);
+      if (!upload?.id) throw new NotionError('No se pudo crear la subida en Notion.', 502);
+      return {
+        id: upload.id,
+        mode: isMulti ? 'multi_part' : 'single_part',
+        numberOfParts,
+        // En single-part la única parte es el archivo completo (no 10 MB).
+        chunkSize: isMulti ? SPLAT_CHUNK_SIZE : opts.sizeBytes,
+        filename: candidate.filename,
+      };
+    } catch (error) {
+      if (!isUnsupportedExtensionError(error)) throw error;
+      lastError = error;
+    }
   }
-  const upload = await notionFetch<any>('POST', '/file_uploads', body, config);
-  if (!upload?.id) throw new NotionError('No se pudo crear la subida en Notion.', 502);
-  return {
-    id: upload.id,
-    mode: isMulti ? 'multi_part' : 'single_part',
-    numberOfParts,
-    chunkSize: SPLAT_CHUNK_SIZE,
-  };
+  throw lastError instanceof Error
+    ? lastError
+    : new NotionError('Notion no aceptó el tipo de archivo del entorno.', 400);
 }
 
 /** Reenvía el cuerpo multipart tal cual (sin parsearlo) para no gastar CPU. */

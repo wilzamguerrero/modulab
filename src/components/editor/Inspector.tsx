@@ -449,45 +449,47 @@ function ObjectInspector({
         </div>
       </Section>
 
-      {object.source.type === 'glb' ? (
-        <Section title="Escala real">
-          {dimensions ? (
-            <>
-              <div className="prop-list">
-                <div className="prop-row"><span>Ancho (X)</span><strong>{(dimensions[0] * 100).toFixed(1)} cm</strong></div>
-                <div className="prop-row"><span>Alto (Y)</span><strong>{(dimensions[1] * 100).toFixed(1)} cm</strong></div>
-                <div className="prop-row"><span>Fondo (Z)</span><strong>{(dimensions[2] * 100).toFixed(1)} cm</strong></div>
-              </div>
-              <Field label="Medida de referencia">
-                <Select
-                  value={realAxis}
-                  onChange={(event) => setRealAxis(event.target.value as typeof realAxis)}
-                >
-                  <option value="largest">Mayor dimensión</option>
-                  <option value="x">Ancho (X)</option>
-                  <option value="y">Alto (Y)</option>
-                  <option value="z">Fondo (Z)</option>
-                </Select>
-              </Field>
-              <Field label="Medida real">
-                <NumberInput
-                  value={Number(referenceCm.toFixed(2))}
-                  onChange={applyRealScale}
-                  step={1}
-                  min={0.1}
-                  suffix="cm"
-                />
-              </Field>
-              <p className="panel-note">
-                Se calcula con el tamaño original del GLB. Al cambiarla, la escala X/Y/Z se
-                multiplica por el mismo factor para conservar las proporciones del modelo.
-              </p>
-            </>
-          ) : (
-            <p className="panel-note">Cargando dimensiones del GLB…</p>
-          )}
-        </Section>
-      ) : null}
+      <Section title="Medidas reales">
+        {dimensions ? (
+          <>
+            <div className="prop-list">
+              <div className="prop-row"><span>Ancho (X)</span><strong>{(dimensions[0] * 100).toFixed(1)} cm</strong></div>
+              <div className="prop-row"><span>Alto (Y)</span><strong>{(dimensions[1] * 100).toFixed(1)} cm</strong></div>
+              <div className="prop-row"><span>Fondo (Z)</span><strong>{(dimensions[2] * 100).toFixed(1)} cm</strong></div>
+            </div>
+            <Field label="Medida de referencia">
+              <Select
+                value={realAxis}
+                onChange={(event) => setRealAxis(event.target.value as typeof realAxis)}
+              >
+                <option value="largest">Mayor dimensión</option>
+                <option value="x">Ancho (X)</option>
+                <option value="y">Alto (Y)</option>
+                <option value="z">Fondo (Z)</option>
+              </Select>
+            </Field>
+            <Field label="Medida real">
+              <NumberInput
+                value={Number(referenceCm.toFixed(2))}
+                onChange={applyRealScale}
+                step={1}
+                min={0.1}
+                suffix="cm"
+              />
+            </Field>
+            <p className="panel-note">
+              Es el tamaño del objeto ya escalado. Al cambiar la medida de referencia, la escala
+              X/Y/Z se multiplica por el mismo factor para conservar las proporciones.
+            </p>
+          </>
+        ) : (
+          <p className="panel-note">
+            {object.source.type === 'glb'
+              ? 'Cargando dimensiones del GLB…'
+              : 'Sin dimensiones disponibles para esta forma.'}
+          </p>
+        )}
+      </Section>
 
       <Section title="Expositor asociado">
         <ExhibitorSelect

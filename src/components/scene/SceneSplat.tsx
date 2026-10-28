@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { Html, TransformControls } from '@react-three/drei';
@@ -11,6 +11,7 @@ const DEG = 180 / Math.PI;
 function SplatStatusOverlay() {
   const status = useSplatStatus((state) => state.status);
   const progress = useSplatStatus((state) => state.progress);
+  const errorMessage = useSplatStatus((state) => state.error);
   if (status !== 'loading' && status !== 'error') return null;
 
   const percent = progress > 0 ? Math.round(progress <= 1 ? progress * 100 : progress) : 0;
@@ -35,15 +36,68 @@ function SplatStatusOverlay() {
             borderRadius: 8,
             fontSize: 13,
             letterSpacing: 0.2,
+            maxWidth: 380,
+            textAlign: 'center',
             boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
           }}
         >
           {status === 'loading'
             ? `Cargando Gaussian splat…${percent ? ` ${percent}%` : ''}`
-            : 'No se pudo cargar el Gaussian splat'}
+            : `No se pudo cargar el Gaussian splat${
+                errorMessage ? `: ${errorMessage}` : ''
+              }. Revisa la URL, el formato (PLY/SPLAT/KSPLAT) o vuelve a subir el archivo.`}
         </div>
       </div>
     </Html>
+  );
+}
+
+function EnvironmentGizmo({
+  group,
+  mode,
+  controls,
+  onCommit,
+}: {
+  group: THREE.Group;
+  mode: TransformMode;
+  controls: { enabled: boolean } | null;
+  onCommit: () => void;
+}) {
+  const ref = useRef<any>(null);
+  const commit = () => {
+    onCommit();
+    if (controls) controls.enabled = true;
+  };
+
+  useEffect(() => {
+    const gizmo = ref.current;
+    if (!gizmo) return;
+    const onDragging = (event: { value: boolean }) => {
+      if (event.value) {
+        if (controls) controls.enabled = false;
+      } else {
+        commit();
+      }
+    };
+    gizmo.addEventListener('dragging-changed', onDragging);
+    return () => {
+      gizmo.removeEventListener('dragging-changed', onDragging);
+      if (controls) controls.enabled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group, controls, mode]);
+
+  return (
+    <TransformControls
+      ref={ref}
+      object={group}
+      mode={mode}
+      size={0.9}
+      onMouseDown={() => {
+        if (controls) controls.enabled = false;
+      }}
+      onMouseUp={commit}
+    />
   );
 }
 
@@ -155,21 +209,17 @@ export function SceneSplat({
     <>
       {group ? <primitive object={group} frustumCulled={false} /> : null}
       {editable && gizmoMode && group ? (
-        <TransformControls
-          object={group}
+        <EnvironmentGizmo
+          group={group}
           mode={gizmoMode}
-          size={0.9}
-          onMouseDown={() => {
-            if (controls) controls.enabled = false;
-          }}
-          onMouseUp={() => {
-            if (controls) controls.enabled = true;
+          controls={controls}
+          onCommit={() =>
             onTransform?.(
               [group.position.x, group.position.y, group.position.z],
               [group.rotation.x * DEG, group.rotation.y * DEG, group.rotation.z * DEG],
               group.scale.x,
-            );
-          }}
+            )
+          }
         />
       ) : null}
       <SplatStatusOverlay />

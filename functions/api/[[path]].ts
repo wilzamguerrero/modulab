@@ -282,6 +282,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         mode: init.mode,
         numberOfParts: init.numberOfParts,
         chunkSize: init.chunkSize,
+        filename: init.filename,
       });
     }
 

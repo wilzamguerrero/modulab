@@ -33,6 +33,7 @@ import {
   Undo2,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react';
 import type { EditorTool, EditorView } from '@/types/project';
 import type { NotionConfigStatus as NotionStatus } from '@/types/notion';
@@ -92,6 +93,14 @@ export function EditorPage() {
   const lastSavedAt = useEditorStore((state) => state.lastSavedAt);
   const notionSaveStatus = useEditorStore((state) => state.notionSaveStatus);
   const notionError = useEditorStore((state) => state.notionError);
+  const measureMode = useEditorStore((state) => state.measureMode);
+  const measureAxis = useEditorStore((state) => state.measureAxis);
+  const measureSnap = useEditorStore((state) => state.measureSnap);
+  const setMeasureAxis = useEditorStore((state) => state.setMeasureAxis);
+  const setMeasureSnap = useEditorStore((state) => state.setMeasureSnap);
+  const clearMeasurements = useEditorStore((state) => state.clearMeasurements);
+  const toggleMeasureMode = useEditorStore((state) => state.toggleMeasureMode);
+  const measurementCount = useEditorStore((state) => state.measurements.length);
 
   const loadProjectData = useEditorStore((state) => state.loadProjectData);
   const setLoading = useEditorStore((state) => state.setLoading);
@@ -542,11 +551,14 @@ export function EditorPage() {
 
         <main className="editor-workspace">
           <div className="workspace-view">
-            {view === 'plan' ? (
-              <PlanEditor2D />
-            ) : (
-              <EditorCanvas project={project} cameraRequest={cameraRequest} />
-            )}
+            {/* El canvas 3D permanece montado para no recargar el Gaussian splat
+                al alternar entre planta y 3D. La planta se dibuja encima. */}
+            <EditorCanvas
+              project={project}
+              cameraRequest={cameraRequest}
+              active={view === '3d'}
+            />
+            {view === 'plan' ? <PlanEditor2D /> : null}
           </div>
 
           <div className="floating-toolbar">
@@ -606,6 +618,59 @@ export function EditorPage() {
             <strong>{view === 'plan' ? 'Planta 2D' : 'Vista 3D'}</strong>
             {pendingCatalogItem ? <Badge tone="accent">{pendingCatalogItem.name}</Badge> : null}
           </div>
+
+          {view === '3d' && measureMode ? (
+            <div className="measure-bar">
+              <span style={{ color: 'var(--accent)' }}>Medir</span>
+              <button
+                type="button"
+                className={measureAxis === 'none' ? 'is-active' : ''}
+                onClick={() => setMeasureAxis('none')}
+                title="Sin bloqueo de eje (L)"
+              >
+                Libre
+              </button>
+              <button
+                type="button"
+                className={measureAxis === 'x' ? 'is-active' : ''}
+                onClick={() => setMeasureAxis('x')}
+                title="Bloquear a X: ancho (X)"
+              >
+                X
+              </button>
+              <button
+                type="button"
+                className={measureAxis === 'y' ? 'is-active' : ''}
+                onClick={() => setMeasureAxis('y')}
+                title="Bloquear a Y: alto (Y)"
+              >
+                Y
+              </button>
+              <button
+                type="button"
+                className={measureAxis === 'z' ? 'is-active' : ''}
+                onClick={() => setMeasureAxis('z')}
+                title="Bloquear a Z: fondo (Z)"
+              >
+                Z
+              </button>
+              <span className="measure-sep" />
+              <button
+                type="button"
+                className={measureSnap ? 'is-active' : ''}
+                onClick={() => setMeasureSnap(!measureSnap)}
+                title="Pegar a la superficie (Shift lo desactiva mientras mides)"
+              >
+                Snap
+              </button>
+              <button type="button" onClick={() => clearMeasurements()} title="Borrar medidas">
+                Borrar ({measurementCount})
+              </button>
+              <button type="button" onClick={() => toggleMeasureMode()} title="Cerrar herramienta">
+                <X size={12} />
+              </button>
+            </div>
+          ) : null}
 
           {pendingCatalogItem && view === '3d' ? (
             <div className="plan-pending">

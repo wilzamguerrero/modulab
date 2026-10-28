@@ -15,8 +15,12 @@ import { createCatalogUpload, scanCatalog } from './server/catalog';
 import { createUploadsMiddleware, uploadsDir } from './server/uploads';
 import {
   NotionError,
+  appendFileUploadBlock,
   archiveBlock,
+  completeFileUpload,
+  createFileUpload,
   createProject,
+  getFileBlockUrl,
   getImageBlockUrl,
   getPageTitle,
   invalidatePeopleCache,
@@ -25,6 +29,7 @@ import {
   listProjects,
   loadProject,
   saveProject,
+  sendFileUploadPart,
 } from './server/notion';
 import { deletePublished, getPublishedDocument, publishDocument } from './server/publishing';
 
@@ -283,6 +288,98 @@ app.delete(
   asyncRoute(async (req, res) => {
     deletePublished(req.params.publicId);
     res.json({ success: true });
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Entorno Gaussian splat (subida a Notion + proxy)
+// ---------------------------------------------------------------------------
+
+app.post(
+  '/api/splat/init',
+  asyncRoute(async (req, res) => {
+    const { filename, contentType, sizeBytes } = req.body || {};
+    if (!filename || typeof filename !== 'string') {
+      return jsonError(res, 400, 'Falta el nombre del archivo.');
+    }
+    const size = Number(sizeBytes);
+    if (!Number.isFinite(size) || size <= 0) {
+      return jsonError(res, 400, 'Tamaño de archivo inválido.');
+    }
+    const config = loadNotionConfig();
+    if (!config.notionSecret) {
+      return jsonError(res, 400, 'Notion no está configurado.');
+    }
+    const init = await createFileUpload(
+      { filename, contentType: String(contentType || 'application/octet-stream'), sizeBytes: size },
+      config,
+    );
+    res.json({
+      success: true,
+      uploadId: init.id,
+      mode: init.mode,
+      numberOfParts: init.numberOfParts,
+      chunkSize: init.chunkSize,
+      filename: init.filename,
+    });
+  }),
+);
+
+app.post(
+  '/api/splat/part',
+  express.raw({ type: () => true, limit: '512mb' }),
+  asyncRoute(async (req, res) => {
+    const uploadId = String(req.query.upload_id || '').trim();
+    if (!uploadId) return jsonError(res, 400, 'Falta upload_id.');
+    const contentType = req.headers['content-type'] || '';
+    if (!contentType.toLowerCase().includes('multipart/form-data')) {
+      return jsonError(res, 400, 'Content-Type debe ser multipart/form-data.');
+    }
+    const body = req.body as Buffer;
+    if (!body || !body.length) return jsonError(res, 400, 'Cuerpo vacío.');
+    const config = loadNotionConfig();
+    if (!config.notionSecret) return jsonError(res, 400, 'Notion no está configurado.');
+    await sendFileUploadPart(uploadId, contentType, body, config);
+    res.json({ success: true });
+  }),
+);
+
+app.post(
+  '/api/splat/complete',
+  asyncRoute(async (req, res) => {
+    const { uploadId, mode, parentBlockId } = req.body || {};
+    if (!uploadId || typeof uploadId !== 'string') return jsonError(res, 400, 'Falta uploadId.');
+    const config = loadNotionConfig();
+    if (!config.notionSecret) return jsonError(res, 400, 'Notion no está configurado.');
+    if (mode !== 'single_part') {
+      await completeFileUpload(uploadId, config);
+    }
+    const parent = String(parentBlockId || '').trim() || config.parentPageId;
+    if (!parent) {
+      return jsonError(res, 400, 'Falta la página destino. Vincula el proyecto a Notion antes de subir el entorno.');
+    }
+    const blockId = await appendFileUploadBlock(parent, uploadId, config);
+    res.json({ success: true, blockId, url: `/api/splat/${encodeURIComponent(blockId)}` });
+  }),
+);
+
+app.get(
+  '/api/splat/:blockId',
+  asyncRoute(async (req, res) => {
+    const config = loadNotionConfig();
+    const signedUrl = await getFileBlockUrl(req.params.blockId, config);
+    if (!signedUrl) return jsonError(res, 404, 'El entorno no existe en Notion.');
+    const range = req.headers.range;
+    const upstream = await fetch(signedUrl, range ? { headers: { Range: range } } : undefined);
+    res.status(upstream.status);
+    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/octet-stream');
+    const length = upstream.headers.get('content-length');
+    if (length) res.setHeader('Content-Length', length);
+    res.setHeader('Accept-Ranges', upstream.headers.get('accept-ranges') || 'bytes');
+    const contentRange = upstream.headers.get('content-range');
+    if (contentRange) res.setHeader('Content-Range', contentRange);
+    res.setHeader('Cache-Control', 'private, max-age=600');
+    res.send(Buffer.from(await upstream.arrayBuffer()));
   }),
 );
 
