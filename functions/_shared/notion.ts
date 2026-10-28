@@ -696,3 +696,117 @@ export async function uploadImageToBlock(
   if (!block?.id) throw new NotionError('Notion no devolvió el bloque de imagen.', 502);
   return block.id;
 }
+
+// --- Subida de archivos grandes (Gaussian splat) a Notion -------------------
+
+export const SPLAT_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MiB por parte
+const MULTI_PART_THRESHOLD = 20 * 1024 * 1024; // > 20 MiB usa multi-part
+const MAX_UPLOAD_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB (plan de Notion de pago)
+
+export interface FileUploadInit {
+  id: string;
+  mode: 'single_part' | 'multi_part';
+  numberOfParts: number;
+  chunkSize: number;
+}
+
+export async function createFileUpload(
+  opts: { filename: string; contentType: string; sizeBytes: number },
+  configOverride?: NotionConfig,
+): Promise<FileUploadInit> {
+  const config = resolveConfig(configOverride);
+  if (opts.sizeBytes > MAX_UPLOAD_SIZE) {
+    throw new NotionError('El archivo supera el límite de 5 GB de Notion.', 413);
+  }
+  const isMulti = opts.sizeBytes > MULTI_PART_THRESHOLD;
+  const numberOfParts = isMulti ? Math.ceil(opts.sizeBytes / SPLAT_CHUNK_SIZE) : 1;
+  const body: Record<string, unknown> = {
+    filename: opts.filename,
+    content_type: opts.contentType || 'application/octet-stream',
+  };
+  if (isMulti) {
+    body.mode = 'multi_part';
+    body.number_of_parts = numberOfParts;
+  }
+  const upload = await notionFetch<any>('POST', '/file_uploads', body, config);
+  if (!upload?.id) throw new NotionError('No se pudo crear la subida en Notion.', 502);
+  return {
+    id: upload.id,
+    mode: isMulti ? 'multi_part' : 'single_part',
+    numberOfParts,
+    chunkSize: SPLAT_CHUNK_SIZE,
+  };
+}
+
+/** Reenvía el cuerpo multipart tal cual (sin parsearlo) para no gastar CPU. */
+export async function sendFileUploadPart(
+  uploadId: string,
+  contentType: string,
+  body: ReadableStream | ArrayBuffer,
+  configOverride?: NotionConfig,
+): Promise<void> {
+  const config = resolveConfig(configOverride);
+  const res = await fetch(`${NOTION_BASE}/file_uploads/${uploadId}/send`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.notionSecret}`,
+      'Notion-Version': NOTION_VERSION,
+      'Content-Type': contentType,
+    },
+    body,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const transient = [429, 500, 502, 503, 504, 529].includes(res.status);
+    throw new NotionError(`Notion rechazó el trozo: ${res.status} ${text}`.trim(), transient ? 503 : 502);
+  }
+}
+
+export async function completeFileUpload(uploadId: string, configOverride?: NotionConfig): Promise<void> {
+  const config = resolveConfig(configOverride);
+  const res = await fetch(`${NOTION_BASE}/file_uploads/${uploadId}/complete`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.notionSecret}`,
+      'Notion-Version': NOTION_VERSION,
+      'Content-Type': 'application/json',
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new NotionError(`Notion rechazó el cierre de subida: ${res.status} ${text}`.trim(), 502);
+  }
+  const data = (await res.json().catch(() => ({}))) as any;
+  if (data?.status && data.status !== 'uploaded' && data.status !== 'complete') {
+    throw new NotionError(`La subida quedó en estado «${data.status}».`, 502);
+  }
+}
+
+export async function appendFileUploadBlock(
+  parentBlockId: string,
+  uploadId: string,
+  configOverride?: NotionConfig,
+): Promise<string> {
+  const config = resolveConfig(configOverride);
+  const [block] = await appendChildren(
+    parentBlockId,
+    [{ object: 'block', type: 'file', file: { type: 'file_upload', file_upload: { id: uploadId } } }],
+    config,
+  );
+  if (!block?.id) throw new NotionError('Notion no devolvió el bloque de archivo.', 502);
+  return block.id;
+}
+
+export async function getFileBlockUrl(
+  blockId: string,
+  configOverride?: NotionConfig,
+): Promise<string | null> {
+  const block = await retrieveBlock(blockId, configOverride);
+  return (
+    block.file?.file?.url ||
+    block.file?.external?.url ||
+    block.image?.file?.url ||
+    block.image?.external?.url ||
+    null
+  );
+}

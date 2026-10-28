@@ -137,6 +137,13 @@ export function createProject(options: {
     lights: createDefaultLights(),
     exhibitors: [],
     camera,
+    environment: {
+      visible: true,
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: 1,
+      opacity: 1,
+    },
     settings: {
       gridSize: 0.25,
       snapToGrid: true,

@@ -11,6 +11,7 @@ import { SceneEnvironment } from '@/components/scene/SceneEnvironment';
 import { SceneShadows } from '@/components/scene/SceneShadows';
 import { SceneObjects } from '@/components/scene/SceneObjects';
 import { ExhibitorMarkers } from '@/components/scene/ExhibitorMarkers';
+import { SceneSplat } from '@/components/scene/SceneSplat';
 import { polygonBounds } from '@/utils/geometry';
 
 export interface ViewerCameraCommand {
@@ -129,6 +130,7 @@ export function PublicScene({
           shadowBounds={shadowBounds}
         />
         <Architecture project={project} selectedExhibitorId={selectedExhibitorId} />
+        <SceneSplat environment={project.environment} />
         <SceneObjects
           project={project}
           selectedExhibitorId={selectedExhibitorId}

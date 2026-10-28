@@ -156,6 +156,28 @@ export const projectCameraSchema = z.object({
   fov: z.number().min(20).max(100).default(50),
 });
 
+export const environmentFormatSchema = z.enum(['ply', 'splat', 'ksplat']);
+
+/**
+ * Entorno de Gaussian splat usado como referencia/ambiente. Solo se guarda la
+ * referencia (URL o bloque de Notion) y su transformación; el binario vive en
+ * Notion o en un hosting externo.
+ */
+export const environmentSchema = z.object({
+  url: z.string().optional(),
+  /** Bloque de Notion cuando el archivo se subió a Notion. */
+  blockId: z.string().optional(),
+  format: environmentFormatSchema.optional(),
+  visible: z.boolean().default(true),
+  /** Desplazamiento en metros. */
+  position: vec3Schema.default([0, 0, 0]),
+  /** Rotación en grados (X, Y, Z). */
+  rotation: vec3Schema.default([0, 0, 0]),
+  /** Escala uniforme. */
+  scale: z.number().min(0.0001).default(1),
+  opacity: z.number().min(0).max(1).default(1),
+});
+
 export const publishedInfoSchema = z.object({
   publicId: z.string().min(1),
   publishedAt: z.string(),
@@ -197,6 +219,7 @@ export const projectSchema = z
     lights: z.array(lightConfigSchema).default([]),
     exhibitors: z.array(exhibitorSchema).default([]),
     camera: projectCameraSchema.default({}),
+    environment: environmentSchema.default({}),
     notionBlockId: z.string().optional(),
     notionExhibitorsPageId: z.string().optional(),
     notionExhibitorsSourceName: z.string().optional(),
@@ -220,6 +243,8 @@ export type FloorPlan = z.infer<typeof floorPlanSchema>;
 export type LightConfig = z.infer<typeof lightConfigSchema>;
 export type Exhibitor = z.infer<typeof exhibitorSchema>;
 export type ProjectCamera = z.infer<typeof projectCameraSchema>;
+export type Environment = z.infer<typeof environmentSchema>;
+export type EnvironmentFormat = z.infer<typeof environmentFormatSchema>;
 export type PublishedInfo = z.infer<typeof publishedInfoSchema>;
 export type ShadowQuality = z.infer<typeof shadowQualitySchema>;
 export type ExhibitorColorMode = z.infer<typeof exhibitorColorModeSchema>;

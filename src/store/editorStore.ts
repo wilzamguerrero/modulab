@@ -37,6 +37,12 @@ interface PatchOptions {
   touch?: boolean;
 }
 
+export interface Measurement {
+  id: string;
+  a: Vec3;
+  b: Vec3;
+}
+
 interface EditorState {
   project: Project | null;
   projectId: string | null;
@@ -141,6 +147,26 @@ interface EditorState {
 
   setProjectMeta: (patch: Partial<Pick<Project, 'name' | 'description' | 'event'>>) => void;
   setProjectCamera: (camera: Partial<Project['camera']>) => void;
+  setEnvironment: (patch: Partial<Project['environment']>) => void;
+  /** Vista previa local (blob) del splat, no persistida en el proyecto. */
+  environmentPreview: { url: string; format?: 'ply' | 'splat' | 'ksplat' } | null;
+  setEnvironmentPreview: (preview: { url: string; format?: 'ply' | 'splat' | 'ksplat' } | null) => void;
+
+  /** Gizmo 3D para alinear el entorno splat. */
+  environmentGizmo: boolean;
+  environmentGizmoMode: TransformMode;
+  setEnvironmentGizmo: (enabled: boolean) => void;
+  setEnvironmentGizmoMode: (mode: TransformMode) => void;
+
+  /** Herramienta de medida (clic A → clic B). */
+  measureMode: boolean;
+  measurePending: Vec3 | null;
+  measurements: Measurement[];
+  toggleMeasureMode: () => void;
+  addMeasurePoint: (point: Vec3) => void;
+  updateMeasurementPoint: (id: string, end: 'a' | 'b', point: Vec3) => void;
+  clearMeasurements: () => void;
+
   setSettings: (patch: Partial<Project['settings']>) => void;
 }
 
@@ -166,6 +192,12 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   notionSaveStatus: 'idle',
   notionError: null,
   lastSavedAt: null,
+  environmentPreview: null,
+  environmentGizmo: false,
+  environmentGizmoMode: 'translate',
+  measureMode: false,
+  measurePending: null,
+  measurements: [],
 
   loadProjectData: (project) =>
     set({
@@ -880,6 +912,31 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     get().patchProject((draft) => {
       draft.camera = { ...draft.camera, ...camera };
     }, { coalesceKey: 'camera' }),
+
+  setEnvironment: (patch) =>
+    get().patchProject((draft) => {
+      draft.environment = { ...draft.environment, ...patch };
+    }, { coalesceKey: 'environment' }),
+
+  setEnvironmentPreview: (preview) => set({ environmentPreview: preview }),
+
+  setEnvironmentGizmo: (enabled) => set({ environmentGizmo: enabled }),
+  setEnvironmentGizmoMode: (mode) => set({ environmentGizmoMode: mode }),
+
+  toggleMeasureMode: () => set((state) => ({ measureMode: !state.measureMode, measurePending: null })),
+  addMeasurePoint: (point) =>
+    set((state) => {
+      if (!state.measurePending) return { measurePending: point };
+      const measurement: Measurement = { id: createId('mes'), a: state.measurePending, b: point };
+      return { measurePending: null, measurements: [...state.measurements, measurement] };
+    }),
+  updateMeasurementPoint: (id, end, point) =>
+    set((state) => ({
+      measurements: state.measurements.map((measurement) =>
+        measurement.id === id ? { ...measurement, [end]: point } : measurement,
+      ),
+    })),
+  clearMeasurements: () => set({ measurements: [], measurePending: null }),
 
   setSettings: (patch) =>
     get().patchProject((draft) => {

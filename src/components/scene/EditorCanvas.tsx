@@ -9,6 +9,9 @@ import { SceneEnvironment } from './SceneEnvironment';
 import { SceneShadows } from './SceneShadows';
 import { SceneObjects } from './SceneObjects';
 import { ExhibitorMarkers } from './ExhibitorMarkers';
+import { SceneSplat } from './SceneSplat';
+import { MeasurementLayer } from './MeasurementLayer';
+import { MeasurementTool } from './MeasurementTool';
 import { WallEditHandles } from './WallEditHandles';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
@@ -204,6 +207,10 @@ function EditorSceneContents({
 }) {
   const selection = useEditorStore((state) => state.selection);
   const setSelection = useEditorStore((state) => state.setSelection);
+  const environmentPreview = useEditorStore((state) => state.environmentPreview);
+  const environmentGizmo = useEditorStore((state) => state.environmentGizmo);
+  const environmentGizmoMode = useEditorStore((state) => state.environmentGizmoMode);
+  const setEnvironment = useEditorStore((state) => state.setEnvironment);
   const addObject = useEditorStore((state) => state.addObject);
   const addExhibitor = useEditorStore((state) => state.addExhibitor);
   const addOpening = useEditorStore((state) => state.addOpening);
@@ -214,12 +221,23 @@ function EditorSceneContents({
     [project.floor.vertices],
   );
 
+  // La vista previa local (blob) tiene prioridad sobre la URL guardada.
+  const sceneEnvironment = environmentPreview
+    ? {
+        ...project.environment,
+        url: environmentPreview.url,
+        format: environmentPreview.format ?? project.environment.format,
+      }
+    : project.environment;
+
   const handleFloorClick = (point: Vec2) => {
     // Un clic que cierra el arrastre de un gizmo no debe deseleccionar el objeto.
     if (isSceneDragClickBlocked()) return;
     const state = useEditorStore.getState();
     const activeProject = state.project;
     if (!activeProject) return;
+    // La medida se gestiona con el picking global de MeasurementTool.
+    if (state.measureMode) return;
     if (state.pendingCatalogItem) {
       const position = activeProject.settings.snapToGrid
         ? snapPoint(point, activeProject.settings.gridSize)
@@ -300,6 +318,14 @@ function EditorSceneContents({
         onWallClick={handleWallClick}
         onOpeningClick={(id) => setSelection({ type: 'opening', id })}
       />
+      <SceneSplat
+        environment={sceneEnvironment}
+        editable
+        gizmoMode={environmentGizmo ? environmentGizmoMode : null}
+        onTransform={(position, rotation, scale) => setEnvironment({ position, rotation, scale })}
+      />
+      <MeasurementLayer />
+      <MeasurementTool />
       <SceneObjects
         project={project}
         editable

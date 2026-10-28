@@ -50,6 +50,7 @@ import { PlanPanel } from '@/components/editor/PlanPanel';
 import { CatalogPanel } from '@/components/editor/CatalogPanel';
 import { ExhibitorsPanel } from '@/components/editor/ExhibitorsPanel';
 import { LightsPanel } from '@/components/editor/LightsPanel';
+import { EnvironmentPanel } from '@/components/editor/EnvironmentPanel';
 import { Inspector } from '@/components/editor/Inspector';
 import { PublishModal } from '@/components/editor/PublishModal';
 import { useEditorStore } from '@/store/editorStore';
@@ -59,13 +60,14 @@ import { getNotionStatus } from '@/services/notion/notionService';
 import { edgeLength, formatArea, formatMeters, polygonArea, validatePolygon } from '@/utils/geometry';
 import { formatRelativeDate } from '@/utils/format';
 
-type SidebarTab = 'plan' | 'catalog' | 'exhibitors' | 'lights';
+type SidebarTab = 'plan' | 'catalog' | 'exhibitors' | 'lights' | 'environment';
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string; icon: ReactNode }> = [
   { id: 'plan', label: 'Planta', icon: <DraftingCompass size={16} /> },
   { id: 'catalog', label: 'Catálogo', icon: <Boxes size={16} /> },
   { id: 'exhibitors', label: 'Expositores', icon: <Users size={16} /> },
   { id: 'lights', label: 'Luces', icon: <Lightbulb size={16} /> },
+  { id: 'environment', label: 'Entorno', icon: <Globe2 size={16} /> },
 ];
 
 export function EditorPage() {
@@ -534,6 +536,7 @@ export function EditorPage() {
               <ExhibitorsPanel project={project} notionConfigured={Boolean(notionStatus?.configured)} />
             ) : null}
             {activeTab === 'lights' ? <LightsPanel project={project} /> : null}
+            {activeTab === 'environment' ? <EnvironmentPanel project={project} /> : null}
           </div>
         </aside>
 
