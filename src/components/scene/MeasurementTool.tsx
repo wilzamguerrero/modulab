@@ -50,6 +50,7 @@ export function MeasurementTool() {
     const canvas = gl.domElement;
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+    const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const orbit = controls as unknown as {
       enabled: boolean;
       target?: THREE.Vector3;
@@ -111,6 +112,14 @@ export function MeasurementTool() {
       setPointer(event);
       raycaster.setFromCamera(pointer, camera);
 
+      // Cota libre: con un eje bloqueado y el snap desactivado, el primer punto
+      // se apoya en el suelo bajo el cursor. Permite crear referencias de
+      // altura/ancho sueltas, sin pegarlas a la superficie del splat.
+      if (!anchor && axis !== 'none' && !snap) {
+        const floor = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(floorPlane, floor)) return floor;
+      }
+
       const surface = intersectSurface(event);
 
       const direction = new THREE.Vector3();
@@ -133,7 +142,7 @@ export function MeasurementTool() {
       const rect = canvas.getBoundingClientRect();
       const sx = event.clientX - rect.left;
       const sy = event.clientY - rect.top;
-      const { measurements } = useEditorStore.getState();
+      const { measurements, activeMeasurementId } = useEditorStore.getState();
       const projected = new THREE.Vector3();
       let best: { id: string; end: 'a' | 'b' | 'both' } | null = null;
       let bestDistance = Infinity;
@@ -157,17 +166,20 @@ export function MeasurementTool() {
       for (const measurement of measurements) {
         consider(measurement.id, 'a', measurement.a, 16);
         consider(measurement.id, 'b', measurement.b, 16);
-        // Punto medio: arrastra la medida completa (como un gizmo).
-        consider(
-          measurement.id,
-          'both',
-          [
-            (measurement.a[0] + measurement.b[0]) / 2,
-            (measurement.a[1] + measurement.b[1]) / 2,
-            (measurement.a[2] + measurement.b[2]) / 2,
-          ],
-          14,
-        );
+        // El tirador central mueve la medida completa; se omite en la medida
+        // activa porque ahí ya actúa el gizmo de transformación.
+        if (measurement.id !== activeMeasurementId) {
+          consider(
+            measurement.id,
+            'both',
+            [
+              (measurement.a[0] + measurement.b[0]) / 2,
+              (measurement.a[1] + measurement.b[1]) / 2,
+              (measurement.a[2] + measurement.b[2]) / 2,
+            ],
+            14,
+          );
+        }
       }
       return best;
     };
@@ -190,6 +202,7 @@ export function MeasurementTool() {
       if (handle) {
         drag = handle;
         state.setActiveMeasurement(handle.id);
+        state.beginHistory();
         if (handle.end === 'both') {
           const measurement = state.measurements.find((entry) => entry.id === handle.id);
           dragStart = measurement
@@ -253,6 +266,8 @@ export function MeasurementTool() {
     const onUp = (event: PointerEvent) => {
       const state = useEditorStore.getState();
       if (drag) {
+        if (moved) state.commitHistory();
+        else state.cancelHistory();
         drag = null;
         dragStart = null;
         if (orbit) orbit.enabled = true;

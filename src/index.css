@@ -1373,6 +1373,10 @@ input[type="range"] {
 .three-canvas {
   position: absolute;
   inset: 0;
+  /* Las etiquetas 3D (Html) viven dentro de este contexto: así no se dibujan
+     por encima de barras, menús ni paneles del editor. */
+  z-index: 0;
+  isolation: isolate;
 }
 
 .three-canvas canvas {
@@ -1521,6 +1525,63 @@ input[type="range"] {
   font-size: 10px;
   font-family: var(--mono);
   z-index: 7;
+}
+
+.views-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.views-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 196px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(18, 23, 28, 0.97);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+  z-index: 12;
+  display: grid;
+  gap: 4px;
+}
+
+.views-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 11px;
+  text-align: left;
+}
+
+.views-menu button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.views-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.views-menu .views-projection {
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.views-menu .views-projection.is-active {
+  color: var(--accent);
 }
 
 .view-badge {

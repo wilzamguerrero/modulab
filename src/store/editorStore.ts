@@ -57,6 +57,12 @@ export interface Measurement {
   b: Vec3;
 }
 
+/** Instantánea reversible de todo lo que cambia con el editor. */
+interface HistorySnapshot {
+  project: Project;
+  measurements: Measurement[];
+}
+
 interface EditorState {
   project: Project | null;
   projectId: string | null;
@@ -71,9 +77,14 @@ interface EditorState {
   pendingCatalogItem: CatalogItem | null;
   clipboardObject: SceneObject | null;
 
-  past: Project[];
-  future: Project[];
-  pendingHistory: Project | null;
+  /**
+   * Historial (deshacer/rehacer) de pasos del editor. Cada entrada guarda el
+   * proyecto completo y las medidas, para que Ctrl+Z también deshaga medidas,
+   * entorno y cualquier cambio, no solo geometría.
+   */
+  past: HistorySnapshot[];
+  future: HistorySnapshot[];
+  pendingHistory: HistorySnapshot | null;
   lastCoalesce: { key?: string; at: number } | null;
   dirty: boolean;
   saveStatus: SaveStatus;
@@ -89,6 +100,8 @@ interface EditorState {
 
   patchProject: (updater: (draft: Project) => Project | void, options?: PatchOptions) => void;
   replaceProject: (project: Project, history?: boolean) => void;
+  /** Empuja una instantánea (proyecto + medidas) al historial. */
+  pushHistory: () => void;
   beginHistory: () => void;
   commitHistory: () => void;
   cancelHistory: () => void;
@@ -291,6 +304,23 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   setLoading: (loading) => set({ loading }),
   setLoadError: (loadError) => set({ loadError, loading: false }),
 
+  pushHistory: () => {
+    const project = get().project;
+    if (!project) return;
+    const snapshot: HistorySnapshot = {
+      project: structuredClone(project),
+      measurements: structuredClone(get().measurements),
+    };
+    set((state) => ({
+      past: [...state.past.slice(-59), snapshot],
+      future: [],
+      pendingHistory: null,
+      lastCoalesce: null,
+      dirty: true,
+      saveStatus: state.saveStatus === 'saving' ? 'saving' : 'dirty',
+    }));
+  },
+
   patchProject: (updater, options = {}) => {
     const current = get().project;
     if (!current) return;
@@ -308,7 +338,12 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
     set((state) => ({
       project: updated,
-      past: pushHistory ? [...state.past.slice(-59), current] : state.past,
+      past: pushHistory
+        ? [
+            ...state.past.slice(-59),
+            { project: current, measurements: structuredClone(state.measurements) },
+          ]
+        : state.past,
       future: pushHistory ? [] : state.future,
       pendingHistory: pushHistory ? null : state.pendingHistory,
       lastCoalesce: coalesceKey ? { key: coalesceKey, at: now } : pushHistory ? null : state.lastCoalesce,
@@ -323,7 +358,13 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     set((state) => ({
       project,
       projectId: project.id,
-      past: history && current ? [...state.past.slice(-59), current] : state.past,
+      past:
+        history && current
+          ? [
+              ...state.past.slice(-59),
+              { project: current, measurements: structuredClone(state.measurements) },
+            ]
+          : state.past,
       future: history ? [] : state.future,
       selection: null,
       pendingHistory: null,
@@ -337,7 +378,14 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   beginHistory: () => {
     if (get().pendingHistory) return;
     const project = get().project;
-    if (project) set({ pendingHistory: structuredClone(project) });
+    if (project) {
+      set({
+        pendingHistory: {
+          project: structuredClone(project),
+          measurements: structuredClone(get().measurements),
+        },
+      });
+    }
   },
 
   commitHistory: () => {
@@ -364,11 +412,16 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     if (!state.project || state.past.length === 0) return;
     const previous = state.past[state.past.length - 1];
     set({
-      project: previous,
-      projectId: previous.id,
+      project: previous.project,
+      projectId: previous.project.id,
+      measurements: previous.measurements,
       past: state.past.slice(0, -1),
-      future: [state.project, ...state.future].slice(0, 60),
+      future: [
+        { project: state.project, measurements: structuredClone(state.measurements) },
+        ...state.future,
+      ].slice(0, 60),
       selection: null,
+      activeMeasurementId: null,
       pendingHistory: null,
       lastCoalesce: null,
       dirty: true,
@@ -382,11 +435,16 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     if (!state.project || state.future.length === 0) return;
     const next = state.future[0];
     set({
-      project: next,
-      projectId: next.id,
-      past: [...state.past.slice(-59), state.project],
+      project: next.project,
+      projectId: next.project.id,
+      measurements: next.measurements,
+      past: [
+        ...state.past.slice(-59),
+        { project: state.project, measurements: structuredClone(state.measurements) },
+      ],
       future: state.future.slice(1),
       selection: null,
+      activeMeasurementId: null,
       pendingHistory: null,
       lastCoalesce: null,
       dirty: true,
@@ -1022,16 +1080,21 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
   toggleMeasureMode: () =>
     set((state) => ({ measureMode: !state.measureMode, measurePending: null, measureHover: null })),
-  addMeasurePoint: (point) =>
-    set((state) => {
-      if (!state.measurePending) return { measurePending: point };
-      const measurement: Measurement = { id: createId('mes'), a: state.measurePending, b: point };
-      return {
-        measurePending: null,
-        measurements: [...state.measurements, measurement],
-        activeMeasurementId: measurement.id,
-      };
-    }),
+  addMeasurePoint: (point) => {
+    const state = get();
+    if (!state.measurePending) {
+      set({ measurePending: point });
+      return;
+    }
+    // Un paso reversible por cada medida creada.
+    state.pushHistory();
+    const measurement: Measurement = { id: createId('mes'), a: state.measurePending, b: point };
+    set((current) => ({
+      measurePending: null,
+      measurements: [...current.measurements, measurement],
+      activeMeasurementId: measurement.id,
+    }));
+  },
   updateMeasurementPoint: (id, end, point) =>
     set((state) => ({
       measurements: state.measurements.map((measurement) =>
@@ -1044,20 +1107,27 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
         measurement.id === id ? { ...measurement, a, b } : measurement,
       ),
     })),
-  deleteMeasurement: (id) =>
+  deleteMeasurement: (id) => {
+    if (!get().measurements.some((measurement) => measurement.id === id)) return;
+    get().pushHistory();
     set((state) => ({
       measurements: state.measurements.filter((measurement) => measurement.id !== id),
       activeMeasurementId:
         state.activeMeasurementId === id ? null : state.activeMeasurementId,
-    })),
+    }));
+  },
   setActiveMeasurement: (activeMeasurementId) => set({ activeMeasurementId }),
-  clearMeasurements: () =>
+  clearMeasurements: () => {
+    const state = get();
+    if (!state.measurements.length && !state.measurePending) return;
+    if (state.measurements.length) state.pushHistory();
     set({
       measurements: [],
       measurePending: null,
       measureHover: null,
       activeMeasurementId: null,
-    }),
+    });
+  },
   setMeasureAxis: (measureAxis) => set({ measureAxis }),
   setMeasureSnap: (measureSnap) => set({ measureSnap }),
   setMeasureHover: (measureHover) => set({ measureHover }),

@@ -80,6 +80,8 @@ export function EditorPage() {
   const setNotionModalOpen = useUiStore((state) => state.setNotionModalOpen);
   const setShortcutsOpen = useUiStore((state) => state.setShortcutsOpen);
   const notionModalOpen = useUiStore((state) => state.notionModalOpen);
+  const orthographic = useUiStore((state) => state.orthographic);
+  const setOrthographic = useUiStore((state) => state.setOrthographic);
 
   const project = useEditorStore((state) => state.project);
   const loading = useEditorStore((state) => state.loading);
@@ -133,6 +135,7 @@ export function EditorPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [viewsOpen, setViewsOpen] = useState(false);
   const [notionPullOpen, setNotionPullOpen] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [notionStatus, setNotionStatus] = useState<NotionStatus | null>(null);
@@ -225,6 +228,10 @@ export function EditorPage() {
   useEffect(() => {
     if (selection) setInspectorOpen(true);
   }, [selection]);
+
+  useEffect(() => {
+    if (view !== '3d') setViewsOpen(false);
+  }, [view]);
 
   useEffect(() => {
     const isEditable = (target: EventTarget | null) => {
@@ -567,6 +574,7 @@ export function EditorPage() {
               project={project}
               cameraRequest={cameraRequest}
               active={view === '3d'}
+              orthographic={orthographic}
             />
             {view === 'plan' ? <PlanEditor2D /> : null}
           </div>
@@ -619,12 +627,56 @@ export function EditorPage() {
             {view === '3d' ? (
               <>
                 <span className="tool-sep" />
-                <button type="button" className="tool-btn" title="Cámara del proyecto" onClick={() => requestCamera('project')}>
-                  <Box size={16} />
-                </button>
-                <button type="button" className="tool-btn" title="Vista superior" onClick={() => requestCamera('top')}>
-                  <Maximize2 size={16} />
-                </button>
+                <div className="views-anchor">
+                  <button
+                    type="button"
+                    className={`tool-btn${viewsOpen ? ' is-active' : ''}`}
+                    title="Vistas y proyección"
+                    onClick={() => setViewsOpen((value) => !value)}
+                  >
+                    <Maximize2 size={16} />
+                  </button>
+                  {viewsOpen ? (
+                    <div className="views-menu">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          requestCamera('project');
+                          setViewsOpen(false);
+                        }}
+                      >
+                        Cámara del proyecto
+                      </button>
+                      <div className="views-grid">
+                        <button type="button" onClick={() => { requestCamera('top'); setViewsOpen(false); }}>
+                          Superior
+                        </button>
+                        <button type="button" onClick={() => { requestCamera('front'); setViewsOpen(false); }}>
+                          Frontal
+                        </button>
+                        <button type="button" onClick={() => { requestCamera('back'); setViewsOpen(false); }}>
+                          Posterior
+                        </button>
+                        <button type="button" onClick={() => { requestCamera('left'); setViewsOpen(false); }}>
+                          Izquierda
+                        </button>
+                        <button type="button" onClick={() => { requestCamera('right'); setViewsOpen(false); }}>
+                          Derecha
+                        </button>
+                        <button type="button" onClick={() => { requestCamera('iso'); setViewsOpen(false); }}>
+                          Isométrica
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className={`views-projection${orthographic ? ' is-active' : ''}`}
+                        onClick={() => setOrthographic(!orthographic)}
+                      >
+                        {orthographic ? 'Proyección ortográfica' : 'Proyección perspectiva'}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </>
             ) : null}
           </div>

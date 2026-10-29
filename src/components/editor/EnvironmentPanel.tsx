@@ -369,6 +369,9 @@ export function EnvironmentPanel({ project }: { project: Project }) {
                   libremente.</li>
                 <li><strong>X/Y/Z</strong> bloquean el segundo punto a un eje (ancho, alto o fondo).
                   Atajos: X/Y/Z y L para liberar; Shift coloca sin snap.</li>
+                <li>Con <strong>Snap desactivado</strong> y un eje activo, el primer punto se apoya en
+                  el suelo: crea <strong>cotas de altura o ancho libres</strong> sin referencia. Puedes
+                  crear tantas como quieras.</li>
                 <li>La lista permite seleccionar una medida para resaltarla o eliminarla.</li>
                 <li>La calibración reescala el splat usando una medida y su longitud real.</li>
               </ul>

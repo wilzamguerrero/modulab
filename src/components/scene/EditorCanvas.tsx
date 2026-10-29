@@ -13,6 +13,7 @@ import { RotationPointMarkers } from './RotationPointMarkers';
 import { SceneSplat } from './SceneSplat';
 import { MeasurementLayer } from './MeasurementLayer';
 import { MeasurementTool } from './MeasurementTool';
+import { MeasurementGizmo } from './MeasurementGizmo';
 import { WallEditHandles } from './WallEditHandles';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
@@ -20,10 +21,22 @@ import { pointInPolygon, polygonBounds, snapPoint } from '@/utils/geometry';
 import { getWallById, pointOffsetOnWall, type WallTarget } from '@/utils/walls';
 import { isSceneDragClickBlocked } from './sceneDragGuard';
 
+export type EditorViewMode =
+  | 'project'
+  | 'top'
+  | 'front'
+  | 'back'
+  | 'left'
+  | 'right'
+  | 'iso';
+
 export interface CameraRequest {
-  mode: 'project' | 'top';
+  mode: EditorViewMode;
   nonce: number;
 }
+
+/** Campo de visión reducido que emula una proyección ortográfica. */
+const ORTHO_FOV = 6;
 
 function FloorDropHandler() {
   const gl = useThree((state) => state.gl);
@@ -87,11 +100,22 @@ function FloorDropHandler() {
   return null;
 }
 
-function CameraRig({ project, request }: { project: Project; request: CameraRequest }) {
-  const camera = useThree((state) => state.camera);
+function CameraRig({
+  project,
+  request,
+  orthographic,
+}: {
+  project: Project;
+  request: CameraRequest;
+  orthographic: boolean;
+}) {
+  const camera = useThree((state) => state.camera) as THREE.PerspectiveCamera;
   const controls = useThree((state) => state.controls) as
     | { target: THREE.Vector3; update: () => void }
     | null;
+  const activeFov = orthographic ? ORTHO_FOV : project.camera.fov;
+  const activeFovRef = useRef(activeFov);
+  activeFovRef.current = activeFov;
 
   useEffect(() => {
     if (!controls) return;
@@ -101,32 +125,92 @@ function CameraRig({ project, request }: { project: Project; request: CameraRequ
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controls]);
 
+  // Alternar perspectiva ↔ ortográfica conservando el encuadre aparente.
   useEffect(() => {
-    if (request.mode === 'project') {
-      camera.position.set(...project.camera.position);
-      if (controls) {
-        controls.target.set(...project.camera.target);
-        controls.update();
-      }
-      if ('fov' in camera) {
-        camera.fov = project.camera.fov;
-        camera.updateProjectionMatrix();
-      }
-      return;
-    }
+    if (!controls || !('fov' in camera)) return;
+    if (Math.abs(camera.fov - activeFov) < 1e-4) return;
+    const offset = camera.position.clone().sub(controls.target);
+    const distance = Math.max(offset.length(), 0.001);
+    const ratio =
+      Math.tan((camera.fov * Math.PI) / 360) / Math.tan((activeFov * Math.PI) / 360);
+    offset.setLength(distance * ratio);
+    camera.position.copy(controls.target).add(offset);
+    camera.fov = activeFov;
+    camera.updateProjectionMatrix();
+    controls.update();
+  }, [orthographic, activeFov, camera, controls]);
+
+  useEffect(() => {
     const bounds = polygonBounds(project.floor.vertices);
-    const fov = 'fov' in camera ? camera.fov : 50;
-    const distance = Math.max(bounds.width, bounds.depth, 4) / (2 * Math.tan((fov * Math.PI) / 360)) * 1.15;
-    camera.position.set(bounds.center.x, distance, bounds.center.z + 0.02);
+    const center = bounds.center;
+    const fov = activeFovRef.current;
+    const fovRad = (fov * Math.PI) / 180;
+    // Distancia que encuadra el recinto con el FOV activo.
+    const fit =
+      (Math.max(bounds.width, bounds.depth, 4) / (2 * Math.tan(fovRad / 2))) * 1.35;
+    const eyeX = center.x;
+    const eyeZ = center.z;
+    const eyeY = 1.6;
+    let position: [number, number, number];
+    let target: [number, number, number];
+
+    switch (request.mode) {
+      case 'project': {
+        const dir = new THREE.Vector3(
+          project.camera.position[0] - project.camera.target[0],
+          project.camera.position[1] - project.camera.target[1],
+          project.camera.position[2] - project.camera.target[2],
+        );
+        if (dir.lengthSq() < 1e-6) dir.set(0.7, 0.7, 0.7);
+        dir.normalize();
+        target = [...project.camera.target];
+        position = [
+          target[0] + dir.x * fit,
+          target[1] + dir.y * fit,
+          target[2] + dir.z * fit,
+        ];
+        break;
+      }
+      case 'top':
+        target = [eyeX, 0, eyeZ];
+        position = [eyeX, fit, eyeZ + 0.001];
+        break;
+      case 'front':
+        target = [eyeX, eyeY * 0.72, eyeZ];
+        position = [eyeX, eyeY, eyeZ + fit];
+        break;
+      case 'back':
+        target = [eyeX, eyeY * 0.72, eyeZ];
+        position = [eyeX, eyeY, eyeZ - fit];
+        break;
+      case 'left':
+        target = [eyeX, eyeY * 0.72, eyeZ];
+        position = [eyeX - fit, eyeY, eyeZ];
+        break;
+      case 'right':
+        target = [eyeX, eyeY * 0.72, eyeZ];
+        position = [eyeX + fit, eyeY, eyeZ];
+        break;
+      case 'iso':
+      default:
+        target = [eyeX, 1, eyeZ];
+        position = [eyeX + fit * 0.62, eyeY + fit * 0.62, eyeZ + fit * 0.62];
+        break;
+    }
+
+    camera.position.set(position[0], position[1], position[2]);
+    if ('fov' in camera) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    }
     if (controls) {
-      controls.target.set(bounds.center.x, 0, bounds.center.z);
+      controls.target.set(target[0], target[1], target[2]);
       controls.update();
     }
     // Importante: no depender de `project` ni de `project.floor.vertices` como
     // objetos. El store clona el proyecto en cada cambio y eso devolvía la
     // cámara a su posición inicial al mover un objeto o editar una ficha.
-    // Solo se reacciona a una petición explícita de cámara o a un cambio real
-    // de los valores de la cámara inicial.
+    // Solo se reacciona a una petición explícita de cámara.
   }, [
     request.nonce,
     request.mode,
@@ -138,7 +222,6 @@ function CameraRig({ project, request }: { project: Project; request: CameraRequ
     project.camera.target[0],
     project.camera.target[1],
     project.camera.target[2],
-    project.camera.fov,
   ]);
 
   return null;
@@ -202,9 +285,13 @@ function DebugBridge() {
 function EditorSceneContents({
   project,
   cameraRequest,
+  orthographic,
+  active,
 }: {
   project: Project;
   cameraRequest: CameraRequest;
+  orthographic: boolean;
+  active: boolean;
 }) {
   const selection = useEditorStore((state) => state.selection);
   const setSelection = useEditorStore((state) => state.setSelection);
@@ -335,6 +422,7 @@ function EditorSceneContents({
       />
       <MeasurementLayer />
       <MeasurementTool />
+      {active ? <MeasurementGizmo /> : null}
       <SceneObjects
         project={project}
         editable
@@ -360,10 +448,10 @@ function EditorSceneContents({
         enableDamping
         dampingFactor={0.08}
         minDistance={1}
-        maxDistance={140}
+        maxDistance={orthographic ? 4000 : 140}
         maxPolarAngle={Math.PI / 2 - 0.015}
       />
-      <CameraRig project={project} request={cameraRequest} />
+      <CameraRig project={project} request={cameraRequest} orthographic={orthographic} />
       <FloorDropHandler />
       <DebugBridge />
     </>
@@ -374,18 +462,21 @@ export function EditorCanvas({
   project,
   cameraRequest,
   active = true,
+  orthographic = false,
 }: {
   project: Project;
   cameraRequest: CameraRequest;
   /** Mantiene el canvas montado pero pausa el render cuando la vista 2D lo cubre. */
   active?: boolean;
+  /** Proyección casi ortográfica para ver la escena como en programas 3D. */
+  orthographic?: boolean;
 }) {
   const camera = useMemo(
     () => ({
       position: project.camera.position,
       fov: project.camera.fov,
       near: 0.05,
-      far: 500,
+      far: 2000,
     }),
     // La cámara inicial solo se usa al montar el Canvas; los cambios se aplican con CameraRig.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -402,10 +493,18 @@ export function EditorCanvas({
         frameloop={active ? 'always' : 'demand'}
         onPointerMissed={() => {
           const state = useEditorStore.getState();
-          if (!state.pendingCatalogItem) state.setSelection(null);
+          if (state.pendingCatalogItem) return;
+          state.setSelection(null);
+          // Al hacer clic en el vacío se deselecciona la medida y su gizmo.
+          state.setActiveMeasurement(null);
         }}
       >
-        <EditorSceneContents project={project} cameraRequest={cameraRequest} />
+        <EditorSceneContents
+          project={project}
+          cameraRequest={cameraRequest}
+          orthographic={orthographic}
+          active={active}
+        />
       </Canvas>
     </div>
   );
