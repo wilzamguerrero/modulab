@@ -9,6 +9,7 @@ import {
   ImagePlus,
   Lightbulb,
   MapPin,
+  Orbit,
   PanelTop,
   RotateCcw,
   Sparkles,
@@ -22,6 +23,7 @@ import type {
   InternalWall,
   LightConfig,
   Project,
+  RotationPoint,
   SceneObject,
   ShadowQuality,
   Vec3,
@@ -852,6 +854,83 @@ function ExhibitorInspector({
   );
 }
 
+function RotationPointInspector({ project, point }: { project: Project; point: RotationPoint }) {
+  const updateRotationPoint = useEditorStore((state) => state.updateRotationPoint);
+  const deleteRotationPoint = useEditorStore((state) => state.deleteRotationPoint);
+  const setSelection = useEditorStore((state) => state.setSelection);
+  const toast = useUiStore((state) => state.toast);
+
+  return (
+    <Section
+      title="Punto de rotación"
+      action={
+        <IconButton
+          label="Eliminar punto de rotación"
+          icon={<Trash2 size={13} />}
+          onClick={() => {
+            deleteRotationPoint(point.id);
+            setSelection(null);
+            toast('Punto de rotación eliminado.', 'success');
+          }}
+        />
+      }
+    >
+      <Field label="Nombre">
+        <TextInput
+          value={point.name}
+          onChange={(event) =>
+            updateRotationPoint(
+              point.id,
+              { name: event.target.value },
+              { coalesceKey: `rot-name:${point.id}` },
+            )
+          }
+        />
+      </Field>
+      <div className="grid-2">
+        <Field label="X">
+          <NumberInput
+            value={point.position.x}
+            onChange={(x) =>
+              updateRotationPoint(
+                point.id,
+                { position: { ...point.position, x } },
+                { coalesceKey: `rot-x:${point.id}` },
+              )
+            }
+            step={0.1}
+            suffix="m"
+          />
+        </Field>
+        <Field label="Z">
+          <NumberInput
+            value={point.position.z}
+            onChange={(z) =>
+              updateRotationPoint(
+                point.id,
+                { position: { ...point.position, z } },
+                { coalesceKey: `rot-z:${point.id}` },
+              )
+            }
+            step={0.1}
+            suffix="m"
+          />
+        </Field>
+      </div>
+      <div className="prop-list">
+        <div className="prop-row">
+          <span>Puntos en el proyecto</span>
+          <strong>{project.rotationPoints.length}</strong>
+        </div>
+      </div>
+      <p className="panel-note">
+        Al viajar entre expositores, la cámara pasa primero por el punto de rotación más cercano al
+        trayecto y después va al expositor. Si no hay puntos, la cámara va directa como hasta ahora.
+      </p>
+    </Section>
+  );
+}
+
 function LightInspector({ light }: { light: LightConfig }) {
   const updateLight = useEditorStore((state) => state.updateLight);
   const deleteLight = useEditorStore((state) => state.deleteLight);
@@ -1417,6 +1496,9 @@ export function Inspector({
   const opening = selection?.type === 'opening'
     ? project.openings.find((entry) => entry.id === selection.id)
     : null;
+  const rotationPoint = selection?.type === 'rotationPoint'
+    ? project.rotationPoints.find((entry) => entry.id === selection.id)
+    : null;
 
   let title = 'Proyecto';
   let subtitle = 'Configuración general del espacio';
@@ -1450,6 +1532,10 @@ export function Inspector({
     title = opening.kind === 'door' ? 'Puerta' : 'Ventana';
     subtitle = 'Abertura en un muro';
     icon = opening.kind === 'door' ? <DoorOpen size={14} /> : <PanelTop size={14} />;
+  } else if (rotationPoint) {
+    title = rotationPoint.name || 'Punto de rotación';
+    subtitle = 'Pivote de transición entre expositores';
+    icon = <Orbit size={14} />;
   }
 
   return (
@@ -1478,6 +1564,8 @@ export function Inspector({
           <InternalWallInspector project={project} wall={internalWall} />
         ) : opening ? (
           <OpeningInspector project={project} opening={opening} />
+        ) : rotationPoint ? (
+          <RotationPointInspector project={project} point={rotationPoint} />
         ) : (
           <ProjectInspector project={project} onPublish={onPublish} />
         )}

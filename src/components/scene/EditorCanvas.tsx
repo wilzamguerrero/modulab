@@ -9,6 +9,7 @@ import { SceneEnvironment } from './SceneEnvironment';
 import { SceneShadows } from './SceneShadows';
 import { SceneObjects } from './SceneObjects';
 import { ExhibitorMarkers } from './ExhibitorMarkers';
+import { RotationPointMarkers } from './RotationPointMarkers';
 import { SceneSplat } from './SceneSplat';
 import { MeasurementLayer } from './MeasurementLayer';
 import { MeasurementTool } from './MeasurementTool';
@@ -213,6 +214,7 @@ function EditorSceneContents({
   const setEnvironment = useEditorStore((state) => state.setEnvironment);
   const addObject = useEditorStore((state) => state.addObject);
   const addExhibitor = useEditorStore((state) => state.addExhibitor);
+  const addRotationPoint = useEditorStore((state) => state.addRotationPoint);
   const addOpening = useEditorStore((state) => state.addOpening);
   const toggleWall = useEditorStore((state) => state.toggleWall);
   const toast = useUiStore((state) => state.toast);
@@ -251,6 +253,13 @@ function EditorSceneContents({
         ? snapPoint(point, activeProject.settings.gridSize)
         : point;
       addExhibitor(position);
+      return;
+    }
+    if (state.tool === 'rotationPoint') {
+      const position = activeProject.settings.snapToGrid
+        ? snapPoint(point, activeProject.settings.gridSize)
+        : point;
+      addRotationPoint(position);
       return;
     }
     if (state.tool === 'wall') {
@@ -339,6 +348,12 @@ function EditorSceneContents({
         editor
         selectedId={selection?.type === 'exhibitor' ? selection.id : null}
         onSelect={(id) => setSelection({ type: 'exhibitor', id })}
+      />
+      <RotationPointMarkers
+        points={project.rotationPoints}
+        editor
+        selectedId={selection?.type === 'rotationPoint' ? selection.id : null}
+        onSelect={(id) => setSelection({ type: 'rotationPoint', id })}
       />
       <OrbitControls
         makeDefault

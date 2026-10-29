@@ -9,6 +9,7 @@ import type {
   OpeningKind,
   PlanDrawMode,
   Project,
+  RotationPoint,
   SceneObject,
   Selection,
   TransformMode,
@@ -153,6 +154,11 @@ interface EditorState {
   moveExhibitor: (id: string, position: Vec2, options?: PatchOptions) => void;
   deleteExhibitor: (id: string) => void;
   removeMissingExhibitors: () => void;
+
+  addRotationPoint: (position: Vec2) => string | null;
+  updateRotationPoint: (id: string, patch: Partial<RotationPoint>, options?: PatchOptions) => void;
+  moveRotationPoint: (id: string, position: Vec2, options?: PatchOptions) => void;
+  deleteRotationPoint: (id: string) => void;
 
   addLight: (type: LightConfig['type']) => string | null;
   updateLight: (id: string, patch: Partial<LightConfig>, options?: PatchOptions) => void;
@@ -884,6 +890,44 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       );
       normalizeExhibitorLinks(draft);
     }),
+
+  addRotationPoint: (position) => {
+    const project = get().project;
+    if (!project) return null;
+    const id = createId('rot');
+    const point: RotationPoint = {
+      id,
+      name: `Punto de rotación ${project.rotationPoints.length + 1}`,
+      position: { ...position },
+    };
+    get().patchProject((draft) => {
+      draft.rotationPoints.push(point);
+    });
+    set({ selection: { type: 'rotationPoint', id } });
+    return id;
+  },
+
+  updateRotationPoint: (id, patch, options = {}) =>
+    get().patchProject((draft) => {
+      const index = draft.rotationPoints.findIndex((entry) => entry.id === id);
+      if (index < 0) return;
+      draft.rotationPoints[index] = { ...draft.rotationPoints[index], ...patch, id };
+    }, { coalesceKey: `rotation-point:${id}`, ...options }),
+
+  moveRotationPoint: (id, position, options = {}) =>
+    get().patchProject((draft) => {
+      const point = draft.rotationPoints.find((entry) => entry.id === id);
+      if (!point) return;
+      point.position = { ...position };
+    }, { coalesceKey: `rotation-move:${id}`, ...options }),
+
+  deleteRotationPoint: (id) => {
+    get().patchProject((draft) => {
+      draft.rotationPoints = draft.rotationPoints.filter((entry) => entry.id !== id);
+    });
+    const selection = get().selection;
+    if (selection?.type === 'rotationPoint' && selection.id === id) set({ selection: null });
+  },
 
   addLight: (type) => {
     const project = get().project;

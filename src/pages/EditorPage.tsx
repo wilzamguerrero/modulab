@@ -20,6 +20,7 @@ import {
   Maximize2,
   MousePointer2,
   Move,
+  Orbit,
   PanelLeft,
   PanelRight,
   PanelTop,
@@ -119,6 +120,7 @@ export function EditorPage() {
   const deleteLight = useEditorStore((state) => state.deleteLight);
   const deleteInternalWall = useEditorStore((state) => state.deleteInternalWall);
   const deleteOpening = useEditorStore((state) => state.deleteOpening);
+  const deleteRotationPoint = useEditorStore((state) => state.deleteRotationPoint);
   const removeVertex = useEditorStore((state) => state.removeVertex);
   const setClipboardObject = useEditorStore((state) => state.setClipboardObject);
   const clipboardObject = useEditorStore((state) => state.clipboardObject);
@@ -291,6 +293,7 @@ export function EditorPage() {
         else if (state.selection?.type === 'light') deleteLight(state.selection.id);
         else if (state.selection?.type === 'internalWall') deleteInternalWall(state.selection.id);
         else if (state.selection?.type === 'opening') deleteOpening(state.selection.id);
+        else if (state.selection?.type === 'rotationPoint') deleteRotationPoint(state.selection.id);
         else if (state.selection?.type === 'vertex') removeVertex(state.selection.index);
         return;
       }
@@ -304,6 +307,7 @@ export function EditorPage() {
       if (key === 'p') { setView('plan'); setTool('door'); return; }
       if (key === 'n') { setView('plan'); setTool('window'); return; }
       if (key === 'e') { setTool('exhibitor'); return; }
+      if (key === 'o') { setTool('rotationPoint'); return; }
       if (key === 'g') { setTransformMode('translate'); return; }
       if (key === 'r') { setTransformMode('rotate'); return; }
       if (key === 's') { setTransformMode('scale'); return; }
@@ -317,6 +321,7 @@ export function EditorPage() {
     deleteLight,
     deleteObject,
     deleteOpening,
+    deleteRotationPoint,
     duplicateObject,
     pasteObject,
     redo,
@@ -582,6 +587,9 @@ export function EditorPage() {
             </button>
             <button type="button" className={`tool-btn${tool === 'exhibitor' ? ' is-active' : ''}`} title="Colocar expositor (E)" onClick={() => chooseTool('exhibitor')}>
               <UserPlus size={16} />
+            </button>
+            <button type="button" className={`tool-btn${tool === 'rotationPoint' ? ' is-active' : ''}`} title="Punto de rotación (O)" onClick={() => chooseTool('rotationPoint')}>
+              <Orbit size={16} />
             </button>
             <button type="button" className={`tool-btn${tool === 'pan' ? ' is-active' : ''}`} title="Mover vista (espacio)" onClick={() => chooseTool('pan')}>
               <Hand size={16} />

@@ -2310,6 +2310,12 @@ input[type="range"] {
   color: var(--text);
 }
 
+.viewer-controls button.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .viewer-hint {
   position: absolute;
   top: 14px;

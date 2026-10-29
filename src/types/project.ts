@@ -200,6 +200,17 @@ export const projectSettingsSchema = z.object({
   exhibitorColorOpacity: z.number().min(0).max(1).default(0.35),
 });
 
+/**
+ * Punto de rotación: posición intermedia por la que pasa la cámara al viajar
+ * entre expositores (pivote de transición). Si no hay ninguno, la cámara viaja
+ * directo al expositor como hasta ahora.
+ */
+export const rotationPointSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().default('Punto de rotación'),
+  position: vec2Schema.default({ x: 0, z: 0 }),
+});
+
 export const projectSchema = z
   .object({
     schemaVersion: z.literal(1).default(1),
@@ -218,6 +229,7 @@ export const projectSchema = z
     objects: z.array(sceneObjectSchema).default([]),
     lights: z.array(lightConfigSchema).default([]),
     exhibitors: z.array(exhibitorSchema).default([]),
+    rotationPoints: z.array(rotationPointSchema).default([]),
     camera: projectCameraSchema.default({}),
     environment: environmentSchema.default({}),
     notionBlockId: z.string().optional(),
@@ -242,6 +254,7 @@ export type WallOpening = z.infer<typeof wallOpeningSchema>;
 export type FloorPlan = z.infer<typeof floorPlanSchema>;
 export type LightConfig = z.infer<typeof lightConfigSchema>;
 export type Exhibitor = z.infer<typeof exhibitorSchema>;
+export type RotationPoint = z.infer<typeof rotationPointSchema>;
 export type ProjectCamera = z.infer<typeof projectCameraSchema>;
 export type Environment = z.infer<typeof environmentSchema>;
 export type EnvironmentFormat = z.infer<typeof environmentFormatSchema>;
@@ -274,6 +287,7 @@ export type Selection =
   | { type: 'object'; id: string }
   | { type: 'light'; id: string }
   | { type: 'exhibitor'; id: string }
+  | { type: 'rotationPoint'; id: string }
   | null;
 
 export type EditorTool =
@@ -284,6 +298,7 @@ export type EditorTool =
   | 'door'
   | 'window'
   | 'exhibitor'
+  | 'rotationPoint'
   | 'pan';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 export type EditorView = 'plan' | '3d';

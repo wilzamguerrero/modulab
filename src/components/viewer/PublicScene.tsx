@@ -19,6 +19,8 @@ export interface ViewerCameraCommand {
   nonce: number;
   position?: Vec3;
   target?: Vec3;
+  /** Punto de rotación intermedio por el que pasa la cámara antes del destino. */
+  via?: { position: Vec3; target: Vec3 };
 }
 
 function ViewerCamera({
@@ -35,43 +37,55 @@ function ViewerCamera({
     if (!controls) return;
     const animate = command.nonce > 0;
 
-    if (command.mode === 'focus' && command.position && command.target) {
-      controls.setLookAt(
-        command.position[0],
-        command.position[1],
-        command.position[2],
-        command.target[0],
-        command.target[1],
-        command.target[2],
-        animate,
-      );
-      return;
-    }
+    let position: [number, number, number] | undefined;
+    let target: [number, number, number] | undefined;
 
-    if (command.mode === 'top') {
+    if (command.mode === 'focus' && command.position && command.target) {
+      position = command.position;
+      target = command.target;
+    } else if (command.mode === 'top') {
       const bounds = polygonBounds(project.floor.vertices);
       const height = Math.max(bounds.width, bounds.depth, 6) * 1.25 + 5;
-      controls.setLookAt(
-        bounds.center.x,
-        height,
-        bounds.center.z + 0.02,
-        bounds.center.x,
-        0,
-        bounds.center.z,
-        animate,
-      );
-      return;
+      position = [bounds.center.x, height, bounds.center.z + 0.02];
+      target = [bounds.center.x, 0, bounds.center.z];
+    } else {
+      position = project.camera.position;
+      target = project.camera.target;
     }
 
-    controls.setLookAt(
-      project.camera.position[0],
-      project.camera.position[1],
-      project.camera.position[2],
-      project.camera.target[0],
-      project.camera.target[1],
-      project.camera.target[2],
-      animate,
-    );
+    if (!position || !target) return;
+
+    const goTo = (
+      nextPosition: [number, number, number],
+      nextTarget: [number, number, number],
+    ) =>
+      controls.setLookAt(
+        nextPosition[0],
+        nextPosition[1],
+        nextPosition[2],
+        nextTarget[0],
+        nextTarget[1],
+        nextTarget[2],
+        animate,
+      );
+
+    if (command.via && animate) {
+      let cancelled = false;
+      goTo(command.via.position, command.via.target)
+        .then(() => {
+          if (!cancelled) return goTo(position, target);
+          return undefined;
+        })
+        .catch(() => {
+          if (!cancelled) goTo(position, target);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    goTo(position, target);
+    return undefined;
   }, [command, project]);
 
   return (
@@ -91,18 +105,25 @@ export function PublicScene({
   project,
   selectedExhibitorId,
   cameraCommand,
+  showSplat = false,
   onSelectExhibitor,
   onClearSelection,
 }: {
   project: Project;
   selectedExhibitorId: string | null;
   cameraCommand: ViewerCameraCommand;
+  /** El splat se mantiene oculto por defecto en el visor público. */
+  showSplat?: boolean;
   onSelectExhibitor: (id: string) => void;
   onClearSelection: () => void;
 }) {
   const shadowBounds = useMemo(
     () => polygonBounds(project.floor.vertices),
     [project.floor.vertices],
+  );
+  const environment = useMemo(
+    () => ({ ...project.environment, visible: project.environment.visible && showSplat }),
+    [project.environment, showSplat],
   );
 
   return (
@@ -130,7 +151,7 @@ export function PublicScene({
           shadowBounds={shadowBounds}
         />
         <Architecture project={project} selectedExhibitorId={selectedExhibitorId} />
-        <SceneSplat environment={project.environment} />
+        <SceneSplat environment={environment} />
         <SceneObjects
           project={project}
           selectedExhibitorId={selectedExhibitorId}

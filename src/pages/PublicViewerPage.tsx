@@ -11,10 +11,11 @@ import {
   MapPin,
   Maximize2,
   MousePointer2,
+  Sparkles,
   Users,
   X,
 } from 'lucide-react';
-import type { Exhibitor, Project } from '@/types/project';
+import type { Exhibitor, Project, RotationPoint, Vec2 } from '@/types/project';
 import { Badge, IconButton, Spinner } from '@/components/ui';
 import { PublicScene, type ViewerCameraCommand } from '@/components/viewer/PublicScene';
 import { fetchPublished } from '@/services/publishing/publishService';
@@ -111,6 +112,35 @@ export function focusCameraFor(
     return { position, target };
   }
   return defaultExhibitorCamera(exhibitor.position, project.floor.vertices);
+}
+
+function distanceToSegment(point: Vec2, a: Vec2, b: Vec2): number {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const lengthSq = dx * dx + dz * dz;
+  if (lengthSq < 1e-6) return Math.hypot(point.x - a.x, point.z - a.z);
+  let t = ((point.x - a.x) * dx + (point.z - a.z) * dz) / lengthSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(point.x - (a.x + t * dx), point.z - (a.z + t * dz));
+}
+
+/** Punto de rotación más cercano al trayecto entre dos posiciones de planta. */
+function pickRotationPoint(
+  points: RotationPoint[],
+  from: Vec2,
+  to: Vec2,
+): RotationPoint | null {
+  if (!points.length) return null;
+  let best = points[0];
+  let bestDistance = Infinity;
+  for (const point of points) {
+    const distance = distanceToSegment(point.position, from, to);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = point;
+    }
+  }
+  return best;
 }
 
 function ViewerSidebar({
@@ -267,6 +297,7 @@ export function PublicViewerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showSplat, setShowSplat] = useState(false);
   const [cameraCommand, setCameraCommand] = useState<ViewerCameraCommand>({
     mode: 'reset',
     nonce: 0,
@@ -324,13 +355,24 @@ export function PublicViewerPage() {
     if (!publicProject) return;
     setSelectedId(exhibitor.id);
     const camera = focusCameraFor(exhibitor, publicProject);
+    // Si hay puntos de rotación, la cámara pasa por el más cercano al trayecto
+    // antes de llegar al expositor.
+    const from = selectedExhibitor?.position ?? {
+      x: publicProject.camera.target[0],
+      z: publicProject.camera.target[2],
+    };
+    const pivot = pickRotationPoint(publicProject.rotationPoints, from, exhibitor.position);
+    const via = pivot
+      ? defaultExhibitorCamera(pivot.position, publicProject.floor.vertices)
+      : undefined;
     setCameraCommand((current) => ({
       mode: 'focus',
       nonce: current.nonce + 1,
       position: camera.position,
       target: camera.target,
+      via,
     }));
-  }, [publicProject]);
+  }, [publicProject, selectedExhibitor]);
 
   const selectById = useCallback(
     (id: string) => {
@@ -424,6 +466,7 @@ export function PublicViewerPage() {
             project={publicProject}
             selectedExhibitorId={selectedId}
             cameraCommand={cameraCommand}
+            showSplat={showSplat}
             onSelectExhibitor={selectById}
             onClearSelection={() => setSelectedId(null)}
           />
@@ -441,6 +484,17 @@ export function PublicViewerPage() {
               <Maximize2 size={14} />
               Vista superior
             </button>
+            {publicProject.environment.url || publicProject.environment.blockId ? (
+              <button
+                type="button"
+                className={showSplat ? 'is-active' : ''}
+                onClick={() => setShowSplat((value) => !value)}
+                title={showSplat ? 'Ocultar el Gaussian splat' : 'Mostrar el Gaussian splat'}
+              >
+                <Sparkles size={14} />
+                Gaussian
+              </button>
+            ) : null}
           </div>
 
           {selectedExhibitor ? (

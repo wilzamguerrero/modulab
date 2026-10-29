@@ -53,7 +53,8 @@ type DragState =
   | { type: 'vertex'; index: number }
   | { type: 'internalWallPoint'; id: string; endpoint: 'a' | 'b' }
   | { type: 'object'; id: string; offset: Vec2 }
-  | { type: 'exhibitor'; id: string; offset: Vec2 };
+  | { type: 'exhibitor'; id: string; offset: Vec2 }
+  | { type: 'rotationPoint'; id: string; offset: Vec2 };
 
 function fitViewport(vertices: Vec2[]): Viewport {
   if (vertices.length === 0) {
@@ -229,9 +230,11 @@ export function PlanEditor2D() {
   const setSelection = useEditorStore((state) => state.setSelection);
   const addObject = useEditorStore((state) => state.addObject);
   const addExhibitor = useEditorStore((state) => state.addExhibitor);
+  const addRotationPoint = useEditorStore((state) => state.addRotationPoint);
   const moveVertex = useEditorStore((state) => state.moveVertex);
   const updateObjectTransform = useEditorStore((state) => state.updateObjectTransform);
   const moveExhibitor = useEditorStore((state) => state.moveExhibitor);
+  const moveRotationPoint = useEditorStore((state) => state.moveRotationPoint);
   const toggleWall = useEditorStore((state) => state.toggleWall);
   const beginHistory = useEditorStore((state) => state.beginHistory);
   const commitHistory = useEditorStore((state) => state.commitHistory);
@@ -517,6 +520,14 @@ export function PlanEditor2D() {
         z: point.z + drag.offset.z,
       });
       moveExhibitor(drag.id, next, { history: false, touch: false });
+      return;
+    }
+    if (drag.type === 'rotationPoint') {
+      const next = snapPointIfNeeded({
+        x: point.x + drag.offset.x,
+        z: point.z + drag.offset.z,
+      });
+      moveRotationPoint(drag.id, next, { history: false, touch: false });
     }
   };
 
@@ -589,6 +600,15 @@ export function PlanEditor2D() {
       return;
     }
 
+    if (state.tool === 'rotationPoint') {
+      if (vertices.length >= 3 && !pointInPolygon(point, vertices)) {
+        toast('Coloca el punto de rotación dentro de la planta.', 'warning');
+        return;
+      }
+      addRotationPoint(point);
+      return;
+    }
+
     setSelection(null);
   };
 
@@ -639,6 +659,19 @@ export function PlanEditor2D() {
       offset: { x: position.x - point.x, z: position.z - point.z },
     });
     setSelection({ type: 'exhibitor', id });
+  };
+
+  const onRotationPointPointerDown = (event: ReactPointerEvent, id: string, position: Vec2) => {
+    if (tool !== 'select') return;
+    event.stopPropagation();
+    event.preventDefault();
+    const point = toWorld(event.clientX, event.clientY);
+    beginDrag(event, {
+      type: 'rotationPoint',
+      id,
+      offset: { x: position.x - point.x, z: position.z - point.z },
+    });
+    setSelection({ type: 'rotationPoint', id });
   };
 
   const handleEdgeClick = (event: ReactMouseEvent, index: number) => {
@@ -1145,6 +1178,48 @@ export function PlanEditor2D() {
           );
         })}
 
+        {project.rotationPoints.map((point) => {
+          const selected = selection?.type === 'rotationPoint' && selection.id === point.id;
+          const radius = Math.max(viewport.width / 170, 0.13);
+          const color = selected ? '#d7ff4f' : '#b48cff';
+          return (
+            <g
+              key={point.id}
+              data-rotation-point-id={point.id}
+              transform={`translate(${point.position.x} ${point.position.z})`}
+              style={{ cursor: tool === 'select' ? 'move' : 'pointer' }}
+              onPointerDown={(event) => onRotationPointPointerDown(event, point.id, point.position)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setSelection({ type: 'rotationPoint', id: point.id });
+              }}
+            >
+              <rect
+                x={-radius}
+                y={-radius}
+                width={radius * 2}
+                height={radius * 2}
+                transform="rotate(45)"
+                fill={selected ? 'rgba(215,255,79,.3)' : 'rgba(180,140,255,.16)'}
+                stroke={color}
+                strokeWidth={Math.max(viewport.width / 900, 0.012)}
+              />
+              <circle r={radius * 0.32} fill={color} />
+              <text
+                x={0}
+                y={-radius * 2}
+                textAnchor="middle"
+                fill={color}
+                fontSize={textSize * 0.9}
+                fontFamily="var(--font)"
+                pointerEvents="none"
+              >
+                {point.name || 'Punto de rotación'}
+              </text>
+            </g>
+          );
+        })}
+
         {vertices.map((vertex, index) => {
           const selected = selectedVertex === index;
           return (
@@ -1358,6 +1433,11 @@ export function PlanEditor2D() {
           <>
             <strong>Expositor:</strong> haz clic dentro de la planta para crear un punto de interés.
             Luego completa su ficha en el panel derecho.
+          </>
+        ) : tool === 'rotationPoint' ? (
+          <>
+            <strong>Punto de rotación:</strong> haz clic dentro de la planta para colocar un pivote.
+            La cámara pasará por el más cercano al viajar entre expositores. Puedes añadir varios.
           </>
         ) : tool === 'pan' ? (
           <>

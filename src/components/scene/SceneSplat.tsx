@@ -126,27 +126,58 @@ export function SceneSplat({
   const setStatus = useSplatStatus((state) => state.setStatus);
   const { url, format, visible } = environment;
 
+  // La instancia se mantiene en memoria: ocultar el splat no la libera, así
+  // volver a mostrarlo es inmediato y no se vuelve a descargar.
+  const instanceRef = useRef<import('@mkkellogg/gaussian-splats-3d').DropInViewer | null>(null);
+  const sourceKeyRef = useRef('');
+  const loadGenRef = useRef(0);
+  const sourceKey = url ? `${url}|${format ?? ''}` : '';
+
+  const disposeInstance = () => {
+    loadGenRef.current += 1;
+    sourceKeyRef.current = '';
+    const instance = instanceRef.current;
+    instanceRef.current = null;
+    setSplatInstance(null, false);
+    try {
+      instance?.dispose();
+    } catch {
+      // Ignorar errores de liberación.
+    }
+    setGroup(null);
+    setStatus('idle');
+  };
+
+  // Solo se libera al desmontar o cuando cambia la fuente (URL/formato).
+  useEffect(() => () => disposeInstance(), []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
-    if (!visible || !url) {
-      setGroup(null);
-      setStatus('idle');
+    if (!sourceKey) {
+      if (instanceRef.current) disposeInstance();
       return;
     }
+    // Cambió la fuente: descartar la instancia anterior.
+    if (sourceKeyRef.current && sourceKeyRef.current !== sourceKey) {
+      disposeInstance();
+    }
+    if (sourceKeyRef.current === sourceKey) return; // ya cargado o cargando
+    if (!visible || !url) return; // no descargar mientras está oculto
 
-    let cancelled = false;
-    let instance: import('@mkkellogg/gaussian-splats-3d').DropInViewer | null = null;
+    sourceKeyRef.current = sourceKey;
+    const generation = ++loadGenRef.current;
     setStatus('loading', { progress: 0 });
+    let instance: import('@mkkellogg/gaussian-splats-3d').DropInViewer | null = null;
 
     (async () => {
       try {
         const GS = await import('@mkkellogg/gaussian-splats-3d');
-        if (cancelled) return;
+        if (generation !== loadGenRef.current) return;
 
         instance = new GS.DropInViewer({
           sharedMemoryForWorkers: false,
           gpuAcceleratedSort: false,
         });
-        setGroup(instance as unknown as THREE.Group);
+        instanceRef.current = instance;
         setSplatInstance(instance, false);
 
         const sceneFormat = format
@@ -162,35 +193,41 @@ export function SceneSplat({
           showLoadingUI: false,
           splatAlphaRemovalThreshold: 1,
           onProgress: (percent: number) => {
-            if (!cancelled) setStatus('loading', { progress: percent });
+            if (generation === loadGenRef.current) setStatus('loading', { progress: percent });
           },
         });
-        if (cancelled) return;
+        if (generation !== loadGenRef.current) {
+          try {
+            instance.dispose();
+          } catch {
+            // Ignorar.
+          }
+          return;
+        }
 
         // No capturar clics normales; la medida usa el raycaster interno.
         instance.traverse((child: THREE.Object3D) => {
           child.raycast = () => {};
         });
         setSplatInstance(instance, true);
+        setGroup(instance as unknown as THREE.Group);
         setStatus('ready');
       } catch (error) {
         console.error('[modulab] No se pudo cargar el entorno splat:', error);
-        if (!cancelled) setStatus('error', { error: (error as Error).message });
+        if (generation !== loadGenRef.current) return;
+        sourceKeyRef.current = ''; // permite reintentar al volver a mostrar
+        instanceRef.current = null;
+        try {
+          instance?.dispose();
+        } catch {
+          // Ignorar.
+        }
+        setSplatInstance(null, false);
+        setGroup(null);
+        setStatus('error', { error: (error as Error).message });
       }
     })();
-
-    return () => {
-      cancelled = true;
-      setSplatInstance(null, false);
-      try {
-        instance?.dispose();
-      } catch {
-        // Ignorar errores de liberación.
-      }
-      setGroup(null);
-      setStatus('idle');
-    };
-  }, [url, format, visible, setStatus]);
+  }, [sourceKey, visible, url, format, setStatus]);
 
   // Aplica la transformación imperativamente para convivir con el gizmo.
   useEffect(() => {
@@ -205,10 +242,18 @@ export function SceneSplat({
     group.updateMatrixWorld();
   }, [group, environment.position, environment.rotation, environment.scale]);
 
+  // Mostrar u ocultar sin liberar la instancia (coste instantáneo). También
+  // desactiva el picking de medidas mientras el splat está oculto.
+  useEffect(() => {
+    if (!group) return;
+    group.visible = visible;
+    setSplatInstance(instanceRef.current, visible && Boolean(instanceRef.current));
+  }, [group, visible]);
+
   return (
     <>
-      {group ? <primitive object={group} frustumCulled={false} /> : null}
-      {editable && gizmoMode && group ? (
+      {group ? <primitive object={group} visible={visible} frustumCulled={false} /> : null}
+      {editable && gizmoMode && group && visible ? (
         <EnvironmentGizmo
           group={group}
           mode={gizmoMode}
@@ -222,7 +267,7 @@ export function SceneSplat({
           }
         />
       ) : null}
-      <SplatStatusOverlay />
+      {visible ? <SplatStatusOverlay /> : null}
     </>
   );
 }
