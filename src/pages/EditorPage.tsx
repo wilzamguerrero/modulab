@@ -28,6 +28,7 @@ import {
   RefreshCcw,
   Redo2,
   RotateCw,
+  Ruler,
   Save,
   Scaling,
   Sparkles,
@@ -102,6 +103,8 @@ export function EditorPage() {
   const clearMeasurements = useEditorStore((state) => state.clearMeasurements);
   const toggleMeasureMode = useEditorStore((state) => state.toggleMeasureMode);
   const measurementCount = useEditorStore((state) => state.measurements.length);
+  const environmentPreview = useEditorStore((state) => state.environmentPreview);
+  const setEnvironment = useEditorStore((state) => state.setEnvironment);
 
   const loadProjectData = useEditorStore((state) => state.loadProjectData);
   const setLoading = useEditorStore((state) => state.setLoading);
@@ -308,6 +311,7 @@ export function EditorPage() {
       if (key === 'n') { setView('plan'); setTool('window'); return; }
       if (key === 'e') { setTool('exhibitor'); return; }
       if (key === 'o') { setTool('rotationPoint'); return; }
+      if (key === 't') { setView('3d'); toggleMeasureMode(); return; }
       if (key === 'g') { setTransformMode('translate'); return; }
       if (key === 'r') { setTransformMode('rotate'); return; }
       if (key === 's') { setTransformMode('scale'); return; }
@@ -334,6 +338,7 @@ export function EditorPage() {
     setTransformMode,
     setView,
     toast,
+    toggleMeasureMode,
     undo,
   ]);
 
@@ -591,6 +596,9 @@ export function EditorPage() {
             <button type="button" className={`tool-btn${tool === 'rotationPoint' ? ' is-active' : ''}`} title="Punto de rotación (O)" onClick={() => chooseTool('rotationPoint')}>
               <Orbit size={16} />
             </button>
+            <button type="button" className={`tool-btn${measureMode ? ' is-active' : ''}`} title="Medir (T)" onClick={() => { setView('3d'); toggleMeasureMode(); }}>
+              <Ruler size={16} />
+            </button>
             <button type="button" className={`tool-btn${tool === 'pan' ? ' is-active' : ''}`} title="Mover vista (espacio)" onClick={() => chooseTool('pan')}>
               <Hand size={16} />
             </button>
@@ -625,6 +633,23 @@ export function EditorPage() {
             {view === 'plan' ? <LayoutGrid size={12} /> : <Box size={12} />}
             <strong>{view === 'plan' ? 'Planta 2D' : 'Vista 3D'}</strong>
             {pendingCatalogItem ? <Badge tone="accent">{pendingCatalogItem.name}</Badge> : null}
+            {view === '3d' &&
+            (project.environment.url || project.environment.blockId || environmentPreview) ? (
+              <button
+                type="button"
+                className={`view-badge-toggle${project.environment.visible ? ' is-active' : ''}`}
+                onClick={() => setEnvironment({ visible: !project.environment.visible })}
+                title={
+                  project.environment.visible
+                    ? 'Ocultar el Gaussian splat'
+                    : 'Mostrar el Gaussian splat'
+                }
+                aria-pressed={project.environment.visible}
+              >
+                <Sparkles size={12} />
+                Gaussian
+              </button>
+            ) : null}
           </div>
 
           {view === '3d' && measureMode ? (
@@ -712,6 +737,7 @@ export function EditorPage() {
           {saveStatus === 'saving' ? <Loader2 size={11} className="spin" /> : <Save size={11} />}
           {saveLabel}
         </span>
+        <span className="status-item status-credit">dev by wilzamguerrero</span>
       </footer>
 
       <PublishModal

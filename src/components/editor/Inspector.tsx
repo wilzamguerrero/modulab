@@ -34,6 +34,7 @@ import {
   Button,
   ColorInput,
   Field,
+  HelpButton,
   IconButton,
   NumberInput,
   RangeInput,
@@ -185,7 +186,21 @@ function ProjectInspector({ project, onPublish }: { project: Project; onPublish:
         </Button>
       </Section>
 
-      <Section title="Vista y edición">
+      <Section
+        title="Vista y edición"
+        action={
+          <HelpButton title="Vista y edición">
+            <p>
+              La pintura tiñe muros, aberturas y objetos asociados. Al seleccionar un expositor, sus
+              elementos se resaltan siempre, aunque solo estén activos los aros.
+            </p>
+            <p>
+              Las cotas muestran la longitud de cada segmento en la planta. El ajuste a cuadrícula
+              alinea vértices, objetos y expositores al moverlos.
+            </p>
+          </HelpButton>
+        }
+      >
         <Field label="Calidad de sombras">
           <Select
             value={project.settings.shadowQuality}
@@ -219,10 +234,6 @@ function ProjectInspector({ project, onPublish }: { project: Project; onPublish:
           step={0.05}
           format={(value) => `${Math.round(value * 100)} %`}
         />
-        <p className="panel-note">
-          La pintura tiñe muros, aberturas y objetos asociados. Al seleccionar un expositor, sus
-          elementos se resaltan siempre, aunque solo estén activos los aros.
-        </p>
         <Switch
           checked={project.settings.showGrid}
           onChange={(showGrid) => setSettings({ showGrid })}
@@ -250,7 +261,21 @@ function ProjectInspector({ project, onPublish }: { project: Project; onPublish:
         </div>
       </Section>
 
-      <Section title="Publicación">
+      <Section
+        title="Publicación"
+        action={
+          <HelpButton title="Publicación">
+            <p>
+              La publicación crea una copia de solo lectura con un enlace compartible. Los cambios
+              posteriores no se verán hasta volver a publicar.
+            </p>
+            <p>
+              El visor público oculta el Gaussian splat por defecto; el visitante puede mostrarlo con
+              el botón «Gaussian».
+            </p>
+          </HelpButton>
+        }
+      >
         {project.published ? (
           <>
             <div className="settings-status is-ok">
@@ -275,10 +300,6 @@ function ProjectInspector({ project, onPublish }: { project: Project; onPublish:
           </>
         ) : (
           <>
-            <p className="panel-note">
-              La publicación crea una copia de solo lectura con un enlace compartible. Los cambios
-              posteriores no se verán hasta volver a publicar.
-            </p>
             <Button size="sm" variant="primary" onClick={onPublish} icon={<Sparkles size={13} />}>
               Publicar espacio
             </Button>
@@ -451,7 +472,21 @@ function ObjectInspector({
         </div>
       </Section>
 
-      <Section title="Medidas reales">
+      <Section
+        title="Medidas reales"
+        action={
+          <HelpButton title="Medidas reales">
+            <p>
+              Es el tamaño del objeto ya escalado (tamaño del modelo × escala). La etiqueta sobre el
+              objeto seleccionado en 3D muestra ancho, alto y fondo.
+            </p>
+            <p>
+              Al cambiar la medida de referencia, la escala X/Y/Z se multiplica por el mismo factor
+              para conservar las proporciones.
+            </p>
+          </HelpButton>
+        }
+      >
         {dimensions ? (
           <>
             <div className="prop-list">
@@ -479,10 +514,6 @@ function ObjectInspector({
                 suffix="cm"
               />
             </Field>
-            <p className="panel-note">
-              Es el tamaño del objeto ya escalado. Al cambiar la medida de referencia, la escala
-              X/Y/Z se multiplica por el mismo factor para conservar las proporciones.
-            </p>
           </>
         ) : (
           <p className="panel-note">
@@ -493,16 +524,22 @@ function ObjectInspector({
         )}
       </Section>
 
-      <Section title="Expositor asociado">
+      <Section
+        title="Expositor asociado"
+        action={
+          <HelpButton title="Expositor asociado">
+            <p>
+              El objeto usa el color de su expositor en el visor y puede pintarse con él según la
+              configuración de «Vista y edición».
+            </p>
+          </HelpButton>
+        }
+      >
         <ExhibitorSelect
           project={project}
           value={object.exhibitorId}
           onChange={(exhibitorId) => assignObjectToExhibitor(object.id, exhibitorId)}
         />
-        <p className="panel-note">
-          El objeto usa el color de su expositor en el visor y puede pintarse con él según la
-          configuración de «Vista y edición».
-        </p>
       </Section>
 
       <Section
@@ -699,7 +736,17 @@ function ExhibitorInspector({
         />
       </Section>
 
-      <Section title="Posición">
+      <Section
+        title="Posición"
+        action={
+          <HelpButton title="Posición del expositor">
+            <p>
+              En la vista 3D también puedes seleccionar el marcador y arrastrar las flechas X/Z para
+              moverlo con precisión sobre el piso.
+            </p>
+          </HelpButton>
+        }
+      >
         <div className="grid-2">
           <Field label="X">
             <NumberInput
@@ -726,10 +773,6 @@ function ExhibitorInspector({
             suffix="°"
           />
         </Field>
-        <p className="panel-note">
-          En la vista 3D también puedes seleccionar el marcador y arrastrar las flechas X/Z para
-          moverlo con precisión sobre el piso.
-        </p>
       </Section>
 
       <Section title="Cámara del punto de interés">
@@ -784,6 +827,14 @@ function ExhibitorInspector({
 
       <Section
         title={`Muros y aberturas asociados (${associatedWallCount + associatedOpeningCount})`}
+        action={
+          <HelpButton title="Muros y aberturas asociados">
+            <p>
+              Los elementos asociados adoptan el color del expositor en el visor. También puedes
+              asignarlos desde el inspector de cada muro o abertura.
+            </p>
+          </HelpButton>
+        }
       >
         <div className="related-list">
           {project.edges.map((edge, index) => (
@@ -835,10 +886,6 @@ function ExhibitorInspector({
             </label>
           ))}
         </div>
-        <p className="panel-note">
-          Los elementos asociados adoptan el color del expositor en el visor. También puedes
-          asignarlos desde el inspector de cada muro o abertura.
-        </p>
       </Section>
 
       {Object.keys(exhibitor.metadata).length ? (
@@ -1237,15 +1284,26 @@ function InternalWallInspector({
     <Section
       title="Muro libre"
       action={
-        <IconButton
-          label="Eliminar muro libre"
-          icon={<Trash2 size={13} />}
-          onClick={() => {
-            deleteInternalWall(wall.id);
-            setSelection(null);
-            toast('Muro libre eliminado.', 'success');
-          }}
-        />
+        <div className="panel-title-actions">
+          <HelpButton title="Muro libre">
+            <p>
+              Los muros libres dividen el espacio sin modificar el contorno de la planta.
+            </p>
+            <p>
+              En 2D puedes arrastrar sus nodos o hacer doble clic para insertar uno; en 3D,
+              selecciona el muro y arrastra los tiradores de sus extremos.
+            </p>
+          </HelpButton>
+          <IconButton
+            label="Eliminar muro libre"
+            icon={<Trash2 size={13} />}
+            onClick={() => {
+              deleteInternalWall(wall.id);
+              setSelection(null);
+              toast('Muro libre eliminado.', 'success');
+            }}
+          />
+        </div>
       }
     >
       <div className="prop-list">
@@ -1340,11 +1398,6 @@ function InternalWallInspector({
           ))}
         </div>
       ) : null}
-      <p className="panel-note">
-        Los muros libres dividen el espacio sin modificar el contorno de la planta. En 2D puedes
-        arrastrar sus nodos o hacer doble clic para insertar uno; en 3D, selecciona el muro y arrastra
-        los tiradores de sus extremos.
-      </p>
     </Section>
   );
 }
@@ -1368,15 +1421,26 @@ function OpeningInspector({
     <Section
       title={isDoor ? 'Puerta' : 'Ventana'}
       action={
-        <IconButton
-          label="Eliminar abertura"
-          icon={<Trash2 size={13} />}
-          onClick={() => {
-            deleteOpening(opening.id);
-            setSelection(null);
-            toast('Abertura eliminada.', 'success');
-          }}
-        />
+        <div className="panel-title-actions">
+          <HelpButton title="Aberturas">
+            <p>
+              La abertura se recorta en el muro y se mantiene al mover o cambiar el grosor del muro.
+            </p>
+            <p>
+              En 3D puedes seleccionarla y arrastrar sus tiradores para moverla, cambiar su ancho o
+              su altura.
+            </p>
+          </HelpButton>
+          <IconButton
+            label="Eliminar abertura"
+            icon={<Trash2 size={13} />}
+            onClick={() => {
+              deleteOpening(opening.id);
+              setSelection(null);
+              toast('Abertura eliminada.', 'success');
+            }}
+          />
+        </div>
       }
     >
       <div className="prop-list">
@@ -1462,10 +1526,6 @@ function OpeningInspector({
           Centrar en el muro
         </Button>
       </div>
-      <p className="panel-note">
-        La abertura se recorta en el muro y se mantiene al mover o cambiar el grosor del muro. En 3D
-        puedes seleccionarla y arrastrar sus tiradores para moverla, cambiar su ancho o su altura.
-      </p>
     </Section>
   );
 }

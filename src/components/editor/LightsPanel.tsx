@@ -8,7 +8,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { LightConfig, Project } from '@/types/project';
-import { Badge, Button, IconButton } from '@/components/ui';
+import { Badge, Button, HelpButton, IconButton } from '@/components/ui';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 
@@ -61,7 +61,16 @@ export function LightsPanel({ project }: { project: Project }) {
       <section className="panel-section">
         <div className="panel-title">
           <span><Lightbulb size={12} /> Iluminación</span>
-          <Badge tone="accent">{project.lights.length}</Badge>
+          <span className="panel-title-actions">
+            <HelpButton title="Iluminación">
+              <p>La iluminación se calcula en tiempo real.</p>
+              <p>
+                Las sombras son costosas: actívalas solo en una o dos luces principales para mantener
+                el rendimiento.
+              </p>
+            </HelpButton>
+            <Badge tone="accent">{project.lights.length}</Badge>
+          </span>
         </div>
         <div className="light-add-grid">
           {ADD_OPTIONS.map((option) => (
@@ -76,10 +85,6 @@ export function LightsPanel({ project }: { project: Project }) {
             </Button>
           ))}
         </div>
-        <p className="panel-note">
-          La iluminación se calcula en tiempo real. Las sombras son costosas: actívalas solo en una
-          o dos luces principales.
-        </p>
       </section>
 
       <section className="panel-section">

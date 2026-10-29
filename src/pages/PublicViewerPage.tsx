@@ -446,6 +446,7 @@ export function PublicViewerPage() {
           </div>
         </div>
         <div className="viewer-header-actions">
+          <span className="viewer-credit">dev by wilzamguerrero</span>
           <Badge tone="neutral">solo lectura</Badge>
           <Link to="/" className="btn btn-outline btn-sm" title="Volver a Modulab">
             <ArrowLeft size={14} />

@@ -1,6 +1,7 @@
 import {
   forwardRef,
   useEffect,
+  useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
@@ -8,7 +9,7 @@ import {
   type TextareaHTMLAttributes,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Check, Info, Loader2, X } from 'lucide-react';
+import { AlertTriangle, Check, HelpCircle, Info, Loader2, X } from 'lucide-react';
 import { useUiStore, type ToastKind } from '@/store/uiStore';
 
 export function cx(...values: Array<string | false | null | undefined>): string {
@@ -114,6 +115,42 @@ export function Modal({
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * Botón «?» que abre una ventana de ayuda. Sirve para sacar los textos largos
+ * de los paneles y dejar la interfaz limpia.
+ */
+export function HelpButton({
+  title,
+  children,
+  label = 'Ayuda',
+}: {
+  title: string;
+  children: ReactNode;
+  label?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className="help-btn"
+        aria-label={label}
+        title={label}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(true);
+        }}
+      >
+        <HelpCircle size={12} />
+      </button>
+      <Modal open={open} onClose={() => setOpen(false)} title={title} size="sm">
+        <div className="help-content">{children}</div>
+      </Modal>
+    </>
   );
 }
 

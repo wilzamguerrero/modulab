@@ -187,9 +187,15 @@ interface EditorState {
   measureSnap: boolean;
   /** Punto bajo el cursor mientras se mide, para la guía en vivo. */
   measureHover: Vec3 | null;
+  /** Medida seleccionada (resaltada y editable desde el panel). */
+  activeMeasurementId: string | null;
   toggleMeasureMode: () => void;
   addMeasurePoint: (point: Vec3) => void;
   updateMeasurementPoint: (id: string, end: 'a' | 'b', point: Vec3) => void;
+  /** Mueve la medida completa (ambos extremos) manteniendo su longitud. */
+  moveMeasurement: (id: string, a: Vec3, b: Vec3) => void;
+  deleteMeasurement: (id: string) => void;
+  setActiveMeasurement: (id: string | null) => void;
   clearMeasurements: () => void;
   setMeasureAxis: (axis: MeasureAxis) => void;
   setMeasureSnap: (snap: boolean) => void;
@@ -229,6 +235,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   measureAxis: 'none',
   measureSnap: true,
   measureHover: null,
+  activeMeasurementId: null,
 
   loadProjectData: (project) => {
     revokePreviewUrl(get().environmentPreview?.url);
@@ -256,6 +263,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       measurePending: null,
       measureHover: null,
       measurements: [],
+      activeMeasurementId: null,
     });
   },
 
@@ -276,6 +284,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       measurePending: null,
       measureHover: null,
       measurements: [],
+      activeMeasurementId: null,
     });
   },
 
@@ -1017,7 +1026,11 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     set((state) => {
       if (!state.measurePending) return { measurePending: point };
       const measurement: Measurement = { id: createId('mes'), a: state.measurePending, b: point };
-      return { measurePending: null, measurements: [...state.measurements, measurement] };
+      return {
+        measurePending: null,
+        measurements: [...state.measurements, measurement],
+        activeMeasurementId: measurement.id,
+      };
     }),
   updateMeasurementPoint: (id, end, point) =>
     set((state) => ({
@@ -1025,7 +1038,26 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
         measurement.id === id ? { ...measurement, [end]: point } : measurement,
       ),
     })),
-  clearMeasurements: () => set({ measurements: [], measurePending: null, measureHover: null }),
+  moveMeasurement: (id, a, b) =>
+    set((state) => ({
+      measurements: state.measurements.map((measurement) =>
+        measurement.id === id ? { ...measurement, a, b } : measurement,
+      ),
+    })),
+  deleteMeasurement: (id) =>
+    set((state) => ({
+      measurements: state.measurements.filter((measurement) => measurement.id !== id),
+      activeMeasurementId:
+        state.activeMeasurementId === id ? null : state.activeMeasurementId,
+    })),
+  setActiveMeasurement: (activeMeasurementId) => set({ activeMeasurementId }),
+  clearMeasurements: () =>
+    set({
+      measurements: [],
+      measurePending: null,
+      measureHover: null,
+      activeMeasurementId: null,
+    }),
   setMeasureAxis: (measureAxis) => set({ measureAxis }),
   setMeasureSnap: (measureSnap) => set({ measureSnap }),
   setMeasureHover: (measureHover) => set({ measureHover }),

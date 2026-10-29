@@ -1,12 +1,19 @@
 import { useRef, useState } from 'react';
-import { Globe2, HardDriveUpload, Upload } from 'lucide-react';
+import { Globe2, HardDriveUpload, Ruler, Trash2, Upload } from 'lucide-react';
 import type { Project, Vec3 } from '@/types/project';
-import { Badge, Button, Field, NumberInput, Select, Switch, TextInput } from '@/components/ui';
+import {
+  Badge,
+  Button,
+  Field,
+  HelpButton,
+  NumberInput,
+  Select,
+  Switch,
+  TextInput,
+} from '@/components/ui';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { detectSplatFormat, uploadSplatToNotion } from '@/services/assets/splatService';
-
-const FORMAT_LABEL: Record<string, string> = { ply: 'PLY', splat: 'SPLAT', ksplat: 'KSPLAT' };
 
 function Vec3Field({
   value,
@@ -36,6 +43,10 @@ function Vec3Field({
   );
 }
 
+function measurementDistance(a: Vec3, b: Vec3): number {
+  return Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+}
+
 export function EnvironmentPanel({ project }: { project: Project }) {
   const setEnvironment = useEditorStore((state) => state.setEnvironment);
   const setEnvironmentPreview = useEditorStore((state) => state.setEnvironmentPreview);
@@ -44,6 +55,7 @@ export function EnvironmentPanel({ project }: { project: Project }) {
   const environmentGizmoMode = useEditorStore((state) => state.environmentGizmoMode);
   const setEnvironmentGizmo = useEditorStore((state) => state.setEnvironmentGizmo);
   const setEnvironmentGizmoMode = useEditorStore((state) => state.setEnvironmentGizmoMode);
+  const setView = useEditorStore((state) => state.setView);
   const measureMode = useEditorStore((state) => state.measureMode);
   const toggleMeasureMode = useEditorStore((state) => state.toggleMeasureMode);
   const measurements = useEditorStore((state) => state.measurements);
@@ -52,6 +64,9 @@ export function EnvironmentPanel({ project }: { project: Project }) {
   const setMeasureAxis = useEditorStore((state) => state.setMeasureAxis);
   const measureSnap = useEditorStore((state) => state.measureSnap);
   const setMeasureSnap = useEditorStore((state) => state.setMeasureSnap);
+  const activeMeasurementId = useEditorStore((state) => state.activeMeasurementId);
+  const setActiveMeasurement = useEditorStore((state) => state.setActiveMeasurement);
+  const deleteMeasurement = useEditorStore((state) => state.deleteMeasurement);
   const toast = useUiStore((state) => state.toast);
 
   const [urlInput, setUrlInput] = useState(project.environment.url ?? '');
@@ -64,11 +79,7 @@ export function EnvironmentPanel({ project }: { project: Project }) {
 
   const lastMeasurement = measurements[measurements.length - 1];
   const measuredLast = lastMeasurement
-    ? Math.hypot(
-        lastMeasurement.b[0] - lastMeasurement.a[0],
-        lastMeasurement.b[1] - lastMeasurement.a[1],
-        lastMeasurement.b[2] - lastMeasurement.a[2],
-      )
+    ? measurementDistance(lastMeasurement.a, lastMeasurement.b)
     : 0;
 
   const calibrate = () => {
@@ -82,7 +93,7 @@ export function EnvironmentPanel({ project }: { project: Project }) {
     }
     const factor = realLength / measuredLast;
     setEnvironment({ scale: env.scale * factor });
-    toast(`Escala ajustada ×${factor.toFixed(3)}. Vuelve a medir para verificar.`, 'success');
+    toast(`Escala ajustada ×${factor.toFixed(3)}.`, 'success');
   };
 
   const clearPreview = () => {
@@ -167,47 +178,51 @@ export function EnvironmentPanel({ project }: { project: Project }) {
   };
 
   const status = environmentPreview
-    ? 'Vista previa local'
+    ? 'Local'
     : env.blockId
-      ? 'Desde Notion'
+      ? 'Notion'
       : env.url
-        ? 'URL externa'
+        ? 'URL'
         : 'Sin entorno';
 
   return (
     <div>
       <section className="panel-section">
         <div className="panel-title">
-          <span><Globe2 size={12} /> Entorno (Gaussian splat)</span>
-          <Badge tone={environmentPreview ? 'accent' : 'neutral'}>{status}</Badge>
+          <span><Globe2 size={12} /> Entorno</span>
+          <span className="panel-title-actions">
+            <HelpButton title="Entorno (Gaussian splat)">
+              <p>
+                Usa un Gaussian splat como referencia del espacio real. Puedes cargarlo de tres
+                formas:
+              </p>
+              <ul>
+                <li><strong>Archivo local:</strong> se muestra al instante, sin subir nada.</li>
+                <li><strong>Subir:</strong> lo adjunta a la página del proyecto en Notion (requiere
+                  Notion configurado y, para archivos grandes, plan de pago).</li>
+                <li><strong>URL / Notion:</strong> carga un archivo ya alojado. Si la URL no tiene
+                  extensión (por ejemplo <code>/api/splat/…</code>) indica el formato.</li>
+              </ul>
+              <p>
+                «Mostrar entorno» lo oculta o muestra sin volver a descargarlo. El splat se puede
+                mover, rotar y escalar en «Alinear».
+              </p>
+            </HelpButton>
+            <Badge tone={environmentPreview ? 'accent' : 'neutral'}>{status}</Badge>
+          </span>
         </div>
 
-        <Field label="1 · Archivo local (vista previa)" hint="Se muestra al instante, sin subir nada. Funciona en local.">
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".ply,.splat,.ksplat"
-            style={{ display: 'none' }}
-            onChange={(event) => chooseLocalFile(event.target.files?.[0])}
-          />
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".ply,.splat,.ksplat"
+          style={{ display: 'none' }}
+          onChange={(event) => chooseLocalFile(event.target.files?.[0])}
+        />
+        <div className="inline-actions">
           <Button size="sm" icon={<HardDriveUpload size={13} />} onClick={() => fileRef.current?.click()}>
-            Elegir archivo local
+            Archivo local
           </Button>
-          {selectedFile ? (
-            <p className="panel-note" style={{ marginTop: 6 }}>
-              {selectedFile.name} · {(selectedFile.size / (1024 * 1024)).toFixed(1)} MB
-            </p>
-          ) : null}
-        </Field>
-
-        <Field
-          label="2 · Subir a Notion"
-          hint={
-            project.notionBlockId
-              ? 'Se adjunta a la página del proyecto. Los archivos grandes se suben por partes (10 MB). La subida requiere el despliegue en Cloudflare.'
-              : 'Vincula el proyecto a Notion para poder subirlo.'
-          }
-        >
           <Button
             size="sm"
             variant="secondary"
@@ -215,25 +230,60 @@ export function EnvironmentPanel({ project }: { project: Project }) {
             loading={uploading}
             onClick={uploadSelected}
           >
-            {uploading ? `Subiendo… ${Math.round(progress * 100)}%` : 'Subir a Notion'}
+            {uploading ? `${Math.round(progress * 100)}%` : 'Subir'}
           </Button>
-        </Field>
-
-        <Field label="3 · Ver desde Notion" hint="Recarga el entorno guardado en Notion sin tener el archivo en local.">
           <Button size="sm" variant="ghost" onClick={viewFromNotion}>
-            Ver desde Notion
+            Ver en Notion
           </Button>
-        </Field>
+        </div>
+        {selectedFile ? (
+          <p className="panel-note">
+            {selectedFile.name} · {(selectedFile.size / (1024 * 1024)).toFixed(1)} MB
+          </p>
+        ) : null}
 
-        <Field label="URL externa (opcional)" hint="Enlace directo a un .ksplat/.splat/.ply con CORS.">
+        <div className="inline-actions">
           <TextInput
+            className="grow"
             value={urlInput}
             onChange={(event) => setUrlInput(event.target.value)}
             placeholder="https://…/escena.ksplat"
           />
-        </Field>
+          <Button size="sm" variant="secondary" onClick={applyUrl}>Cargar</Button>
+        </div>
+
+        <div className="grid-2">
+          <Field label="Formato">
+            <Select
+              value={env.format ?? ''}
+              onChange={(event) =>
+                setEnvironment({
+                  format: (event.target.value || undefined) as typeof env.format,
+                })
+              }
+            >
+              <option value="">Auto</option>
+              <option value="ply">PLY</option>
+              <option value="splat">SPLAT</option>
+              <option value="ksplat">KSPLAT</option>
+            </Select>
+          </Field>
+          <Field label="Escala">
+            <NumberInput
+              value={env.scale}
+              step={0.1}
+              min={0.0001}
+              onChange={(scale) => setEnvironment({ scale })}
+            />
+          </Field>
+        </div>
+
+        <Switch
+          checked={env.visible}
+          onChange={(visible) => setEnvironment({ visible })}
+          label="Mostrar entorno"
+        />
         <div className="inline-actions">
-          <Button size="sm" variant="secondary" onClick={applyUrl}>Cargar URL</Button>
           <Button
             size="sm"
             variant="ghost"
@@ -246,43 +296,29 @@ export function EnvironmentPanel({ project }: { project: Project }) {
             Quitar entorno
           </Button>
         </div>
-
-        <Field
-          label="Formato del archivo"
-          hint="Necesario cuando la URL no tiene extensión (por ejemplo /api/splat/…)."
-        >
-          <Select
-            value={env.format ?? ''}
-            onChange={(event) =>
-              setEnvironment({
-                format: (event.target.value || undefined) as typeof env.format,
-              })
-            }
-          >
-            <option value="">Detectar por extensión</option>
-            <option value="ply">PLY</option>
-            <option value="splat">SPLAT</option>
-            <option value="ksplat">KSPLAT</option>
-          </Select>
-        </Field>
-
-        <Switch
-          checked={env.visible}
-          onChange={(visible) => setEnvironment({ visible })}
-          label="Mostrar entorno"
-          hint="Visible en el editor y en la publicación."
-        />
       </section>
 
       <section className="panel-section">
-        <div className="panel-title"><span>Alinear y medir</span></div>
-        <Switch
-          checked={environmentGizmo}
-          onChange={setEnvironmentGizmo}
-          label="Gizmo 3D del entorno"
-          hint="Mueve, rota o escala el splat directamente en la escena 3D."
-        />
+        <div className="panel-title">
+          <span>Alinear</span>
+          <span className="panel-title-actions">
+            <HelpButton title="Alinear el entorno">
+              <p>Mueve, rota o escala el splat para que coincida con la planta y los muros.</p>
+              <ul>
+                <li><strong>Gizmo:</strong> muestra las flechas/anillos directamente en la escena 3D.</li>
+                <li><strong>Posición, rotación y escala</strong> ajustan el splat por valores exactos.</li>
+              </ul>
+            </HelpButton>
+          </span>
+        </div>
         <div className="inline-actions">
+          <Button
+            size="sm"
+            variant={environmentGizmo ? 'primary' : 'outline'}
+            onClick={() => setEnvironmentGizmo(!environmentGizmo)}
+          >
+            Gizmo
+          </Button>
           <Button
             size="sm"
             variant={environmentGizmoMode === 'translate' ? 'primary' : 'outline'}
@@ -305,106 +341,129 @@ export function EnvironmentPanel({ project }: { project: Project }) {
             Escalar
           </Button>
         </div>
-        <Switch
-          checked={measureMode}
-          onChange={() => toggleMeasureMode()}
-          label="Herramienta de medida"
-          hint="Clic sobre la superficie (o el splat) para el punto A y otro para el B. Arrastra un extremo para moverlo."
-        />
-        <Switch
-          checked={measureSnap}
-          onChange={setMeasureSnap}
-          label="Pegar a la superficie (snap)"
-          hint="Desactívalo para colocar los puntos libremente, sin que salten a la superficie del splat."
-        />
-        <Field label="Bloquear el segundo punto a un eje">
-          <div className="inline-actions">
-            <Button
-              size="sm"
-              variant={measureAxis === 'none' ? 'primary' : 'outline'}
-              onClick={() => setMeasureAxis('none')}
-            >
-              Libre
-            </Button>
-            <Button
-              size="sm"
-              variant={measureAxis === 'x' ? 'primary' : 'outline'}
-              onClick={() => setMeasureAxis('x')}
-            >
-              X · ancho
-            </Button>
-            <Button
-              size="sm"
-              variant={measureAxis === 'y' ? 'primary' : 'outline'}
-              onClick={() => setMeasureAxis('y')}
-            >
-              Y · alto
-            </Button>
-            <Button
-              size="sm"
-              variant={measureAxis === 'z' ? 'primary' : 'outline'}
-              onClick={() => setMeasureAxis('z')}
-            >
-              Z · fondo
-            </Button>
-          </div>
-        </Field>
-        <p className="panel-note">
-          Atajos: X/Y/Z bloquean el eje y L lo libera. Mantén Shift para colocar sin snap.
-          {lastMeasurement
-            ? ` Última: ${measuredLast.toFixed(2)} m (ΔX ${(
-                lastMeasurement.b[0] - lastMeasurement.a[0]
-              ).toFixed(2)} · ΔY ${(lastMeasurement.b[1] - lastMeasurement.a[1]).toFixed(
-                2,
-              )} · ΔZ ${(lastMeasurement.b[2] - lastMeasurement.a[2]).toFixed(2)}).`
-            : ''}
-        </p>
-        <Button size="sm" variant="ghost" onClick={clearMeasurements}>
-          Borrar medidas ({measurements.length})
-        </Button>
-
-        <Field
-          label="Calibrar escala con la última medida"
-          hint={
-            lastMeasurement
-              ? `Medida actual: ${measuredLast.toFixed(2)} m. Escribe la longitud real de ese tramo y reescala el splat.`
-              : 'Crea una medida sobre el splat y luego indica su longitud real.'
-          }
-        >
-          <div className="inline-actions">
-            <NumberInput value={realLength} step={0.05} min={0} suffix="m" onChange={setRealLength} />
-            <Button size="sm" variant="secondary" onClick={calibrate}>
-              Aplicar medida real
-            </Button>
-          </div>
-        </Field>
-        <p className="panel-note">Escala actual del entorno: ×{env.scale.toFixed(3)}</p>
-        <p className="panel-note">
-          Para recortar lados del splat, hazlo en Supersplat y vuelve a subir el archivo (la librería no
-          permite recortar en tiempo real).
-        </p>
-      </section>
-
-      <section className="panel-section">
-        <div className="panel-title"><span>Transformación</span></div>
         <Field label="Posición (m)">
           <Vec3Field value={env.position} onChange={(position) => setEnvironment({ position })} />
         </Field>
-        <Field label="Rotación (grados)">
+        <Field label="Rotación (°)">
           <Vec3Field value={env.rotation} onChange={(rotation) => setEnvironment({ rotation })} step={5} />
-        </Field>
-        <Field label="Escala">
-          <NumberInput value={env.scale} step={0.1} min={0.0001} onChange={(scale) => setEnvironment({ scale })} />
         </Field>
         <Button
           size="sm"
           variant="ghost"
           onClick={() => setEnvironment({ position: [0, 0, 0], rotation: [0, 0, 0], scale: 1 })}
         >
-          Restablecer transformación
+          Restablecer
         </Button>
+      </section>
+
+      <section className="panel-section">
+        <div className="panel-title">
+          <span><Ruler size={12} /> Medidas</span>
+          <span className="panel-title-actions">
+            <HelpButton title="Herramienta de medida">
+              <ul>
+                <li>Actívala y haz clic en la superficie (o el splat) para el punto A y otro para el B.</li>
+                <li>Arrastra un extremo para moverlo o el <strong>punto central</strong> para desplazar
+                  toda la medida.</li>
+                <li><strong>Snap</strong> pega los puntos a la superficie; desactívalo para colocarlos
+                  libremente.</li>
+                <li><strong>X/Y/Z</strong> bloquean el segundo punto a un eje (ancho, alto o fondo).
+                  Atajos: X/Y/Z y L para liberar; Shift coloca sin snap.</li>
+                <li>La lista permite seleccionar una medida para resaltarla o eliminarla.</li>
+                <li>La calibración reescala el splat usando una medida y su longitud real.</li>
+              </ul>
+            </HelpButton>
+            <Badge tone={measurements.length ? 'accent' : 'neutral'}>{measurements.length}</Badge>
+          </span>
+        </div>
+
+        <div className="inline-actions">
+          <Button
+            size="sm"
+            variant={measureMode ? 'primary' : 'outline'}
+            icon={<Ruler size={13} />}
+            onClick={() => {
+              setView('3d');
+              toggleMeasureMode();
+            }}
+          >
+            {measureMode ? 'Desactivar' : 'Medir'}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!measurements.length}
+            onClick={clearMeasurements}
+          >
+            Borrar todas
+          </Button>
+        </div>
+
+        <div className="inline-actions">
+          <Button size="sm" variant={measureAxis === 'none' ? 'primary' : 'outline'} onClick={() => setMeasureAxis('none')}>
+            Libre
+          </Button>
+          <Button size="sm" variant={measureAxis === 'x' ? 'primary' : 'outline'} onClick={() => setMeasureAxis('x')}>
+            X
+          </Button>
+          <Button size="sm" variant={measureAxis === 'y' ? 'primary' : 'outline'} onClick={() => setMeasureAxis('y')}>
+            Y
+          </Button>
+          <Button size="sm" variant={measureAxis === 'z' ? 'primary' : 'outline'} onClick={() => setMeasureAxis('z')}>
+            Z
+          </Button>
+          <Button
+            size="sm"
+            variant={measureSnap ? 'primary' : 'outline'}
+            onClick={() => setMeasureSnap(!measureSnap)}
+          >
+            Snap
+          </Button>
+        </div>
+
+        {measurements.length ? (
+          <div className="measure-list">
+            {measurements.map((measurement, index) => {
+              const active = activeMeasurementId === measurement.id;
+              return (
+                <div key={measurement.id} className={`measure-list-item${active ? ' is-active' : ''}`}>
+                  <button
+                    type="button"
+                    className="measure-list-main"
+                    onClick={() => {
+                      setView('3d');
+                      setActiveMeasurement(active ? null : measurement.id);
+                    }}
+                  >
+                    <span>Medida {index + 1}</span>
+                    <strong>{measurementDistance(measurement.a, measurement.b).toFixed(2)} m</strong>
+                  </button>
+                  <button
+                    type="button"
+                    className="measure-list-del"
+                    title="Eliminar medida"
+                    onClick={() => deleteMeasurement(measurement.id)}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="panel-note">Sin medidas todavía.</p>
+        )}
+
+        <Field label="Calibrar con la última medida">
+          <div className="inline-actions">
+            <NumberInput value={realLength} step={0.05} min={0} suffix="m" onChange={setRealLength} />
+            <Button size="sm" variant="secondary" onClick={calibrate}>
+              Aplicar
+            </Button>
+          </div>
+        </Field>
         <p className="panel-note">
-          Usa la posición, rotación y escala para alinear el entorno con la planta y los muros.
+          Medida actual {measuredLast.toFixed(2)} m · escala ×{env.scale.toFixed(3)}
         </p>
       </section>
     </div>

@@ -9,7 +9,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type { CatalogItem, Project, Vec2 } from '@/types/project';
-import { Badge, Button, IconButton, Spinner, TextInput } from '@/components/ui';
+import { Badge, Button, HelpButton, IconButton, Spinner, TextInput } from '@/components/ui';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { loadCatalog, uploadCatalogFile } from '@/services/assets/catalogService';
@@ -154,7 +154,21 @@ export function CatalogPanel({ project }: { project: Project }) {
       <section className="panel-section">
         <div className="panel-title">
           <span><Boxes size={12} /> Catálogo dinámico</span>
-          <Badge tone="accent">{glbCount} GLB</Badge>
+          <span className="panel-title-actions">
+            <HelpButton title="Catálogo de modelos">
+              <p>
+                Copia tus archivos <span className="code">.glb</span> en{' '}
+                <span className="code">public/catalog</span>. Puedes usar subcarpetas: cada carpeta
+                se convierte en una categoría. Pulsa recargar para actualizar.
+              </p>
+              <p>
+                El nombre visible es el nombre del archivo, sin extensión. Arrastra la tarjeta a la
+                escena 3D o haz clic en el icono para colocarla.
+              </p>
+              <p>Carpeta activa: <span className="code">{directory}</span></p>
+            </HelpButton>
+            <Badge tone="accent">{glbCount} GLB</Badge>
+          </span>
         </div>
         <div className="catalog-toolbar">
           <div style={{ position: 'relative', flex: 1 }}>
@@ -180,10 +194,6 @@ export function CatalogPanel({ project }: { project: Project }) {
             </button>
           ))}
         </div>
-        <p className="panel-note">
-          Carpeta <span className="code">public/catalog</span>. Cada archivo GLB aparece aquí
-          automáticamente y usa su nombre de archivo como nombre visible.
-        </p>
       </section>
 
       <section className="panel-section">
@@ -277,17 +287,6 @@ export function CatalogPanel({ project }: { project: Project }) {
             ))}
           </div>
         )}
-      </section>
-
-      <section className="panel-section">
-        <div className="panel-title"><span>Cómo añadir modelos</span></div>
-        <ol className="settings-steps">
-          <li>Copia tus archivos <span className="code">.glb</span> dentro de <span className="code">public/catalog</span>.</li>
-          <li>Puedes usar subcarpetas: cada carpeta se convierte en una categoría.</li>
-          <li>Pulsa recargar. El nombre visible es el nombre del archivo, sin extensión.</li>
-          <li>Arrastra la tarjeta a la escena 3D o haz clic en el icono para colocarla.</li>
-        </ol>
-        <p className="panel-note">Carpeta activa: <span className="code">{directory}</span></p>
       </section>
     </div>
   );

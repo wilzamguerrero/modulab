@@ -9,7 +9,7 @@ import {
   Users,
 } from 'lucide-react';
 import type { Project, Vec2 } from '@/types/project';
-import { Badge, Button, Field, IconButton, Spinner, TextInput } from '@/components/ui';
+import { Badge, Button, Field, HelpButton, IconButton, Spinner, TextInput } from '@/components/ui';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { notionPhotoUrl, syncPeopleIntoProject } from '@/services/notion/notionService';
@@ -89,7 +89,19 @@ export function ExhibitorsPanel({
       <section className="panel-section">
         <div className="panel-title">
           <span><Users size={12} /> Expositores</span>
-          <Badge tone={project.exhibitors.length ? 'accent' : 'neutral'}>{project.exhibitors.length}</Badge>
+          <span className="panel-title-actions">
+            <HelpButton title="Expositores">
+              <p>
+                Cada expositor es un punto de interés con ficha, fotografía, color y cámara propia.
+              </p>
+              <p>
+                En el visor público se puede saltar a su stand y resaltar los muros, aberturas y
+                objetos asociados. Al viajar entre expositores, la cámara puede pasar por los puntos
+                de rotación.
+              </p>
+            </HelpButton>
+            <Badge tone={project.exhibitors.length ? 'accent' : 'neutral'}>{project.exhibitors.length}</Badge>
+          </span>
         </div>
         <div className="inline-actions">
           <Button size="sm" variant="primary" onClick={add} icon={<UserPlus size={13} />}>
@@ -101,17 +113,24 @@ export function ExhibitorsPanel({
             </Button>
           ) : null}
         </div>
-        <p className="panel-note">
-          Cada expositor es un punto de interés con ficha, fotografía, color y cámara propia. En el
-          visor público se puede saltar a su stand y resaltar los muros, aberturas y objetos que
-          tenga asociados.
-        </p>
       </section>
 
       <section className="panel-section">
         <div className="panel-title">
           <span><Cloud size={12} /> Sincronizar desde Notion</span>
-          {notionConfigured ? <Badge tone="success">conectado</Badge> : <Badge tone="warning">sin conexión</Badge>}
+          <span className="panel-title-actions">
+            <HelpButton title="Sincronizar desde Notion">
+              <p>
+                Importa personas, fotos, descripciones y líneas como «Stand: A-01» desde una página
+                o toggle de Notion.
+              </p>
+              <p>
+                Se conservan las posiciones y cámaras de los expositores ya existentes. Las personas
+                eliminadas en Notion se marcan como «sin coincidencia».
+              </p>
+            </HelpButton>
+            {notionConfigured ? <Badge tone="success">conectado</Badge> : <Badge tone="warning">sin conexión</Badge>}
+          </span>
         </div>
         {!notionConfigured ? (
           <div className="hint-box">
@@ -150,10 +169,6 @@ export function ExhibitorsPanel({
                 {project.notionLastSyncedAt ? ` · ${formatRelativeDate(project.notionLastSyncedAt)}` : ''}
               </p>
             ) : null}
-            <p className="panel-note">
-              Se conservan las posiciones y cámaras de los expositores ya existentes. Las personas
-              eliminadas en Notion se marcan como «sin coincidencia».
-            </p>
           </>
         )}
         {missingCount ? (

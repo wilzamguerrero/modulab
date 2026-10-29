@@ -17,6 +17,7 @@ import {
   ColorInput,
   ConfirmDialog,
   Field,
+  HelpButton,
   NumberInput,
   RangeInput,
   Select,
@@ -89,9 +90,22 @@ export function PlanPanel({ project }: { project: Project }) {
       <section className="panel-section">
         <div className="panel-title">
           <span><DraftingCompass size={12} /> Planta</span>
-          <Badge tone={validation.valid ? 'success' : 'warning'}>
-            {validation.valid ? 'válida' : 'revisar'}
-          </Badge>
+          <span className="panel-title-actions">
+            <HelpButton title="Planta">
+              <p>
+                «Añadir división» dibuja un recinto cerrado con muros libres y conserva la planta y
+                los objetos. «Reemplazar contorno» cambia el perímetro y regenera los muros
+                perimetrales.
+              </p>
+              <p>
+                Arrastra los vértices (en planta o en 3D) para ajustar el contorno. El piso 3D usa
+                exactamente este polígono.
+              </p>
+            </HelpButton>
+            <Badge tone={validation.valid ? 'success' : 'warning'}>
+              {validation.valid ? 'válida' : 'revisar'}
+            </Badge>
+          </span>
         </div>
         <div className="prop-list">
           <div className="prop-row"><span>Área</span><strong>{formatArea(area)}</strong></div>
@@ -126,15 +140,24 @@ export function PlanPanel({ project }: { project: Project }) {
             Ver en 3D
           </Button>
         </div>
-        <p className="panel-note">
-          «Añadir división» dibuja un recinto cerrado con muros libres y conserva la planta y los
-          objetos. «Reemplazar contorno» cambia el perímetro y regenera los muros perimetrales.
-          Arrastra los vértices para ajustar el contorno; el piso 3D usa exactamente este polígono.
-        </p>
       </section>
 
       <section className="panel-section">
-        <div className="panel-title"><span><Ruler size={12} /> Muros por defecto</span></div>
+        <div className="panel-title">
+          <span><Ruler size={12} /> Muros por defecto</span>
+          <span className="panel-title-actions">
+            <HelpButton title="Muros por defecto">
+              <p>
+                Altura, grosor y color aplicados a los muros nuevos. Cada segmento puede tener su
+                propia configuración desde el inspector.
+              </p>
+              <p>
+                Los segmentos abiertos funcionan como accesos amplios; para huecos concretos usa
+                puertas y ventanas.
+              </p>
+            </HelpButton>
+          </span>
+        </div>
         <div className="grid-2">
           <Field label="Altura">
             <NumberInput
@@ -168,16 +191,21 @@ export function PlanPanel({ project }: { project: Project }) {
         >
           Aplicar a todos los muros
         </Button>
-        <p className="panel-note">
-          Cada segmento puede tener su propia altura, grosor y color. Los segmentos abiertos
-          funcionan como accesos amplios; para huecos concretos usa puertas y ventanas.
-        </p>
       </section>
 
       <section className="panel-section">
         <div className="panel-title">
           <span><BrickWall size={12} /> Divisiones y aberturas</span>
-          <small>{project.internalWalls.length} muros libres · {openingCount} aberturas</small>
+          <span className="panel-title-actions">
+            <HelpButton title="Divisiones y aberturas">
+              <p>
+                Los muros libres crean divisiones interiores sin cambiar el contorno. Con Puerta y
+                Ventana, haz clic sobre cualquier muro para abrir un hueco.
+              </p>
+              <p>Selecciona un muro o abertura para ajustar medidas en el inspector.</p>
+            </HelpButton>
+            <small>{project.internalWalls.length} muros · {openingCount} aberturas</small>
+          </span>
         </div>
         <div className="inline-actions">
           <Button size="sm" variant="outline" onClick={() => startTool('internalWall')} icon={<BrickWall size={13} />}>
@@ -190,10 +218,6 @@ export function PlanPanel({ project }: { project: Project }) {
             Ventana
           </Button>
         </div>
-        <p className="panel-note">
-          Los muros libres crean divisiones interiores sin cambiar el contorno. Con las
-          herramientas Puerta y Ventana, haz clic sobre cualquier muro para abrir un hueco.
-        </p>
         {project.internalWalls.length || project.openings.length ? (
           <div className="segment-list">
             {project.internalWalls.map((wall, index) => (
@@ -295,7 +319,26 @@ export function PlanPanel({ project }: { project: Project }) {
       </section>
 
       <section className="panel-section">
-        <div className="panel-title"><span><Grid3X3 size={12} /> Escena y ayudas</span></div>
+        <div className="panel-title">
+          <span><Grid3X3 size={12} /> Escena y ayudas</span>
+          <span className="panel-title-actions">
+            <HelpButton title="Escena y ayudas">
+              <p>
+                <strong>Sombras:</strong> más resolución mejora los bordes pero consume más GPU. En
+                móviles empieza por la calidad baja.
+              </p>
+              <p>
+                <strong>Color de expositores:</strong> la pintura tiñe muros, aberturas y objetos
+                asociados. La selección de un expositor resalta sus elementos incluso en el modo de
+                solo aros.
+              </p>
+              <p>
+                <strong>Cuadrícula:</strong> al activar el ajuste, vértices, objetos y expositores se
+                alinean al mover.
+              </p>
+            </HelpButton>
+          </span>
+        </div>
         <Field label="Tamaño de cuadrícula">
           <Select
             value={String(project.settings.gridSize)}
@@ -319,10 +362,6 @@ export function PlanPanel({ project }: { project: Project }) {
             ))}
           </Select>
         </Field>
-        <p className="panel-note">
-          Más resolución mejora los bordes de las sombras, pero consume más GPU. En móviles,
-          empieza por la calidad baja.
-        </p>
         <Field label="Color de expositores">
           <Select
             value={project.settings.exhibitorColorMode}
@@ -344,10 +383,6 @@ export function PlanPanel({ project }: { project: Project }) {
           step={0.05}
           format={(value) => `${Math.round(value * 100)} %`}
         />
-        <p className="panel-note">
-          La pintura tiñe muros, aberturas y objetos asociados. La selección de un expositor
-          resalta sus elementos incluso en el modo de solo aros.
-        </p>
         <Switch
           checked={project.settings.snapToGrid}
           onChange={(snapToGrid) => setSettings({ snapToGrid })}

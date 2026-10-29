@@ -31,36 +31,55 @@ function distanceLabel(a: [number, number, number], b: [number, number, number])
   return Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]).toFixed(2);
 }
 
-/** Dibuja las medidas (línea entre A y B + etiqueta) y la guía en vivo. */
+function mid(a: [number, number, number], b: [number, number, number]): [number, number, number] {
+  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+}
+
+/** Dibuja las medidas (línea, extremos y tirador central) y la guía en vivo. */
 export function MeasurementLayer() {
   const measurements = useEditorStore((state) => state.measurements);
   const pending = useEditorStore((state) => state.measurePending);
   const hover = useEditorStore((state) => state.measureHover);
   const axis = useEditorStore((state) => state.measureAxis);
+  const activeId = useEditorStore((state) => state.activeMeasurementId);
   const axisColor = AXIS_COLOR[axis];
-
-  const mid = (a: [number, number, number], b: [number, number, number]): [number, number, number] => [
-    (a[0] + b[0]) / 2,
-    (a[1] + b[1]) / 2,
-    (a[2] + b[2]) / 2,
-  ];
 
   return (
     <group userData={{ measureHelper: true }}>
       {measurements.map((m) => {
         const a = m.a;
         const b = m.b;
+        const active = activeId === m.id;
+        const color = active ? '#ffffff' : '#d7ff4f';
+        const center = mid(a, b);
         return (
           <group key={m.id}>
-            <Line points={[a, b]} color="#d7ff4f" lineWidth={2} />
+            <Line points={[a, b]} color={color} lineWidth={active ? 3 : 2} />
             {[a, b].map((point, index) => (
               <mesh key={index} position={point}>
-                <sphereGeometry args={[0.05, 12, 12]} />
-                <meshBasicMaterial color="#d7ff4f" />
+                <sphereGeometry args={[active ? 0.06 : 0.05, 12, 12]} />
+                <meshBasicMaterial color={color} />
               </mesh>
             ))}
-            <Html center position={mid(a, b)} zIndexRange={[120, 0]} style={{ pointerEvents: 'none' }}>
-              <div style={LABEL_STYLE}>{distanceLabel(a, b)} m</div>
+            {/* Tirador central: mueve toda la medida (ambos extremos). */}
+            <mesh position={center}>
+              <sphereGeometry args={[0.085, 16, 12]} />
+              <meshBasicMaterial
+                color={active ? '#ffffff' : '#ffd34f'}
+                transparent
+                opacity={0.95}
+              />
+            </mesh>
+            <Html center position={center} zIndexRange={[120, 0]} style={{ pointerEvents: 'none' }}>
+              <div
+                style={
+                  active
+                    ? { ...LABEL_STYLE, borderColor: '#ffffff', color: '#ffffff' }
+                    : LABEL_STYLE
+                }
+              >
+                {distanceLabel(a, b)} m
+              </div>
             </Html>
           </group>
         );
