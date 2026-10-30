@@ -82,6 +82,8 @@ export function EditorPage() {
   const notionModalOpen = useUiStore((state) => state.notionModalOpen);
   const orthographic = useUiStore((state) => state.orthographic);
   const setOrthographic = useUiStore((state) => state.setOrthographic);
+  const wireframe = useUiStore((state) => state.wireframe);
+  const setWireframe = useUiStore((state) => state.setWireframe);
 
   const project = useEditorStore((state) => state.project);
   const loading = useEditorStore((state) => state.loading);
@@ -117,6 +119,7 @@ export function EditorPage() {
   const setSelection = useEditorStore((state) => state.setSelection);
   const setPendingCatalogItem = useEditorStore((state) => state.setPendingCatalogItem);
   const setProjectMeta = useEditorStore((state) => state.setProjectMeta);
+  const setSettings = useEditorStore((state) => state.setSettings);
   const undo = useEditorStore((state) => state.undo);
   const redo = useEditorStore((state) => state.redo);
   const deleteObject = useEditorStore((state) => state.deleteObject);
@@ -132,8 +135,12 @@ export function EditorPage() {
   const pasteObject = useEditorStore((state) => state.pasteObject);
 
   const [activeTab, setActiveTab] = useState<SidebarTab>('plan');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 981px)').matches,
+  );
+  const [inspectorOpen, setInspectorOpen] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 981px)').matches,
+  );
   const [publishOpen, setPublishOpen] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
   const [notionPullOpen, setNotionPullOpen] = useState(false);
@@ -141,8 +148,14 @@ export function EditorPage() {
   const [notionStatus, setNotionStatus] = useState<NotionStatus | null>(null);
   const [cameraRequest, setCameraRequest] = useState<CameraRequest>({ mode: 'project', nonce: 0 });
 
-  const requestCamera = (mode: CameraRequest['mode']) =>
+  const requestCamera = (mode: CameraRequest['mode']) => {
+    // Vistas ortogonales (frente, perfil, superior) usan proyección
+    // ortográfica, como en Blender/Maya. Isométrica y cámara: perspectiva.
+    const orthoView =
+      mode === 'front' || mode === 'back' || mode === 'left' || mode === 'right' || mode === 'top';
+    setOrthographic(orthoView);
     setCameraRequest((current) => ({ mode, nonce: current.nonce + 1 }));
+  };
 
   useEffect(() => {
     if (!projectId) return;
@@ -540,7 +553,7 @@ export function EditorPage() {
         </div>
       </header>
 
-      <div className="editor-main">
+      <div className={`editor-main${sidebarOpen ? '' : ' no-sidebar'}${inspectorOpen ? '' : ' no-inspector'}`}>
         <aside className={`editor-sidebar${sidebarOpen ? ' is-open' : ''}`}>
           <div className="sidebar-tabs">
             {SIDEBAR_TABS.map((tab) => (
@@ -685,24 +698,59 @@ export function EditorPage() {
             {view === 'plan' ? <LayoutGrid size={12} /> : <Box size={12} />}
             <strong>{view === 'plan' ? 'Planta 2D' : 'Vista 3D'}</strong>
             {pendingCatalogItem ? <Badge tone="accent">{pendingCatalogItem.name}</Badge> : null}
-            {view === '3d' &&
-            (project.environment.url || project.environment.blockId || environmentPreview) ? (
+          </div>
+
+          {view === '3d' ? (
+            <div className="view-cube">
+              <span className="view-cube-title">Vista</span>
+              <div className="view-cube-grid">
+                <button type="button" onClick={() => requestCamera('front')}>Frente</button>
+                <button type="button" onClick={() => requestCamera('right')}>Perfil</button>
+                <button type="button" onClick={() => requestCamera('top')}>Sup.</button>
+                <button type="button" onClick={() => requestCamera('iso')}>Iso</button>
+              </div>
               <button
                 type="button"
-                className={`view-badge-toggle${project.environment.visible ? ' is-active' : ''}`}
-                onClick={() => setEnvironment({ visible: !project.environment.visible })}
-                title={
-                  project.environment.visible
-                    ? 'Ocultar el Gaussian splat'
-                    : 'Mostrar el Gaussian splat'
-                }
-                aria-pressed={project.environment.visible}
+                className={`view-cube-ortho${orthographic ? ' is-active' : ''}`}
+                onClick={() => setOrthographic(!orthographic)}
+                title="Alternar proyección ortográfica"
               >
-                <Sparkles size={12} />
-                Gaussian
+                Ortográfica
               </button>
-            ) : null}
-          </div>
+              <button
+                type="button"
+                className={`view-cube-ortho${wireframe ? ' is-active' : ''}`}
+                onClick={() => setWireframe(!wireframe)}
+                title="Ver la geometría en modo alámbrico"
+              >
+                Wireframe
+              </button>
+              <button
+                type="button"
+                className={`view-cube-ortho${project.settings.showGrid ? ' is-active' : ''}`}
+                onClick={() => setSettings({ showGrid: !project.settings.showGrid })}
+                title="Mostrar u ocultar la cuadrícula"
+              >
+                Cuadrícula
+              </button>
+              {project.environment.url || project.environment.blockId || environmentPreview ? (
+                <button
+                  type="button"
+                  className={`view-cube-ortho${project.environment.visible ? ' is-active' : ''}`}
+                  onClick={() => setEnvironment({ visible: !project.environment.visible })}
+                  title={
+                    project.environment.visible
+                      ? 'Ocultar el Gaussian splat'
+                      : 'Mostrar el Gaussian splat'
+                  }
+                  aria-pressed={project.environment.visible}
+                >
+                  <Sparkles size={12} />
+                  Gaussian
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
           {view === '3d' && measureMode ? (
             <div className="measure-bar">

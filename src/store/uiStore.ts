@@ -15,11 +15,14 @@ interface UiState {
   shortcutsOpen: boolean;
   /** Cámara ortográfica (proyección casi paralela) en la vista 3D. */
   orthographic: boolean;
+  /** Modo alámbrico para revisar la geometría. */
+  wireframe: boolean;
   toast: (message: string, kind?: ToastKind) => string;
   dismissToast: (id: string) => void;
   setNotionModalOpen: (open: boolean) => void;
   setShortcutsOpen: (open: boolean) => void;
   setOrthographic: (orthographic: boolean) => void;
+  setWireframe: (wireframe: boolean) => void;
 }
 
 export const useUiStore = create<UiState>()((set, get) => ({
@@ -27,6 +30,7 @@ export const useUiStore = create<UiState>()((set, get) => ({
   notionModalOpen: false,
   shortcutsOpen: false,
   orthographic: false,
+  wireframe: false,
   toast: (message, kind = 'info') => {
     const id = createId('toast');
     set((state) => ({ toasts: [...state.toasts.slice(-3), { id, kind, message }] }));
@@ -37,4 +41,5 @@ export const useUiStore = create<UiState>()((set, get) => ({
   setNotionModalOpen: (notionModalOpen) => set({ notionModalOpen }),
   setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
   setOrthographic: (orthographic) => set({ orthographic }),
+  setWireframe: (wireframe) => set({ wireframe }),
 }));

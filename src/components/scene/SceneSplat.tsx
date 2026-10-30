@@ -9,6 +9,7 @@ import { useSplatStatus } from '@/store/splatStatusStore';
 const DEG = 180 / Math.PI;
 
 function SplatStatusOverlay() {
+  const size = useThree((state) => state.size);
   const status = useSplatStatus((state) => state.status);
   const progress = useSplatStatus((state) => state.progress);
   const errorMessage = useSplatStatus((state) => state.error);
@@ -17,7 +18,14 @@ function SplatStatusOverlay() {
   const percent = progress > 0 ? Math.round(progress <= 1 ? progress * 100 : progress) : 0;
 
   return (
-    <Html fullscreen zIndexRange={[250, 0]} style={{ pointerEvents: 'none' }}>
+    <Html
+      fullscreen
+      zIndexRange={[250, 0]}
+      style={{ pointerEvents: 'none' }}
+      // Anclar siempre al centro de la pantalla, no a la proyección del origen
+      // del splat (antes el aviso se dibujaba desplazado según la cámara).
+      calculatePosition={() => [size.width / 2, size.height / 2]}
+    >
       <div
         style={{
           position: 'absolute',

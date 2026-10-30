@@ -6,6 +6,7 @@ import {
   Button,
   Field,
   HelpButton,
+  Modal,
   NumberInput,
   Select,
   Switch,
@@ -67,33 +68,67 @@ export function EnvironmentPanel({ project }: { project: Project }) {
   const activeMeasurementId = useEditorStore((state) => state.activeMeasurementId);
   const setActiveMeasurement = useEditorStore((state) => state.setActiveMeasurement);
   const deleteMeasurement = useEditorStore((state) => state.deleteMeasurement);
+  const selection = useEditorStore((state) => state.selection);
+  const updateObjectTransform = useEditorStore((state) => state.updateObjectTransform);
   const toast = useUiStore((state) => state.toast);
 
   const [urlInput, setUrlInput] = useState(project.environment.url ?? '');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [realLength, setRealLength] = useState(1.5);
+  const [calibrateId, setCalibrateId] = useState<string | null>(null);
+  const [calibrateTarget, setCalibrateTarget] = useState<'splat' | 'object'>('splat');
+  const [targetLength, setTargetLength] = useState(1.8);
   const fileRef = useRef<HTMLInputElement>(null);
   const env = project.environment;
 
-  const lastMeasurement = measurements[measurements.length - 1];
-  const measuredLast = lastMeasurement
-    ? measurementDistance(lastMeasurement.a, lastMeasurement.b)
+  const selectedObject =
+    selection?.type === 'object'
+      ? project.objects.find((entry) => entry.id === selection.id) ?? null
+      : null;
+  const calibrationMeasurement = calibrateId
+    ? measurements.find((measurement) => measurement.id === calibrateId) ?? null
+    : null;
+  const calibrationMeasured = calibrationMeasurement
+    ? measurementDistance(calibrationMeasurement.a, calibrationMeasurement.b)
     : 0;
+  const calibrationFactor =
+    calibrationMeasured > 0 && targetLength > 0 ? targetLength / calibrationMeasured : 1;
 
-  const calibrate = () => {
-    if (!lastMeasurement || measuredLast <= 0) {
-      toast('Crea una medida en el splat antes de calibrar.', 'warning');
+  const openCalibration = (id: string) => {
+    const measurement = measurements.find((entry) => entry.id === id);
+    if (!measurement) return;
+    setCalibrateId(id);
+    setTargetLength(Number(measurementDistance(measurement.a, measurement.b).toFixed(2)));
+    setCalibrateTarget('splat');
+  };
+
+  const applyCalibration = () => {
+    if (!calibrationMeasurement || calibrationMeasured <= 0 || !(targetLength > 0)) {
+      toast('Indica una longitud real válida.', 'warning');
       return;
     }
-    if (!(realLength > 0)) {
-      toast('Introduce una longitud real válida.', 'warning');
-      return;
+    const factor = calibrationFactor;
+    if (calibrateTarget === 'object') {
+      if (!selectedObject) {
+        toast('Selecciona un objeto para reescalarlo.', 'warning');
+        return;
+      }
+      updateObjectTransform(
+        selectedObject.id,
+        {
+          scale: selectedObject.transform.scale.map((value) =>
+            Math.max(0.001, value * factor),
+          ) as Vec3,
+        },
+        { coalesceKey: `calibrate:${selectedObject.id}` },
+      );
+      toast(`Objeto reescalado ×${factor.toFixed(3)}.`, 'success');
+    } else {
+      setEnvironment({ scale: env.scale * factor });
+      toast(`Entorno reescalado ×${factor.toFixed(3)}.`, 'success');
     }
-    const factor = realLength / measuredLast;
-    setEnvironment({ scale: env.scale * factor });
-    toast(`Escala ajustada ×${factor.toFixed(3)}.`, 'success');
+    setCalibrateId(null);
   };
 
   const clearPreview = () => {
@@ -373,7 +408,8 @@ export function EnvironmentPanel({ project }: { project: Project }) {
                   el suelo: crea <strong>cotas de altura o ancho libres</strong> sin referencia. Puedes
                   crear tantas como quieras.</li>
                 <li>La lista permite seleccionar una medida para resaltarla o eliminarla.</li>
-                <li>La calibración reescala el splat usando una medida y su longitud real.</li>
+                <li><strong>Calibrar escala</strong> reescala el entorno o el objeto seleccionado a
+                  partir de una medida y su longitud real (factor proporcional).</li>
               </ul>
             </HelpButton>
             <Badge tone={measurements.length ? 'accent' : 'neutral'}>{measurements.length}</Badge>
@@ -443,6 +479,14 @@ export function EnvironmentPanel({ project }: { project: Project }) {
                   </button>
                   <button
                     type="button"
+                    className="measure-list-cal"
+                    title="Calibrar escala con esta medida"
+                    onClick={() => openCalibration(measurement.id)}
+                  >
+                    <Ruler size={12} />
+                  </button>
+                  <button
+                    type="button"
                     className="measure-list-del"
                     title="Eliminar medida"
                     onClick={() => deleteMeasurement(measurement.id)}
@@ -457,18 +501,71 @@ export function EnvironmentPanel({ project }: { project: Project }) {
           <p className="panel-note">Sin medidas todavía.</p>
         )}
 
-        <Field label="Calibrar con la última medida">
-          <div className="inline-actions">
-            <NumberInput value={realLength} step={0.05} min={0} suffix="m" onChange={setRealLength} />
-            <Button size="sm" variant="secondary" onClick={calibrate}>
-              Aplicar
-            </Button>
-          </div>
-        </Field>
-        <p className="panel-note">
-          Medida actual {measuredLast.toFixed(2)} m · escala ×{env.scale.toFixed(3)}
-        </p>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<Ruler size={13} />}
+          disabled={!measurements.length}
+          onClick={() => {
+            const id =
+              activeMeasurementId ?? measurements[measurements.length - 1]?.id;
+            if (id) openCalibration(id);
+          }}
+        >
+          Calibrar escala…
+        </Button>
       </section>
+
+      <Modal
+        open={Boolean(calibrationMeasurement)}
+        onClose={() => setCalibrateId(null)}
+        title="Calibrar escala"
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setCalibrateId(null)}>Cancelar</Button>
+            <Button variant="primary" onClick={applyCalibration}>Aplicar</Button>
+          </>
+        }
+      >
+        {calibrationMeasurement ? (
+          <>
+            <div className="prop-list">
+              <div className="prop-row">
+                <span>Medida actual</span>
+                <strong>{calibrationMeasured.toFixed(2)} m</strong>
+              </div>
+            </div>
+            <Field label="Debería medir">
+              <NumberInput
+                value={targetLength}
+                step={0.05}
+                min={0.01}
+                suffix="m"
+                onChange={setTargetLength}
+              />
+            </Field>
+            <p className="panel-note">
+              Factor ×{calibrationFactor.toFixed(3)} · escala proporcional (puedes deshacer con Ctrl+Z)
+            </p>
+            <Field label="Aplicar a">
+              <Select
+                value={calibrateTarget}
+                onChange={(event) =>
+                  setCalibrateTarget(event.target.value as 'splat' | 'object')
+                }
+              >
+                <option value="splat">Entorno (Gaussian splat)</option>
+                <option value="object" disabled={!selectedObject}>
+                  {selectedObject
+                    ? `Objeto: ${selectedObject.name}`
+                    : 'Objeto seleccionado (ninguno)'}
+                </option>
+              </Select>
+            </Field>
+          </>
+        ) : null}
+      </Modal>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { CatalogItem, Project, Vec2 } from '@/types/project';
 import { Architecture } from './Architecture';
@@ -35,8 +35,130 @@ export interface CameraRequest {
   nonce: number;
 }
 
-/** Campo de visión reducido que emula una proyección ortográfica. */
-const ORTHO_FOV = 6;
+/**
+ * Niebla adaptativa: se aleja con la cámara para que las vistas lejanas y
+ * ortográficas no oscurezcan toda la escena (como en Blender/Maya).
+ */
+function AdaptiveFog() {
+  const camera = useThree((state) => state.camera);
+  const controls = useThree((state) => state.controls) as { target?: THREE.Vector3 } | null;
+  const fogRef = useRef<THREE.Fog | null>(null);
+
+  useFrame(() => {
+    const fog = fogRef.current;
+    if (!fog) return;
+    // En proyección ortográfica la cámara se ubica lejos pero sin perspectiva:
+    // la niebla por distancia oscurecería la escena, así que se desactiva.
+    if ((camera as THREE.OrthographicCamera).isOrthographicCamera) {
+      fog.near = 1e6;
+      fog.far = 2e6;
+      return;
+    }
+    const distance = controls?.target
+      ? camera.position.distanceTo(controls.target)
+      : camera.position.length();
+    fog.near = Math.max(35, distance * 0.9);
+    fog.far = Math.max(160, distance * 2.6);
+  });
+
+  return <fog ref={fogRef} attach="fog" args={['#0a0d10', 35, 160]} />;
+}
+
+/** Activa/desactiva el modo alámbrico en la geometría de la escena. */
+function WireframeController() {
+  const scene = useThree((state) => state.scene);
+  const wireframe = useUiStore((state) => state.wireframe);
+  const project = useEditorStore((state) => state.project);
+
+  useEffect(() => {
+    const materials = new Set<THREE.Material>();
+    scene.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of list) {
+        if (!material) continue;
+        const standard = material as THREE.MeshStandardMaterial;
+        if (!standard.isMeshStandardMaterial && !(standard as unknown as { isMeshPhysicalMaterial?: boolean }).isMeshPhysicalMaterial) {
+          continue;
+        }
+        materials.add(material);
+      }
+    });
+    for (const material of materials) {
+      const standard = material as THREE.MeshStandardMaterial;
+      if (standard.wireframe !== wireframe) {
+        standard.wireframe = wireframe;
+        standard.needsUpdate = true;
+      }
+    }
+  }, [wireframe, scene, project]);
+
+  return null;
+}
+
+/**
+ * Cuadrícula estilo Maya. En perspectiva se dibuja en el suelo (XZ), como en
+ * cualquier visor 3D. En proyección ortográfica se alinea al plano de la
+ * pantalla (perpendicular a la cámara), de modo que se ve plana y de frente en
+ * cualquier vista: en frontal queda como un plano vertical XY, en perfil como
+ * YZ y en superior como el suelo XZ. Como no se ve en fuga, deja de parecer
+ * una cuadrícula en perspectiva.
+ */
+function SceneGrid({ orthographic }: { orthographic: boolean }) {
+  const camera = useThree((state) => state.camera);
+  const controls = useThree((state) => state.controls) as { target?: THREE.Vector3 } | null;
+  const gridRef = useRef<THREE.GridHelper>(null);
+  const basis = useMemo(
+    () => ({
+      right: new THREE.Vector3(),
+      up: new THREE.Vector3(),
+      back: new THREE.Vector3(),
+      matrix: new THREE.Matrix4(),
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const material = grid.material as THREE.LineBasicMaterial;
+    material.fog = false;
+    material.needsUpdate = true;
+  }, []);
+
+  useFrame(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const target = controls?.target;
+    const tx = target?.x ?? 0;
+    const ty = target?.y ?? 0;
+    const tz = target?.z ?? 0;
+
+    if (!orthographic) {
+      // Perspectiva: cuadrícula del suelo centrada en la XZ del objetivo.
+      grid.position.set(tx, -0.015, tz);
+      grid.quaternion.identity();
+      return;
+    }
+
+    // Ortográfica: cuadrícula alineada al plano de la pantalla. La grilla local
+    // vive en XZ con normal +Y; mapeamos su X a la derecha de la cámara, su Y a
+    // la normal (hacia la cámara) y su Z al "arriba" de la cámara negado, así
+    // queda plana y de frente. La base resultante es dextrógira para que el
+    // giro sea una rotación válida.
+    camera.updateMatrixWorld();
+    const e = camera.matrixWorld.elements;
+    basis.right.set(e[0], e[1], e[2]);
+    basis.back.set(e[8], e[9], e[10]);
+    basis.up.set(e[4], e[5], e[6]).negate();
+    basis.matrix.makeBasis(basis.right, basis.back, basis.up);
+    grid.quaternion.setFromRotationMatrix(basis.matrix);
+    grid.position.set(tx, ty, tz);
+  });
+
+  return <gridHelper ref={gridRef} args={[160, 160, '#2b3640', '#161d23']} />;
+}
 
 function FloorDropHandler() {
   const gl = useThree((state) => state.gl);
@@ -109,120 +231,214 @@ function CameraRig({
   request: CameraRequest;
   orthographic: boolean;
 }) {
-  const camera = useThree((state) => state.camera) as THREE.PerspectiveCamera;
+  const set = useThree((state) => state.set);
+  const size = useThree((state) => state.size);
+  const defaultCamera = useThree((state) => state.camera);
   const controls = useThree((state) => state.controls) as
     | { target: THREE.Vector3; update: () => void }
     | null;
-  const activeFov = orthographic ? ORTHO_FOV : project.camera.fov;
-  const activeFovRef = useRef(activeFov);
-  activeFovRef.current = activeFov;
 
+  const fov = project.camera.fov;
+  const fovRad = (fov * Math.PI) / 180;
+  const aspect = size.width / Math.max(size.height, 1);
+
+  // Cámara en perspectiva original del Canvas (se conserva para alternar).
+  const perspRef = useRef<THREE.PerspectiveCamera | null>(null);
+  // Cámara ortográfica real: proyección paralela, sin convergencia de muros.
+  const orthoCam = useMemo(
+    () => new THREE.OrthographicCamera(-1, 1, 1, -1, 0.05, 8000),
+    [],
+  );
+  const halfHeightRef = useRef(5);
+  // Último objetivo conocido: sirve para restaurarlo cuando OrbitControls se
+  // recrea al cambiar de cámara (su target vuelve a (0,0,0)).
+  const lastTargetRef = useRef(new THREE.Vector3(...project.camera.target));
+  const syncedControlsRef = useRef(controls);
+
+  const applyOrthoFrustum = (halfHeight: number) => {
+    const h = Math.max(0.05, halfHeight);
+    halfHeightRef.current = h;
+    const halfW = h * aspect;
+    orthoCam.left = -halfW;
+    orthoCam.right = halfW;
+    orthoCam.top = h;
+    orthoCam.bottom = -h;
+    orthoCam.updateProjectionMatrix();
+  };
+
+  // Guarda la cámara en perspectiva del Canvas una sola vez.
+  useEffect(() => {
+    if (!perspRef.current && defaultCamera instanceof THREE.PerspectiveCamera) {
+      perspRef.current = defaultCamera;
+    }
+  }, [defaultCamera]);
+
+  // Restaura el objetivo en un OrbitControls recién creado y recuerda cuál es
+  // el activo para no leer su target temporal (0,0,0) en el primer frame.
   useEffect(() => {
     if (!controls) return;
-    controls.target.set(project.camera.target[0], project.camera.target[1], project.camera.target[2]);
+    controls.target.copy(lastTargetRef.current);
     controls.update();
-    // Solo al montar: la cámara libre del usuario no debe resetearse con cada cambio.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    syncedControlsRef.current = controls;
   }, [controls]);
 
-  // Alternar perspectiva ↔ ortográfica conservando el encuadre aparente.
-  useEffect(() => {
-    if (!controls || !('fov' in camera)) return;
-    if (Math.abs(camera.fov - activeFov) < 1e-4) return;
-    const offset = camera.position.clone().sub(controls.target);
-    const distance = Math.max(offset.length(), 0.001);
-    const ratio =
-      Math.tan((camera.fov * Math.PI) / 360) / Math.tan((activeFov * Math.PI) / 360);
-    offset.setLength(distance * ratio);
-    camera.position.copy(controls.target).add(offset);
-    camera.fov = activeFov;
-    camera.updateProjectionMatrix();
-    controls.update();
-  }, [orthographic, activeFov, camera, controls]);
+  useFrame(() => {
+    if (controls && controls === syncedControlsRef.current) {
+      lastTargetRef.current.copy(controls.target);
+    }
+  });
 
+  // Intercambia la cámara activa conservando el punto de vista y el objetivo.
+  useEffect(() => {
+    const persp = perspRef.current;
+    if (!persp) return;
+    const desired: THREE.PerspectiveCamera | THREE.OrthographicCamera = orthographic
+      ? orthoCam
+      : persp;
+    if (defaultCamera === desired) {
+      if (orthographic) applyOrthoFrustum(halfHeightRef.current);
+      return;
+    }
+    const target = lastTargetRef.current.clone();
+    const from = defaultCamera;
+    desired.position.copy(from.position);
+    desired.up.copy(from.up);
+    desired.lookAt(target);
+    if (orthographic) {
+      // Perspectiva → ortográfica: mismo tamaño aparente a la distancia actual.
+      const distance = from.position.distanceTo(target);
+      applyOrthoFrustum(distance * Math.tan(fovRad / 2));
+    } else if (desired instanceof THREE.PerspectiveCamera) {
+      // Ortográfica → perspectiva: ajusta la distancia para igualar la altura
+      // visible que tenía el frustum ortográfico.
+      const targetDist = Math.max(0.05, halfHeightRef.current / Math.tan(fovRad / 2));
+      const dir = desired.position.clone().sub(target);
+      if (dir.lengthSq() < 1e-6) dir.set(0.7, 0.7, 0.7);
+      dir.setLength(targetDist);
+      desired.position.copy(target).add(dir);
+      desired.up.set(0, 1, 0);
+      desired.lookAt(target);
+      desired.aspect = aspect;
+      desired.fov = fov;
+      desired.updateProjectionMatrix();
+    }
+    set({ camera: desired });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orthographic, defaultCamera]);
+
+  // Encuadra la cámara ante una petición explícita de vista.
   useEffect(() => {
     const bounds = polygonBounds(project.floor.vertices);
     const center = bounds.center;
-    const fov = activeFovRef.current;
-    const fovRad = (fov * Math.PI) / 180;
-    // Distancia que encuadra el recinto con el FOV activo.
-    const fit =
-      (Math.max(bounds.width, bounds.depth, 4) / (2 * Math.tan(fovRad / 2))) * 1.35;
+    const span = Math.max(bounds.width, bounds.depth, 4);
     const eyeX = center.x;
     const eyeZ = center.z;
     const eyeY = 1.6;
+    const showH = 3.4;
+
+    // Distancias de posicionamiento (la ortográfica no escala con la distancia,
+    // así que se aleja lo suficiente para no recortar la escena).
+    const perspDist = (span / (2 * Math.tan(fovRad / 2))) * 1.35;
+    // La ortográfica no escala con la distancia: basta separarla lo justo para
+    // dejar la escena delante del plano cercano (sin activar la niebla).
+    const orthoDist = span * 1.5 + 30;
+    const dist = orthographic ? orthoDist : perspDist;
+
     let position: [number, number, number];
     let target: [number, number, number];
+    let fitW = span;
+    let fitH = showH;
 
     switch (request.mode) {
       case 'project': {
-        const dir = new THREE.Vector3(
-          project.camera.position[0] - project.camera.target[0],
-          project.camera.position[1] - project.camera.target[1],
-          project.camera.position[2] - project.camera.target[2],
-        );
-        if (dir.lengthSq() < 1e-6) dir.set(0.7, 0.7, 0.7);
-        dir.normalize();
+        // Restaura exactamente la cámara guardada del proyecto.
         target = [...project.camera.target];
-        position = [
-          target[0] + dir.x * fit,
-          target[1] + dir.y * fit,
-          target[2] + dir.z * fit,
-        ];
+        position = [...project.camera.position];
+        fitW = span;
+        fitH = showH;
         break;
       }
       case 'top':
         target = [eyeX, 0, eyeZ];
-        position = [eyeX, fit, eyeZ + 0.001];
+        position = [eyeX, dist, eyeZ + 0.0001];
+        fitW = bounds.width;
+        fitH = bounds.depth;
         break;
+      // Vistas ortogonales horizontales: cámara y objetivo a la misma altura
+      // para que la cuadrícula quede perfectamente de frente (como en Maya).
       case 'front':
-        target = [eyeX, eyeY * 0.72, eyeZ];
-        position = [eyeX, eyeY, eyeZ + fit];
+        target = [eyeX, eyeY, eyeZ];
+        position = [eyeX, eyeY, eyeZ + dist];
+        fitW = bounds.width;
+        fitH = showH;
         break;
       case 'back':
-        target = [eyeX, eyeY * 0.72, eyeZ];
-        position = [eyeX, eyeY, eyeZ - fit];
+        target = [eyeX, eyeY, eyeZ];
+        position = [eyeX, eyeY, eyeZ - dist];
+        fitW = bounds.width;
+        fitH = showH;
         break;
       case 'left':
-        target = [eyeX, eyeY * 0.72, eyeZ];
-        position = [eyeX - fit, eyeY, eyeZ];
+        target = [eyeX, eyeY, eyeZ];
+        position = [eyeX - dist, eyeY, eyeZ];
+        fitW = bounds.depth;
+        fitH = showH;
         break;
       case 'right':
-        target = [eyeX, eyeY * 0.72, eyeZ];
-        position = [eyeX + fit, eyeY, eyeZ];
+        target = [eyeX, eyeY, eyeZ];
+        position = [eyeX + dist, eyeY, eyeZ];
+        fitW = bounds.depth;
+        fitH = showH;
         break;
       case 'iso':
       default:
         target = [eyeX, 1, eyeZ];
-        position = [eyeX + fit * 0.62, eyeY + fit * 0.62, eyeZ + fit * 0.62];
+        position = [eyeX + dist * 0.62, eyeY + dist * 0.62, eyeZ + dist * 0.62];
+        fitW = span * 0.95;
+        fitH = span * 0.95;
         break;
     }
 
-    camera.position.set(position[0], position[1], position[2]);
-    if ('fov' in camera) {
-      camera.fov = fov;
-      camera.updateProjectionMatrix();
+    const cam: THREE.Camera | null = orthographic ? orthoCam : perspRef.current;
+    if (cam) {
+      cam.position.set(position[0], position[1], position[2]);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(target[0], target[1], target[2]);
+      if (cam instanceof THREE.PerspectiveCamera) {
+        cam.aspect = aspect;
+        cam.fov = fov;
+        cam.updateProjectionMatrix();
+      }
     }
+    if (orthographic) {
+      let halfW = fitW / 2;
+      let halfH = fitH / 2;
+      if (halfW / halfH < aspect) halfW = halfH * aspect;
+      else halfH = halfW / aspect;
+      applyOrthoFrustum(halfH * 1.12);
+    }
+    lastTargetRef.current.set(target[0], target[1], target[2]);
     if (controls) {
       controls.target.set(target[0], target[1], target[2]);
       controls.update();
+      syncedControlsRef.current = controls;
     }
     // Importante: no depender de `project` ni de `project.floor.vertices` como
     // objetos. El store clona el proyecto en cada cambio y eso devolvía la
     // cámara a su posición inicial al mover un objeto o editar una ficha.
     // Solo se reacciona a una petición explícita de cámara.
-  }, [
-    request.nonce,
-    request.mode,
-    camera,
-    controls,
-    project.camera.position[0],
-    project.camera.position[1],
-    project.camera.position[2],
-    project.camera.target[0],
-    project.camera.target[1],
-    project.camera.target[2],
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request.nonce]);
+
+  // Mantén el aspecto correcto al redimensionar (ortográfica y perspectiva).
+  useEffect(() => {
+    if (orthographic) applyOrthoFrustum(halfHeightRef.current);
+    else if (perspRef.current) {
+      perspRef.current.aspect = aspect;
+      perspRef.current.updateProjectionMatrix();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size.width, size.height, orthographic]);
 
   return null;
 }
@@ -394,7 +610,8 @@ function EditorSceneContents({
   return (
     <>
       <color attach="background" args={['#0a0d10']} />
-      <fog attach="fog" args={['#0a0d10', 35, 120]} />
+      <AdaptiveFog />
+      <WireframeController />
       <ambientLight color="#aeb9c4" intensity={0.22} />
       <SceneEnvironment intensity={0.06} />
       <SceneShadows quality={project.settings.shadowQuality} />
@@ -406,7 +623,9 @@ function EditorSceneContents({
         shadowQuality={project.settings.shadowQuality}
         shadowBounds={shadowBounds}
       />
-      <gridHelper args={[80, 80, '#1d252d', '#12181d']} position={[0, -0.015, 0]} />
+      {/* Cuadrícula adaptativa + ejes de orientación (estilo 3D). */}
+      {project.settings.showGrid ? <SceneGrid orthographic={orthographic} /> : null}
+      <axesHelper args={[2]} position={[0, 0.012, 0]} />
       <Architecture
         project={project}
         selectedExhibitorId={selectedExhibitorId}
@@ -449,7 +668,7 @@ function EditorSceneContents({
         dampingFactor={0.08}
         minDistance={1}
         maxDistance={orthographic ? 4000 : 140}
-        maxPolarAngle={Math.PI / 2 - 0.015}
+        maxPolarAngle={orthographic ? Math.PI / 2 : Math.PI / 2 - 0.015}
       />
       <CameraRig project={project} request={cameraRequest} orthographic={orthographic} />
       <FloorDropHandler />
