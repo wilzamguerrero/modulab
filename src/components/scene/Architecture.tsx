@@ -15,6 +15,7 @@ import {
   type WallTarget,
 } from '@/utils/walls';
 import { buildStairBoxes } from '@/utils/stairs';
+import { fitStairToLevels } from '@/utils/levels';
 import {
   exhibitorColor,
   exhibitorPaintAmount,
@@ -440,8 +441,9 @@ export function Architecture({
               onWallClick={onWallClick}
               onOpeningClick={onOpeningClick}
             />
-            {level.stairs.map((stair) =>
-              onSelectStair ? (
+            {level.stairs.map((rawStair) => {
+              const stair = fitStairToLevels(project, level, rawStair);
+              return onSelectStair ? (
                 <EditableStair
                   key={stair.id}
                   stair={stair}
@@ -450,8 +452,8 @@ export function Architecture({
                 />
               ) : (
                 <StairMesh key={stair.id} stair={stair} />
-              ),
-            )}
+              );
+            })}
           </group>
         );
       })}

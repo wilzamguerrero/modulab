@@ -3676,3 +3676,53 @@ input[type="range"] {
     display: none;
   }
 }
+
+.stair-quick {
+  position: absolute;
+  left: 14px;
+  bottom: 56px;
+  z-index: 5;
+  display: grid;
+  gap: 6px;
+  width: 220px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(16, 16, 16, 0.92);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.stair-quick label {
+  display: grid;
+  grid-template-columns: 1fr 96px;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.stair-quick input,
+.stair-quick select {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.stair-quick-title {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.stair-quick-check {
+  grid-template-columns: auto 1fr !important;
+}
+
+.stair-quick-info {
+  color: var(--muted);
+  font-size: 10px;
+}

@@ -68,7 +68,10 @@ type DragState =
   | { type: 'object'; id: string; offset: Vec2 }
   | { type: 'exhibitor'; id: string; offset: Vec2 }
   | { type: 'rotationPoint'; id: string; offset: Vec2 }
-  | { type: 'stair'; id: string; offset: Vec2 };
+  | { type: 'stair'; id: string; offset: Vec2 }
+  | { type: 'holeRect'; start: Vec2 }
+  | { type: 'hole'; id: string; offset: Vec2 }
+  | { type: 'holeVertex'; id: string; index: number };
 
 function fitViewport(vertices: Vec2[]): Viewport {
   if (vertices.length === 0) {
@@ -266,6 +269,9 @@ export function PlanEditor2D() {
   const setActiveSpace = useEditorStore((state) => state.setActiveSpace);
   const addSpace = useEditorStore((state) => state.addSpace);
   const addHole = useEditorStore((state) => state.addHole);
+  const cutRectHole = useEditorStore((state) => state.cutRectHole);
+  const moveHole = useEditorStore((state) => state.moveHole);
+  const setHoleVertex = useEditorStore((state) => state.setHoleVertex);
   const addStair = useEditorStore((state) => state.addStair);
   const moveStair = useEditorStore((state) => state.moveStair);
   const toast = useUiStore((state) => state.toast);
@@ -285,6 +291,9 @@ export function PlanEditor2D() {
   );
   const [draft, setDraft] = useState<Vec2[]>([]);
   const [hover, setHover] = useState<Vec2 | null>(null);
+  const [rectDraft, setRectDraft] = useState<Vec2[] | null>(null);
+  const rectRef = useRef<Vec2[] | null>(null);
+  const holeDragStartRef = useRef<Vec2 | null>(null);
   const [wallStart, setWallStart] = useState<Vec2 | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
   const lastScope = useRef(`${activeLevelId ?? ''}:${activeSpaceId ?? ''}`);
@@ -516,7 +525,23 @@ export function PlanEditor2D() {
 
   const finishDrag = () => {
     const drag = dragRef.current;
-    if (drag && drag.type !== 'pan') commitHistory();
+    if (drag?.type === 'holeRect') {
+      const corners = rectRef.current;
+      rectRef.current = null;
+      setRectDraft(null);
+      if (corners && movedRef.current) {
+        const width = Math.abs(corners[2].x - corners[0].x);
+        const depth = Math.abs(corners[2].z - corners[0].z);
+        if (width < 0.2 || depth < 0.2) {
+          toast('El corte es demasiado pequeño.', 'warning');
+        } else if (cutRectHole(corners)) {
+          toast('Corte hecho en el piso superior. Coloca la escalera debajo.', 'success');
+        } else {
+          toast('El corte debe quedar dentro de un espacio del nivel superior.', 'warning');
+        }
+      }
+    }
+    if (drag && drag.type !== 'pan' && drag.type !== 'holeRect') commitHistory();
     if (movedRef.current) {
       suppressClickRef.current = true;
       window.setTimeout(() => {
@@ -534,6 +559,12 @@ export function PlanEditor2D() {
   };
 
   const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (event.button === 0 && tool === 'draw' && planDrawMode === 'hole' && !spaceDown) {
+      const start = snapToPlanPoint(toWorld(event.clientX, event.clientY));
+      rectRef.current = null;
+      beginDrag(event, { type: 'holeRect', start });
+      return;
+    }
     if (event.button === 1 || (event.button === 0 && (tool === 'pan' || spaceDown))) {
       event.preventDefault();
       beginDrag(event, {
@@ -549,6 +580,20 @@ export function PlanEditor2D() {
     const drag = dragRef.current;
     if (!drag) {
       if (tool === 'draw' || tool === 'internalWall') setHover(snapToPlanPoint(point));
+      return;
+    }
+    if (drag.type === 'holeRect') {
+      const end = snapToPlanPoint(point);
+      const start = drag.start;
+      if (distance(start, end) > 0.05) movedRef.current = true;
+      const corners = [
+        { x: start.x, z: start.z },
+        { x: end.x, z: start.z },
+        { x: end.x, z: end.z },
+        { x: start.x, z: end.z },
+      ];
+      rectRef.current = corners;
+      setRectDraft(corners);
       return;
     }
     if (drag.type === 'pan') {
@@ -614,6 +659,23 @@ export function PlanEditor2D() {
         z: point.z + drag.offset.z,
       });
       moveStair(drag.id, next, { history: false, touch: false });
+      return;
+    }
+    if (drag.type === 'hole') {
+      movedRef.current = true;
+      const next = snapPointIfNeeded({
+        x: point.x + drag.offset.x,
+        z: point.z + drag.offset.z,
+      });
+      const first = holeDragStartRef.current;
+      if (first) {
+        moveHole(drag.id, { x: next.x - first.x, z: next.z - first.z }, { history: false, touch: false });
+      }
+      return;
+    }
+    if (drag.type === 'holeVertex') {
+      movedRef.current = true;
+      setHoleVertex(drag.id, drag.index, snapPointIfNeeded(point), { history: false, touch: false });
     }
   };
 
@@ -705,6 +767,24 @@ export function PlanEditor2D() {
     }
 
     setSelection(null);
+  };
+
+  const onHolePointerDown = (event: ReactPointerEvent, holeId: string) => {
+    if (tool !== 'select') return;
+    event.stopPropagation();
+    event.preventDefault();
+    const point = toWorld(event.clientX, event.clientY);
+    holeDragStartRef.current = snapPointIfNeeded(point);
+    beginDrag(event, { type: 'hole', id: holeId, offset: { x: 0, z: 0 } });
+    setSelection({ type: 'hole', id: holeId, spaceId: activeSpace?.id });
+  };
+
+  const onHoleVertexPointerDown = (event: ReactPointerEvent, holeId: string, index: number) => {
+    if (tool !== 'select') return;
+    event.stopPropagation();
+    event.preventDefault();
+    beginDrag(event, { type: 'holeVertex', id: holeId, index });
+    setSelection({ type: 'hole', id: holeId, spaceId: activeSpace?.id });
   };
 
   const onVertexPointerDown = (event: ReactPointerEvent, index: number) => {
@@ -996,6 +1076,7 @@ export function PlanEditor2D() {
                   strokeWidth={Math.max(viewport.width / 1100, 0.008)}
                   strokeDasharray={`${viewport.width / 150} ${viewport.width / 220}`}
                   style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
+                  onPointerDown={(event) => onHolePointerDown(event, hole.id)}
                   onClick={(event) => {
                     if (tool !== 'select') return;
                     event.stopPropagation();
@@ -1004,6 +1085,23 @@ export function PlanEditor2D() {
                 />
               ) : null,
             )}
+            {selectedHole
+              ? (activeSpace?.holes ?? [])
+                  .find((hole) => hole.id === selectedHole)
+                  ?.vertices.map((vertex, index) => (
+                    <circle
+                      key={`hole-vertex-${selectedHole}-${index}`}
+                      cx={vertex.x}
+                      cy={vertex.z}
+                      r={vertexRadius}
+                      fill="#ff8a65"
+                      stroke="#0e1114"
+                      strokeWidth={Math.max(viewport.width / 1400, 0.006)}
+                      style={{ cursor: 'grab' }}
+                      onPointerDown={(event) => onHoleVertexPointerDown(event, selectedHole, index)}
+                    />
+                  ))
+              : null}
             {edges.map((edge, index) => {
               const a = vertices[index];
               const b = vertices[(index + 1) % vertices.length];
@@ -1495,6 +1593,14 @@ export function PlanEditor2D() {
 
         {tool === 'draw' ? (
           <g>
+            {rectDraft ? (
+              <polygon
+                points={rectDraft.map((point) => `${point.x},${point.z}`).join(' ')}
+                fill="rgba(255,138,101,.18)"
+                stroke="#ff8a65"
+                strokeWidth={Math.max(viewport.width / 700, 0.018)}
+              />
+            ) : null}
             {draft.length >= 2 ? (
               <polygon
                 points={draft.map((point) => `${point.x},${point.z}`).join(' ')}

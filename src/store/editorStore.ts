@@ -34,7 +34,7 @@ import {
 import { normalizeEdges, normalizeExhibitorLinks, normalizeOpenings } from '@/data/projectSchema';
 import { createId } from '@/utils/id';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
-import { polygonCentroid } from '@/utils/geometry';
+import { pointInPolygon, polygonCentroid } from '@/utils/geometry';
 import {
   defaultLevelId,
   getLevel,
@@ -159,7 +159,16 @@ interface EditorState {
   deleteSpace: (id: string) => void;
   /** Recorte del suelo del espacio activo (hueco para escaleras). */
   addHole: (vertices: Vec2[]) => string | null;
+  cutRectHole: (vertices: Vec2[]) => string | null;
   deleteHole: (id: string) => void;
+  /** Mueve el hueco completo por un delta en planta. */
+  moveHole: (id: string, delta: Vec2, options?: PatchOptions) => void;
+  /** Coloca el centro del hueco en un punto (usado por el gizmo 3D). */
+  setHoleCenter: (id: string, center: Vec2, options?: PatchOptions) => void;
+  /** Redimensiona un hueco rectangular alrededor de su centro. */
+  resizeHole: (id: string, width: number, depth: number, options?: PatchOptions) => void;
+  /** Desplaza un vértice del hueco (polígono libre o rectángulo). */
+  setHoleVertex: (id: string, index: number, point: Vec2, options?: PatchOptions) => void;
   addStair: (position: Vec2) => string | null;
   updateStair: (id: string, patch: Partial<Stair>, options?: PatchOptions) => void;
   moveStair: (id: string, position: Vec2, options?: PatchOptions) => void;
@@ -760,6 +769,85 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     return hole.id;
   },
 
+  moveHole: (id, delta, options = {}) =>
+    get().patchProject((draft) => {
+      for (const level of draft.levels) {
+        for (const space of level.spaces) {
+          const hole = space.holes.find((entry) => entry.id === id);
+          if (!hole) continue;
+          hole.vertices = hole.vertices.map((vertex) => ({
+            x: vertex.x + delta.x,
+            z: vertex.z + delta.z,
+          }));
+        }
+      }
+    }, { coalesceKey: `hole-move:${id}`, ...options }),
+
+  setHoleCenter: (id, center, options = {}) =>
+    get().patchProject((draft) => {
+      for (const level of draft.levels) {
+        for (const space of level.spaces) {
+          const hole = space.holes.find((entry) => entry.id === id);
+          if (!hole || hole.vertices.length < 3) continue;
+          let minX = Infinity;
+          let maxX = -Infinity;
+          let minZ = Infinity;
+          let maxZ = -Infinity;
+          for (const vertex of hole.vertices) {
+            minX = Math.min(minX, vertex.x);
+            maxX = Math.max(maxX, vertex.x);
+            minZ = Math.min(minZ, vertex.z);
+            maxZ = Math.max(maxZ, vertex.z);
+          }
+          const cx = (minX + maxX) / 2;
+          const cz = (minZ + maxZ) / 2;
+          hole.vertices = hole.vertices.map((vertex) => ({
+            x: vertex.x + (center.x - cx),
+            z: vertex.z + (center.z - cz),
+          }));
+        }
+      }
+    }, { coalesceKey: `hole-center:${id}`, ...options }),
+
+  resizeHole: (id, width, depth, options = {}) =>
+    get().patchProject((draft) => {
+      for (const level of draft.levels) {
+        for (const space of level.spaces) {
+          const hole = space.holes.find((entry) => entry.id === id);
+          if (!hole || hole.vertices.length < 3) continue;
+          let minX = Infinity;
+          let maxX = -Infinity;
+          let minZ = Infinity;
+          let maxZ = -Infinity;
+          for (const vertex of hole.vertices) {
+            minX = Math.min(minX, vertex.x);
+            maxX = Math.max(maxX, vertex.x);
+            minZ = Math.min(minZ, vertex.z);
+            maxZ = Math.max(maxZ, vertex.z);
+          }
+          const cx = (minX + maxX) / 2;
+          const cz = (minZ + maxZ) / 2;
+          const sx = Math.max(0.2, width) / Math.max(1e-4, maxX - minX);
+          const sz = Math.max(0.2, depth) / Math.max(1e-4, maxZ - minZ);
+          hole.vertices = hole.vertices.map((vertex) => ({
+            x: cx + (vertex.x - cx) * sx,
+            z: cz + (vertex.z - cz) * sz,
+          }));
+        }
+      }
+    }, { coalesceKey: `hole-resize:${id}`, ...options }),
+
+  setHoleVertex: (id, index, point, options = {}) =>
+    get().patchProject((draft) => {
+      for (const level of draft.levels) {
+        for (const space of level.spaces) {
+          const hole = space.holes.find((entry) => entry.id === id);
+          if (!hole?.vertices[index]) continue;
+          hole.vertices[index] = { ...point };
+        }
+      }
+    }, { coalesceKey: `hole-vertex:${id}:${index}`, ...options }),
+
   deleteHole: (id) => {
     get().patchProject((draft) => {
       for (const level of draft.levels) {
@@ -774,6 +862,41 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     });
     const selection = get().selection;
     if (selection?.type === 'hole' && selection.id === id) set({ selection: null });
+  },
+
+  cutRectHole: (vertices) => {
+    if (vertices.length < 4) return null;
+    const project = get().project;
+    if (!project) return null;
+    const level = resolveLevel(project, get().activeLevelId);
+    if (!level) return null;
+    const inside = (space: Space) =>
+      space.vertices.length >= 3 && vertices.every((point) => pointInPolygon(point, space.vertices));
+    const above = project.levels
+      .filter((entry) => entry.elevation > level.elevation + 0.2)
+      .sort((a, b) => a.elevation - b.elevation);
+    let found: { levelId: string; spaceId: string } | null = null;
+    for (const candidate of [...above, level]) {
+      const space = candidate.spaces.find(inside);
+      if (space) {
+        found = { levelId: candidate.id, spaceId: space.id };
+        break;
+      }
+    }
+    if (!found) return null;
+    const { levelId, spaceId } = found;
+    const holeId = createId('hole');
+    get().patchProject((draft) => {
+      const target = draft.levels.find((entry) => entry.id === levelId);
+      const space = target?.spaces.find((entry) => entry.id === spaceId);
+      space?.holes.push({
+        id: holeId,
+        name: 'Hueco escalera',
+        vertices: vertices.map((vertex) => ({ ...vertex })),
+      });
+    });
+    set({ selection: { type: 'hole', id: holeId, spaceId } });
+    return holeId;
   },
 
   addStair: (position) => {

@@ -110,26 +110,65 @@ export function buildStairBoxes(stair: Stair): StairBox[] {
     add([centerX, baseY + height / 2, centerZ], [sizeX, height, sizeZ]);
   };
 
-  // Pasamanos continuo inclinado. `deltaSurface` va firmado (positivo si sube).
-  const rail = (
-    x: number,
-    z: number,
-    horizontalRun: number,
-    deltaSurface: number,
-    startSurface: number,
-    axis: 'z+' | 'z-' | 'x+',
-  ) => {
-    if (!stair.railing || horizontalRun <= 1e-4) return;
-    const length = Math.hypot(horizontalRun, Math.abs(deltaSurface));
-    const angle = Math.atan2(deltaSurface, horizontalRun);
-    const centerY = startSurface + deltaSurface / 2 + RAIL_HEIGHT;
-    if (axis === 'z+') {
-      add([x, centerY, z], [RAIL_THICKNESS, RAIL_THICKNESS, length], [-angle, 0, 0]);
-    } else if (axis === 'z-') {
-      add([x, centerY, z], [RAIL_THICKNESS, RAIL_THICKNESS, length], [angle, 0, 0]);
-    } else {
-      add([x, centerY, z], [length, RAIL_THICKNESS, RAIL_THICKNESS], [0, 0, -angle]);
-    }
+  // Pasamanos continuo inclinado. La barra une los centros de la pisada del
+  // primer y del último peldaño del tramo, de modo que su pendiente es la
+  // real de la escalera y cada pie la toca por abajo.
+  //
+  // `along` es la coordenada que avanza (Z o X según el tramo) y la cota va
+  // en `surface`. El giro se deduce del sentido de avance: al rotar una caja
+  // de largo L sobre el eje X, su extremo +Z desciende `sin(θ)`; sobre el eje
+  // Z, su extremo +X asciende `sin(θ)`. Por eso el signo depende del eje.
+  type RailEnd = { along: number; surface: number };
+
+  /** Separación vertical entre el extremo de mayor y menor coordenada. */
+  const slopeOf = (from: RailEnd, to: RailEnd) => {
+    const horizontalRun = Math.abs(to.along - from.along);
+    if (horizontalRun <= 1e-4) return null;
+    const high = to.along >= from.along ? to : from;
+    const low = to.along >= from.along ? from : to;
+    return {
+      horizontalRun,
+      // Positivo si el extremo de mayor coordenada está más alto.
+      delta: high.surface - low.surface,
+      low,
+      high,
+    };
+  };
+
+  /**
+   * Barra que corre en Z, fija la X del pasamanos. Rotar sobre X hace
+   * descender el extremo +Z cuando el giro es positivo, así que el signo es
+   * el opuesto a la pendiente.
+   */
+  const railAlongZ = (fixedX: number, from: RailEnd, to: RailEnd) => {
+    if (!stair.railing) return;
+    const slope = slopeOf(from, to);
+    if (!slope) return;
+    const length = Math.hypot(slope.horizontalRun, Math.abs(slope.delta));
+    const angle = Math.atan2(slope.delta, slope.horizontalRun);
+    add(
+      [fixedX, (slope.low.surface + slope.high.surface) / 2 + RAIL_HEIGHT, (from.along + to.along) / 2],
+      [RAIL_THICKNESS, RAIL_THICKNESS, length],
+      [-angle, 0, 0],
+    );
+  };
+
+  /**
+   * Barra que corre en X, fija la Z del pasamanos. Rotar sobre Z hace
+   * ascender el extremo +X con giro positivo, así que el signo sigue a la
+   * pendiente.
+   */
+  const railAlongX = (fixedZ: number, from: RailEnd, to: RailEnd) => {
+    if (!stair.railing) return;
+    const slope = slopeOf(from, to);
+    if (!slope) return;
+    const length = Math.hypot(slope.horizontalRun, Math.abs(slope.delta));
+    const angle = Math.atan2(slope.delta, slope.horizontalRun);
+    add(
+      [(from.along + to.along) / 2, (slope.low.surface + slope.high.surface) / 2 + RAIL_HEIGHT, fixedZ],
+      [length, RAIL_THICKNESS, RAIL_THICKNESS],
+      [0, 0, angle],
+    );
   };
 
   const posts = (points: Array<{ x: number; z: number; surface: number }>) => {
@@ -153,11 +192,11 @@ export function buildStairBoxes(stair: Stair): StairBox[] {
       flightAPosts.push({ x: railOffset, z, surface });
     }
   }
-  {
-    const start = surfaceAt(0);
-    const delta = surfaceAt(n1 - 1) - start;
-    rail(-railOffset, run1 / 2, run1, delta, start, 'z+');
-    rail(railOffset, run1 / 2, run1, delta, start, 'z+');
+  if (n1 > 0) {
+    const first = { along: tread / 2, surface: surfaceAt(0) };
+    const last = { along: (n1 - 1) * tread + tread / 2, surface: surfaceAt(n1 - 1) };
+    railAlongZ(-railOffset, first, last);
+    railAlongZ(railOffset, first, last);
     posts(flightAPosts);
   }
 
@@ -195,10 +234,10 @@ export function buildStairBoxes(stair: Stair): StairBox[] {
       }
     }
     if (n2 > 0 && stair.railing) {
-      const start = surfaceAt(n1);
-      const delta = surfaceAt(n1 + n2 - 1) - start;
-      rail(startX + metrics.run2 / 2, landingCenterZ - railOffset, metrics.run2, delta, start, 'x+');
-      rail(startX + metrics.run2 / 2, landingCenterZ + railOffset, metrics.run2, delta, start, 'x+');
+      const first = { along: startX + tread / 2, surface: surfaceAt(n1) };
+      const last = { along: startX + (n2 - 1) * tread + tread / 2, surface: surfaceAt(n1 + n2 - 1) };
+      railAlongX(landingCenterZ - railOffset, first, last);
+      railAlongX(landingCenterZ + railOffset, first, last);
       posts(flightBPosts);
     }
   } else {
@@ -216,10 +255,10 @@ export function buildStairBoxes(stair: Stair): StairBox[] {
       }
     }
     if (n2 > 0 && stair.railing) {
-      const start = surfaceAt(n1);
-      const delta = surfaceAt(n1 + n2 - 1) - start;
-      rail(centerX - railOffset, startZ - metrics.run2 / 2, metrics.run2, delta, start, 'z-');
-      rail(centerX + railOffset, startZ - metrics.run2 / 2, metrics.run2, delta, start, 'z-');
+      const first = { along: startZ - tread / 2, surface: surfaceAt(n1) };
+      const last = { along: startZ - (n2 - 1) * tread - tread / 2, surface: surfaceAt(n1 + n2 - 1) };
+      railAlongZ(centerX - railOffset, first, last);
+      railAlongZ(centerX + railOffset, first, last);
       posts(flightBPosts);
     }
   }

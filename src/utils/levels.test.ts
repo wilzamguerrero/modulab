@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createLevel, createProject, createSpace } from '@/data/defaults';
+import { createLevel, createProject, createSpace, createStair } from '@/data/defaults';
+import type { Project } from '@/types/project';
 import {
+  fitStairToLevels,
   entityLevelId,
   getLevel,
   getSpace,
@@ -89,5 +91,23 @@ describe('level helpers', () => {
     expect(getLevel(project, 'no-existe')?.id).toBe(project.levels[0].id);
     const upper = project.levels[1];
     expect(getSpace(upper, 'no-existe')?.id).toBe(upper.spaces[0].id);
+  });
+});
+
+describe('fitStairToLevels', () => {
+  it('ajusta la altura de la escalera al nivel superior real', () => {
+    const base = { id: 'a', name: 'PB', elevation: 0, spaces: [], internalWalls: [], openings: [], stairs: [], visible: true };
+    const upper = { ...base, id: 'b', name: 'P1', elevation: 3.4 };
+    const project = { levels: [base, upper] } as unknown as Project;
+    const stair = createStair({ x: 0, z: 0 }, { rise: 2.8, direction: 'up' });
+    expect(fitStairToLevels(project, base, stair).rise).toBeCloseTo(3.4);
+  });
+
+  it('al bajar usa el nivel inferior', () => {
+    const base = { id: 'a', name: 'PB', elevation: 0, spaces: [], internalWalls: [], openings: [], stairs: [], visible: true };
+    const upper = { ...base, id: 'b', name: 'P1', elevation: 3.4 };
+    const project = { levels: [base, upper] } as unknown as Project;
+    const stair = createStair({ x: 0, z: 0 }, { direction: 'down' });
+    expect(fitStairToLevels(project, upper, stair).rise).toBeCloseTo(3.4);
   });
 });

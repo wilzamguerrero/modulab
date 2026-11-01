@@ -57,7 +57,7 @@ import { SHADOW_QUALITY_OPTIONS } from '@/data/shadows';
 import { notionPhotoUrl } from '@/services/notion/notionService';
 import { uploadExhibitorPhoto } from '@/services/assets/catalogService';
 import { formatDateTime } from '@/utils/format';
-import { edgeLength, formatArea, formatMeters, polygonArea, snapValue } from '@/utils/geometry';
+import { edgeLength, formatArea, formatMeters, polygonArea, polygonBounds, snapValue } from '@/utils/geometry';
 import { findWallInProject, getWallById, wallLength } from '@/utils/walls';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
 
@@ -1913,11 +1913,14 @@ function HoleInspector({
 }) {
   const updateSpace = useEditorStore((state) => state.updateSpace);
   const deleteHole = useEditorStore((state) => state.deleteHole);
+  const resizeHole = useEditorStore((state) => state.resizeHole);
+  const setHoleCenter = useEditorStore((state) => state.setHoleCenter);
   const setSelection = useEditorStore((state) => state.setSelection);
   const activeLevelId = useEditorStore((state) => state.activeLevelId);
   const level = getLevel(project, activeLevelId);
   const space = level?.spaces.find((entry) => entry.holes.some((item) => item.id === hole.id))
     ?? level?.spaces.find((entry) => entry.id === spaceId);
+  const bounds = polygonBounds(hole.vertices);
 
   return (
     <Section
@@ -1937,7 +1940,41 @@ function HoleInspector({
         <div className="prop-row"><span>Nivel</span><strong>{level?.name ?? '—'}</strong></div>
         <div className="prop-row"><span>Espacio</span><strong>{space?.name ?? '—'}</strong></div>
         <div className="prop-row"><span>Vértices</span><strong>{hole.vertices.length}</strong></div>
+        <div className="prop-row"><span>Ancho</span><strong>{formatMeters(bounds.width, 2)}</strong></div>
+        <div className="prop-row"><span>Fondo</span><strong>{formatMeters(bounds.depth, 2)}</strong></div>
       </div>
+      <Field label="Ancho (m)">
+        <NumberInput
+          value={Math.round(bounds.width * 100) / 100}
+          onChange={(value) => resizeHole(hole.id, Math.max(0.2, value), bounds.depth)}
+          step={0.05}
+          min={0.2}
+          max={40}
+        />
+      </Field>
+      <Field label="Fondo (m)">
+        <NumberInput
+          value={Math.round(bounds.depth * 100) / 100}
+          onChange={(value) => resizeHole(hole.id, bounds.width, Math.max(0.2, value))}
+          step={0.05}
+          min={0.2}
+          max={40}
+        />
+      </Field>
+      <Field label="Centro X">
+        <NumberInput
+          value={Math.round(bounds.center.x * 100) / 100}
+          onChange={(value) => setHoleCenter(hole.id, { x: value, z: bounds.center.z })}
+          step={0.05}
+        />
+      </Field>
+      <Field label="Centro Z">
+        <NumberInput
+          value={Math.round(bounds.center.z * 100) / 100}
+          onChange={(value) => setHoleCenter(hole.id, { x: bounds.center.x, z: value })}
+          step={0.05}
+        />
+      </Field>
       <Field label="Nombre">
         <TextInput
           value={hole.name}

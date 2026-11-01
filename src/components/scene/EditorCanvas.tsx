@@ -17,7 +17,7 @@ import { MeasurementGizmo } from './MeasurementGizmo';
 import { WallEditHandles } from './WallEditHandles';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
-import { snapPoint } from '@/utils/geometry';
+import { pointInPolygon, snapPoint } from '@/utils/geometry';
 import {
   findWallInProject,
   pointOffsetOnWall,
@@ -600,6 +600,23 @@ function EditorSceneContents({
     if (state.tool === 'internalWall') {
       toast('Los muros libres se dibujan en la vista de planta.', 'info');
       return;
+    }
+    // Clic dentro de un hueco del nivel activo: lo selecciona para editarlo.
+    if (state.tool === 'select') {
+      const level = activeProject.levels.find((entry) => entry.id === state.activeLevelId)
+        ?? activeProject.levels[0];
+      const hole = level?.spaces
+        .flatMap((space) => space.holes.map((entry) => ({ hole: entry, space })))
+        .find(({ hole: entry, space }) =>
+          space.vertices.length >= 3
+          && pointInPolygon(point, space.vertices)
+          && pointInPolygon(point, entry.vertices),
+        );
+      if (hole) {
+        setActiveSpace(hole.space.id);
+        setSelection({ type: 'hole', id: hole.hole.id, spaceId: hole.space.id });
+        return;
+      }
     }
     setSelection(null);
   };

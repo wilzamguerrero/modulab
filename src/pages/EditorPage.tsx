@@ -59,6 +59,7 @@ import { ExhibitorsPanel } from '@/components/editor/ExhibitorsPanel';
 import { LightsPanel } from '@/components/editor/LightsPanel';
 import { EnvironmentPanel } from '@/components/editor/EnvironmentPanel';
 import { Inspector } from '@/components/editor/Inspector';
+import { StairQuickEditor } from '@/components/editor/StairQuickEditor';
 import { PublishModal } from '@/components/editor/PublishModal';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
@@ -904,6 +905,10 @@ export function EditorPage() {
                 <X size={12} />
               </button>
             </div>
+          ) : null}
+
+          {project && view === '3d' && selectedStair ? (
+            <StairQuickEditor project={project} stair={selectedStair} />
           ) : null}
 
           {pendingCatalogItem && view === '3d' ? (

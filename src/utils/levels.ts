@@ -1,5 +1,5 @@
 import type { Bounds2D } from './geometry';
-import type { Level, Project, SceneObject, Space, Vec2 } from '@/types/project';
+import type { Level, Project, SceneObject, Space, Stair, Vec2 } from '@/types/project';
 import { pointInPolygon, polygonBounds } from './geometry';
 
 /** Niveles ordenados de abajo hacia arriba. */
@@ -140,4 +140,22 @@ export function entityLevelId(
 ): string | null {
   const valid = project.levels.some((level) => level.id === entity.levelId);
   return valid ? entity.levelId ?? null : defaultLevelId(project);
+}
+
+/**
+ * Escalera con la altura real del salto entre niveles: al subir llega al
+ * suelo del nivel superior; al bajar, al del nivel inferior.
+ */
+export function fitStairToLevels(project: Project, level: Level, stair: Stair): Stair {
+  const floor = level.elevation;
+  const target = stair.direction === 'down'
+    ? project.levels
+        .filter((entry) => entry.elevation < floor - 0.2)
+        .sort((a, b) => b.elevation - a.elevation)[0]
+    : project.levels
+        .filter((entry) => entry.elevation > floor + 0.2)
+        .sort((a, b) => a.elevation - b.elevation)[0];
+  if (!target) return stair;
+  const rise = Math.abs(target.elevation - floor);
+  return { ...stair, rise: Math.min(30, Math.max(0.2, rise)) };
 }

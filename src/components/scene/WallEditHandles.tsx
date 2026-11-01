@@ -89,7 +89,7 @@ function usePlanarDrag({
   return { start, active };
 }
 
-function useHistoryDrag(
+export function useHistoryDrag(
   onStart: (event: PointerEvent) => void,
   onMove: (point: Vec2, event: PointerEvent) => void,
   elevation = 0,
@@ -118,7 +118,7 @@ function useHistoryDrag(
   });
 }
 
-function Handle({
+export function Handle({
   position,
   color = HANDLE_COLOR,
   radius = 0.09,
@@ -359,6 +359,107 @@ function OpeningHandle({
   );
 }
 
+/** Mueve el hueco completo desde su centro y arrastra cada esquina. */
+function HoleHandles({
+  hole,
+  elevation,
+}: {
+  hole: { id: string; vertices: Vec2[] };
+  elevation: number;
+}) {
+  const moveHole = useEditorStore((state) => state.moveHole);
+  const setHoleVertex = useEditorStore((state) => state.setHoleVertex);
+  const project = useEditorStore((state) => state.project);
+  const snap = project?.settings.snapToGrid ?? false;
+  const gridSize = project?.settings.gridSize ?? 0.25;
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const vertex of hole.vertices) {
+    minX = Math.min(minX, vertex.x);
+    maxX = Math.max(maxX, vertex.x);
+    minZ = Math.min(minZ, vertex.z);
+    maxZ = Math.max(maxZ, vertex.z);
+  }
+  const center = { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 };
+  const lastCenter = { current: center };
+
+  const centerDrag = useHistoryDrag(
+    () => {
+      lastCenter.current = center;
+    },
+    (point) => {
+      const next = snap ? snapPoint(point, gridSize) : point;
+      const delta = { x: next.x - lastCenter.current.x, z: next.z - lastCenter.current.z };
+      lastCenter.current = next;
+      moveHole(hole.id, delta, { history: false, touch: false });
+    },
+    elevation,
+  );
+
+  return (
+    <group>
+      <Handle
+        position={[center.x, elevation + 0.16, center.z]}
+        color="#ffb199"
+        radius={0.14}
+        debugLabel={`hole-center-${hole.id}`}
+        onPointerDown={centerDrag.start}
+      />
+      {hole.vertices.map((vertex, index) => (
+        <HoleVertexHandle
+          key={`${hole.id}-vertex-${index}`}
+          holeId={hole.id}
+          index={index}
+          vertex={vertex}
+          elevation={elevation}
+          snap={snap}
+          gridSize={gridSize}
+          onMove={setHoleVertex}
+        />
+      ))}
+    </group>
+  );
+}
+
+function HoleVertexHandle({
+  holeId,
+  index,
+  vertex,
+  elevation,
+  snap,
+  gridSize,
+  onMove,
+}: {
+  holeId: string;
+  index: number;
+  vertex: Vec2;
+  elevation: number;
+  snap: boolean;
+  gridSize: number;
+  onMove: (id: string, index: number, point: Vec2, options?: { history?: boolean; touch?: boolean }) => void;
+}) {
+  const drag = useHistoryDrag(
+    () => undefined,
+    (point) => {
+      const next = snap ? snapPoint(point, gridSize) : point;
+      onMove(holeId, index, next, { history: false, touch: false });
+    },
+    elevation,
+  );
+  return (
+    <Handle
+      position={[vertex.x, elevation + 0.14, vertex.z]}
+      color="#ff8a65"
+      radius={0.11}
+      debugLabel={`hole-vertex-${holeId}-${index}`}
+      onPointerDown={drag.start}
+    />
+  );
+}
+
 export function WallEditHandles() {
   const project = useEditorStore((state) => state.project);
   const selection = useEditorStore((state) => state.selection);
@@ -401,6 +502,13 @@ export function WallEditHandles() {
         <WallEndpointHandle wall={wall} endpoint="b" elevation={elevation} />
       </group>
     );
+  }
+
+  if (selection.type === 'hole') {
+    const space = level.spaces.find((entry) => entry.holes.some((hole) => hole.id === selection.id));
+    const hole = space?.holes.find((entry) => entry.id === selection.id);
+    if (!hole || hole.vertices.length < 3) return null;
+    return <HoleHandles hole={hole} elevation={elevation} />;
   }
 
   if (selection.type === 'opening') {
