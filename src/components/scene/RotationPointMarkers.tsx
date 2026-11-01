@@ -2,24 +2,28 @@ import { useState } from 'react';
 import * as THREE from 'three';
 import { Html, TransformControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
-import type { RotationPoint } from '@/types/project';
+import type { Project, RotationPoint } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { snapValue } from '@/utils/geometry';
+import { entityLevelId, levelElevationMap } from '@/utils/levels';
 
 const MARKER_Y = 0.02;
 const ROTATION_COLOR = '#b48cff';
 
 function RotationMarker({
   point,
+  elevation = 0,
   selected,
   editor,
   onSelect,
 }: {
   point: RotationPoint;
+  elevation?: number;
   selected: boolean;
   editor: boolean;
   onSelect?: (id: string) => void;
 }) {
+  const markerY = MARKER_Y + elevation;
   const [group, setGroup] = useState<THREE.Group | null>(null);
   const beginHistory = useEditorStore((state) => state.beginHistory);
   const commitHistory = useEditorStore((state) => state.commitHistory);
@@ -36,7 +40,7 @@ function RotationMarker({
       x = snapValue(x, gridSize);
       z = snapValue(z, gridSize);
     }
-    group.position.set(x, MARKER_Y, z);
+    group.position.set(x, markerY, z);
     moveRotationPoint(point.id, { x, z }, { history: false });
     commitHistory();
     if (controls) controls.enabled = true;
@@ -46,7 +50,7 @@ function RotationMarker({
     <>
       <group
         ref={setGroup}
-        position={[point.position.x, MARKER_Y, point.position.z]}
+        position={[point.position.x, markerY, point.position.z]}
         onClick={(event) => {
           if (!onSelect) return;
           event.stopPropagation();
@@ -91,8 +95,8 @@ function RotationMarker({
           showZ
           translationSnap={snap ? gridSize : null}
           onObjectChange={() => {
-            if (group && Math.abs(group.position.y - MARKER_Y) > 1e-4) {
-              group.position.y = MARKER_Y;
+            if (group && Math.abs(group.position.y - markerY) > 1e-4) {
+              group.position.y = markerY;
             }
           }}
           onMouseDown={() => {
@@ -108,21 +112,25 @@ function RotationMarker({
 
 export function RotationPointMarkers({
   points,
+  project,
   selectedId,
   editor = false,
   onSelect,
 }: {
   points: RotationPoint[];
+  project?: Project;
   selectedId?: string | null;
   editor?: boolean;
   onSelect?: (id: string) => void;
 }) {
+  const elevations = project ? levelElevationMap(project) : {};
   return (
     <group>
       {points.map((point) => (
         <RotationMarker
           key={point.id}
           point={point}
+          elevation={project ? elevations[entityLevelId(project, point) ?? ''] ?? 0 : 0}
           selected={selectedId === point.id}
           editor={editor}
           onSelect={onSelect}

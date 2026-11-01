@@ -13,6 +13,7 @@ import {
 import { useEditorStore } from '@/store/editorStore';
 import { useModelInfoStore } from '@/store/modelInfoStore';
 import { snapValue } from '@/utils/geometry';
+import { entityLevelId, levelElevationMap } from '@/utils/levels';
 import { markSceneDragActive, markSceneDragEnd } from './sceneDragGuard';
 import {
   exhibitorColor,
@@ -239,6 +240,7 @@ function SelectionRing({
 
 function EditableObjectInstance({
   object,
+  elevation = 0,
   selected,
   highlighted,
   tint,
@@ -246,6 +248,7 @@ function EditableObjectInstance({
   onSelect,
 }: {
   object: SceneObject;
+  elevation?: number;
   selected: boolean;
   highlighted?: boolean;
   tint?: ObjectTint;
@@ -266,7 +269,7 @@ function EditableObjectInstance({
     const gridSize = project?.settings.gridSize ?? 0.25;
     const snap = project?.settings.snapToGrid ?? false;
     let x = group.position.x;
-    let y = Math.max(0, group.position.y);
+    let y = Math.max(0, group.position.y - elevation);
     let z = group.position.z;
     if (snap) {
       x = snapValue(x, gridSize);
@@ -314,7 +317,11 @@ function EditableObjectInstance({
     <>
       <group
         ref={setGroup}
-        position={object.transform.position}
+        position={[
+          object.transform.position[0],
+          object.transform.position[1] + elevation,
+          object.transform.position[2],
+        ]}
         rotation={[0, object.transform.rotationY, 0]}
         scale={object.transform.scale}
         visible={object.visible}
@@ -334,7 +341,7 @@ function EditableObjectInstance({
           center
           position={[
             object.transform.position[0],
-            object.transform.position[1] + dimensions[1] + 0.24,
+            object.transform.position[1] + elevation + dimensions[1] + 0.24,
             object.transform.position[2],
           ]}
           zIndexRange={[110, 0]}
@@ -366,12 +373,14 @@ function EditableObjectInstance({
 
 function ReadOnlyObjectInstance({
   object,
+  elevation = 0,
   highlighted,
   tint,
   ringColor,
   onSelect,
 }: {
   object: SceneObject;
+  elevation?: number;
   highlighted?: boolean;
   tint?: ObjectTint;
   ringColor?: string;
@@ -379,7 +388,11 @@ function ReadOnlyObjectInstance({
 }) {
   return (
     <group
-      position={object.transform.position}
+      position={[
+        object.transform.position[0],
+        object.transform.position[1] + elevation,
+        object.transform.position[2],
+      ]}
       rotation={[0, object.transform.rotationY, 0]}
       scale={object.transform.scale}
       visible={object.visible}
@@ -410,9 +423,11 @@ export function SceneObjects({
   onSelectObject?: (id: string) => void;
   onSelectExhibitor?: (id: string) => void;
 }) {
+  const elevations = useMemo(() => levelElevationMap(project), [project]);
   return (
     <group>
       {project.objects.map((object) => {
+        const elevation = elevations[entityLevelId(project, object) ?? ''] ?? 0;
         const exhibitor = findExhibitor(project, object.exhibitorId);
         const paintAmount = exhibitorPaintAmount(
           project,
@@ -428,6 +443,7 @@ export function SceneObjects({
           <EditableObjectInstance
             key={object.id}
             object={object}
+            elevation={elevation}
             selected={selectedObjectId === object.id}
             tint={tint}
             ringColor={ringColor}
@@ -437,6 +453,7 @@ export function SceneObjects({
           <ReadOnlyObjectInstance
             key={object.id}
             object={object}
+            elevation={elevation}
             highlighted={Boolean(
               selectedExhibitorId && object.exhibitorId === selectedExhibitorId,
             )}

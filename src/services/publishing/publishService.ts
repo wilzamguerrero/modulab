@@ -18,8 +18,30 @@ export interface PublishCheck {
   detail: string;
 }
 
+function validateProject(project: Project) {
+  const spaces = project.levels
+    .filter((level) => level.visible)
+    .flatMap((level) => level.spaces)
+    .filter((space) => space.vertices.length >= 3);
+  const validations = spaces.map((space) => validatePolygon(space.vertices));
+  const valid = validations.some((entry) => entry.valid);
+  const area = validations.reduce((sum, entry) => sum + (entry.valid ? entry.area : 0), 0);
+  const firstError = validations.find((entry) => !entry.valid)?.errors[0];
+  const wallCount = project.levels.reduce(
+    (sum, level) =>
+      sum +
+      level.spaces.reduce(
+        (edgeSum, space) => edgeSum + space.edges.filter((edge) => edge.wall).length,
+        0,
+      ) +
+      level.internalWalls.length,
+    0,
+  );
+  return { valid, area, firstError, wallCount };
+}
+
 export function getPublishChecks(project: Project): PublishCheck[] {
-  const validation = validatePolygon(project.floor.vertices);
+  const validation = validateProject(project);
   return [
     {
       ok: project.name.trim().length > 0,
@@ -31,13 +53,13 @@ export function getPublishChecks(project: Project): PublishCheck[] {
       label: 'Planta válida',
       detail: validation.valid
         ? `${validation.area.toFixed(1)} m² de recinto`
-        : validation.errors[0] || 'La planta no es válida.',
+        : validation.firstError || 'La planta no es válida.',
     },
     {
-      ok: project.edges.some((edge) => edge.wall),
+      ok: validation.wallCount > 0,
       label: 'Muros generados',
-      detail: project.edges.some((edge) => edge.wall)
-        ? `${project.edges.filter((edge) => edge.wall).length} segmentos con muro`
+      detail: validation.wallCount > 0
+        ? `${validation.wallCount} segmentos con muro`
         : 'Todos los segmentos están abiertos.',
     },
     {
@@ -54,9 +76,9 @@ export function getPublishChecks(project: Project): PublishCheck[] {
 }
 
 export async function publishProject(project: Project): Promise<{ published: Project; url: string }> {
-  const validation = validatePolygon(project.floor.vertices);
+  const validation = validateProject(project);
   if (!validation.valid) {
-    throw new Error(validation.errors[0] || 'La planta no es válida.');
+    throw new Error(validation.firstError || 'La planta no es válida.');
   }
   if (!project.name.trim()) throw new Error('El proyecto necesita un nombre.');
 

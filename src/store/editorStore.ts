@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import type {
   CatalogItem,
+  EdgeConfig,
   EditorTool,
   EditorView,
   Exhibitor,
   InternalWall,
+  Level,
   LightConfig,
   OpeningKind,
   PlanDrawMode,
@@ -12,6 +14,8 @@ import type {
   RotationPoint,
   SceneObject,
   Selection,
+  Space,
+  Stair,
   TransformMode,
   Vec2,
   Vec3,
@@ -20,6 +24,9 @@ import type {
 import {
   createEdgeConfig,
   createInternalWall,
+  createLevel,
+  createSpace,
+  createStair,
   defaultExhibitorCamera,
   openingDefaults,
   primitiveSize,
@@ -28,7 +35,20 @@ import { normalizeEdges, normalizeExhibitorLinks, normalizeOpenings } from '@/da
 import { createId } from '@/utils/id';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
 import { polygonCentroid } from '@/utils/geometry';
-import { getWallById, pointAtWallOffset, pointOffsetOnWall, wallLength } from '@/utils/walls';
+import {
+  defaultLevelId,
+  getLevel,
+  getSpace,
+  levelVertices,
+  suggestLevelElevation,
+} from '@/utils/levels';
+import {
+  findWallInProject,
+  getWallById,
+  pointAtWallOffset,
+  pointOffsetOnWall,
+  wallLength,
+} from '@/utils/walls';
 
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
@@ -61,6 +81,55 @@ export interface Measurement {
 interface HistorySnapshot {
   project: Project;
   measurements: Measurement[];
+  activeLevelId: string | null;
+  activeSpaceId: string | null;
+}
+
+/** Nivel activo o, si no existe, el primero del proyecto. */
+function resolveLevel(project: Project, levelId: string | null): Level | undefined {
+  return project.levels.find((level) => level.id === levelId) ?? project.levels[0];
+}
+
+/** Espacio activo dentro del nivel o el primero disponible. */
+function resolveSpace(level: Level | undefined, spaceId: string | null): Space | undefined {
+  if (!level) return undefined;
+  return level.spaces.find((space) => space.id === spaceId) ?? level.spaces[0];
+}
+
+/** Nivel que contiene un muro o abertura concreto. */
+function levelForWall(project: Project, levelId: string | null, wallId: string): Level | undefined {
+  const active = resolveLevel(project, levelId);
+  if (active && getWallById(active, wallId)) return active;
+  return findWallInProject(project, wallId)?.level;
+}
+
+function levelForOpening(
+  project: Project,
+  levelId: string | null,
+  openingId: string,
+): Level | undefined {
+  const active = resolveLevel(project, levelId);
+  if (active?.openings.some((opening) => opening.id === openingId)) return active;
+  return project.levels.find((level) =>
+    level.openings.some((opening) => opening.id === openingId),
+  );
+}
+
+function levelForStair(project: Project, levelId: string | null, stairId: string): Level | undefined {
+  const active = resolveLevel(project, levelId);
+  if (active?.stairs.some((stair) => stair.id === stairId)) return active;
+  return project.levels.find((level) => level.stairs.some((stair) => stair.id === stairId));
+}
+
+/** Devuelve ids activos válidos para un proyecto restaurado por undo/redo. */
+function validActiveIds(
+  project: Project,
+  levelId: string | null,
+  spaceId: string | null,
+): { activeLevelId: string | null; activeSpaceId: string | null } {
+  const level = project.levels.find((entry) => entry.id === levelId) ?? project.levels[0];
+  const space = level?.spaces.find((entry) => entry.id === spaceId) ?? level?.spaces[0];
+  return { activeLevelId: level?.id ?? null, activeSpaceId: space?.id ?? null };
 }
 
 interface EditorState {
@@ -76,6 +145,25 @@ interface EditorState {
   planDrawMode: PlanDrawMode;
   pendingCatalogItem: CatalogItem | null;
   clipboardObject: SceneObject | null;
+  /** Nivel y espacio sobre los que trabajan las herramientas de planta. */
+  activeLevelId: string | null;
+  activeSpaceId: string | null;
+  setActiveLevel: (levelId: string) => void;
+  setActiveSpace: (spaceId: string) => void;
+  addLevel: (direction?: 'above' | 'below') => string | null;
+  updateLevel: (id: string, patch: Partial<Level>, options?: PatchOptions) => void;
+  deleteLevel: (id: string) => void;
+  duplicateLevel: (id: string) => string | null;
+  addSpace: (vertices: Vec2[], name?: string) => string | null;
+  updateSpace: (id: string, patch: Partial<Space>, options?: PatchOptions) => void;
+  deleteSpace: (id: string) => void;
+  /** Recorte del suelo del espacio activo (hueco para escaleras). */
+  addHole: (vertices: Vec2[]) => string | null;
+  deleteHole: (id: string) => void;
+  addStair: (position: Vec2) => string | null;
+  updateStair: (id: string, patch: Partial<Stair>, options?: PatchOptions) => void;
+  moveStair: (id: string, position: Vec2, options?: PatchOptions) => void;
+  deleteStair: (id: string) => void;
 
   /**
    * Historial (deshacer/rehacer) de pasos del editor. Cada entrada guarda el
@@ -125,11 +213,13 @@ interface EditorState {
   insertVertexOnEdge: (edgeIndex: number, point: Vec2) => void;
   removeVertex: (index: number) => void;
   moveVertex: (index: number, point: Vec2, options?: PatchOptions) => void;
-  setEdge: (index: number, patch: Partial<Project['edges'][number]>, options?: PatchOptions) => void;
+  setEdge: (index: number, patch: Partial<EdgeConfig>, options?: PatchOptions) => void;
   toggleWall: (index: number) => void;
   setDefaultWall: (patch: Partial<Project['defaultWall']>) => void;
   applyWallSettingsToAll: () => void;
-  setFloorMaterial: (patch: Partial<Project['floor']>) => void;
+  setFloorMaterial: (
+    patch: Partial<Pick<Space, 'color' | 'roughness' | 'metalness'>>,
+  ) => void;
 
   addInternalWall: (a: Vec2, b: Vec2) => string | null;
   addInternalWallLoop: (points: Vec2[]) => string[];
@@ -229,6 +319,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   planDrawMode: 'partition',
   pendingCatalogItem: null,
   clipboardObject: null,
+  activeLevelId: null,
+  activeSpaceId: null,
   past: [],
   future: [],
   pendingHistory: null,
@@ -252,6 +344,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
   loadProjectData: (project) => {
     revokePreviewUrl(get().environmentPreview?.url);
+    const firstLevel = project.levels[0];
+    const firstSpace = firstLevel?.spaces[0];
     set({
       project,
       projectId: project.id,
@@ -259,7 +353,9 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       loadError: null,
       selection: null,
       tool: 'select',
-      planDrawMode: project.floor.vertices.length >= 3 ? 'partition' : 'outline',
+      activeLevelId: firstLevel?.id ?? null,
+      activeSpaceId: firstSpace?.id ?? null,
+      planDrawMode: (firstSpace?.vertices.length ?? 0) >= 3 ? 'partition' : 'outline',
       pendingCatalogItem: null,
       past: [],
       future: [],
@@ -288,6 +384,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       loading: false,
       loadError: null,
       selection: null,
+      activeLevelId: null,
+      activeSpaceId: null,
       past: [],
       future: [],
       pendingHistory: null,
@@ -310,6 +408,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const snapshot: HistorySnapshot = {
       project: structuredClone(project),
       measurements: structuredClone(get().measurements),
+      activeLevelId: get().activeLevelId,
+      activeSpaceId: get().activeSpaceId,
     };
     set((state) => ({
       past: [...state.past.slice(-59), snapshot],
@@ -341,7 +441,12 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       past: pushHistory
         ? [
             ...state.past.slice(-59),
-            { project: current, measurements: structuredClone(state.measurements) },
+            {
+              project: current,
+              measurements: structuredClone(state.measurements),
+              activeLevelId: state.activeLevelId,
+              activeSpaceId: state.activeSpaceId,
+            },
           ]
         : state.past,
       future: pushHistory ? [] : state.future,
@@ -362,11 +467,17 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
         history && current
           ? [
               ...state.past.slice(-59),
-              { project: current, measurements: structuredClone(state.measurements) },
+              {
+                project: current,
+                measurements: structuredClone(state.measurements),
+                activeLevelId: state.activeLevelId,
+                activeSpaceId: state.activeSpaceId,
+              },
             ]
           : state.past,
       future: history ? [] : state.future,
       selection: null,
+      ...validActiveIds(project, state.activeLevelId, state.activeSpaceId),
       pendingHistory: null,
       lastCoalesce: null,
       dirty: true,
@@ -383,6 +494,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
         pendingHistory: {
           project: structuredClone(project),
           measurements: structuredClone(get().measurements),
+          activeLevelId: get().activeLevelId,
+          activeSpaceId: get().activeSpaceId,
         },
       });
     }
@@ -415,9 +528,15 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       project: previous.project,
       projectId: previous.project.id,
       measurements: previous.measurements,
+      ...validActiveIds(previous.project, previous.activeLevelId, previous.activeSpaceId),
       past: state.past.slice(0, -1),
       future: [
-        { project: state.project, measurements: structuredClone(state.measurements) },
+        {
+          project: state.project,
+          measurements: structuredClone(state.measurements),
+          activeLevelId: state.activeLevelId,
+          activeSpaceId: state.activeSpaceId,
+        },
         ...state.future,
       ].slice(0, 60),
       selection: null,
@@ -438,9 +557,15 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       project: next.project,
       projectId: next.project.id,
       measurements: next.measurements,
+      ...validActiveIds(next.project, next.activeLevelId, next.activeSpaceId),
       past: [
         ...state.past.slice(-59),
-        { project: state.project, measurements: structuredClone(state.measurements) },
+        {
+          project: state.project,
+          measurements: structuredClone(state.measurements),
+          activeLevelId: state.activeLevelId,
+          activeSpaceId: state.activeSpaceId,
+        },
       ],
       future: state.future.slice(1),
       selection: null,
@@ -461,6 +586,241 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   setPendingCatalogItem: (pendingCatalogItem) => set({ pendingCatalogItem }),
   setClipboardObject: (clipboardObject) => set({ clipboardObject }),
 
+  setActiveLevel: (levelId) => {
+    const project = get().project;
+    const level = project?.levels.find((entry) => entry.id === levelId);
+    if (!level) return;
+    const space = level.spaces[0];
+    set({
+      activeLevelId: level.id,
+      activeSpaceId: space?.id ?? null,
+      selection: null,
+      planDrawMode: (space?.vertices.length ?? 0) >= 3 ? 'partition' : 'outline',
+    });
+  },
+
+  setActiveSpace: (spaceId) => {
+    const project = get().project;
+    if (!project) return;
+    const level = resolveLevel(project, get().activeLevelId);
+    const space = level?.spaces.find((entry) => entry.id === spaceId);
+    if (!space) return;
+    set({
+      activeSpaceId: space.id,
+      selection: null,
+      planDrawMode: space.vertices.length >= 3 ? 'partition' : 'outline',
+    });
+  },
+
+  addLevel: (direction = 'above') => {
+    const project = get().project;
+    if (!project) return null;
+    const elevation = suggestLevelElevation(project, direction);
+    const name = `Nivel ${project.levels.length + 1}`;
+    const level = createLevel(name, elevation, {
+      spaces: [createSpace([], { name: 'Espacio 1' })],
+    });
+    get().patchProject((draft) => {
+      draft.levels.push(level);
+    });
+    set({
+      activeLevelId: level.id,
+      activeSpaceId: level.spaces[0]?.id ?? null,
+      selection: null,
+      planDrawMode: 'outline',
+      tool: 'draw',
+      view: 'plan',
+    });
+    return level.id;
+  },
+
+  updateLevel: (id, patch, options = {}) =>
+    get().patchProject((draft) => {
+      const level = draft.levels.find((entry) => entry.id === id);
+      if (!level) return;
+      Object.assign(level, patch, { id: level.id });
+    }, { coalesceKey: `level:${id}`, ...options }),
+
+  deleteLevel: (id) => {
+    const project = get().project;
+    if (!project || project.levels.length <= 1) return;
+    get().patchProject((draft) => {
+      draft.levels = draft.levels.filter((level) => level.id !== id);
+      draft.objects = draft.objects.filter((object) => object.levelId !== id);
+      draft.exhibitors = draft.exhibitors.filter((exhibitor) => exhibitor.levelId !== id);
+      draft.rotationPoints = draft.rotationPoints.filter((point) => point.levelId !== id);
+    });
+    const next = get().project;
+    if (next) set({ selection: null, ...validActiveIds(next, get().activeLevelId, get().activeSpaceId) });
+  },
+
+  duplicateLevel: (id) => {
+    const project = get().project;
+    const source = project?.levels.find((level) => level.id === id);
+    if (!project || !source) return null;
+    const level = structuredClone(source);
+    level.id = createId('lvl');
+    level.name = `${source.name} (copia)`;
+    level.elevation = suggestLevelElevation(project, 'above');
+    const wallIds = new Map<string, string>();
+    level.spaces = level.spaces.map((space) => ({
+      ...space,
+      id: createId('spc'),
+      edges: space.edges.map((edge) => {
+        const edgeId = createId('edge');
+        wallIds.set(edge.id, edgeId);
+        return { ...edge, id: edgeId };
+      }),
+    }));
+    level.internalWalls = level.internalWalls.map((wall) => {
+      const wallId = createId('wall');
+      wallIds.set(wall.id, wallId);
+      return { ...wall, id: wallId };
+    });
+    level.openings = level.openings.map((opening) => ({
+      ...opening,
+      id: createId('open'),
+      wallId: wallIds.get(opening.wallId) ?? opening.wallId,
+    }));
+    level.stairs = level.stairs.map((stair) => ({ ...stair, id: createId('stair') }));
+    get().patchProject((draft) => {
+      draft.levels.push(level);
+    });
+    set({
+      activeLevelId: level.id,
+      activeSpaceId: level.spaces[0]?.id ?? null,
+      selection: null,
+    });
+    return level.id;
+  },
+
+  addSpace: (vertices, name) => {
+    const project = get().project;
+    if (!project) return null;
+    const level = resolveLevel(project, get().activeLevelId);
+    if (!level) return null;
+    const space = createSpace(vertices, {
+      name: name ?? `Espacio ${level.spaces.length + 1}`,
+    });
+    get().patchProject((draft) => {
+      const target = draft.levels.find((entry) => entry.id === level.id);
+      target?.spaces.push(space);
+    });
+    set({
+      activeSpaceId: space.id,
+      selection: null,
+      planDrawMode: space.vertices.length >= 3 ? 'partition' : 'outline',
+    });
+    return space.id;
+  },
+
+  updateSpace: (id, patch, options = {}) =>
+    get().patchProject((draft) => {
+      for (const level of draft.levels) {
+        const space = level.spaces.find((entry) => entry.id === id);
+        if (!space) continue;
+        Object.assign(space, patch, { id: space.id });
+        level.openings = normalizeOpenings(level);
+        break;
+      }
+    }, options),
+
+  deleteSpace: (id) => {
+    get().patchProject((draft) => {
+      for (const level of draft.levels) {
+        const index = level.spaces.findIndex((entry) => entry.id === id);
+        if (index < 0) continue;
+        level.spaces.splice(index, 1);
+        level.openings = normalizeOpenings(level);
+        break;
+      }
+    });
+    const next = get().project;
+    if (next) set({ selection: null, ...validActiveIds(next, get().activeLevelId, get().activeSpaceId) });
+  },
+
+  addHole: (vertices) => {
+    if (vertices.length < 3) return null;
+    const project = get().project;
+    if (!project) return null;
+    const level = resolveLevel(project, get().activeLevelId);
+    const space = resolveSpace(level, get().activeSpaceId);
+    if (!level || !space) return null;
+    const hole = {
+      id: createId('hole'),
+      name: `Hueco ${space.holes.length + 1}`,
+      vertices: vertices.map((vertex) => ({ ...vertex })),
+    };
+    get().patchProject((draft) => {
+      const draftLevel = resolveLevel(draft, get().activeLevelId);
+      const draftSpace = resolveSpace(draftLevel, get().activeSpaceId);
+      draftSpace?.holes.push(hole);
+    });
+    set({ selection: { type: 'hole', id: hole.id, spaceId: space.id } });
+    return hole.id;
+  },
+
+  deleteHole: (id) => {
+    get().patchProject((draft) => {
+      for (const level of draft.levels) {
+        for (const space of level.spaces) {
+          const index = space.holes.findIndex((hole) => hole.id === id);
+          if (index >= 0) {
+            space.holes.splice(index, 1);
+            return;
+          }
+        }
+      }
+    });
+    const selection = get().selection;
+    if (selection?.type === 'hole' && selection.id === id) set({ selection: null });
+  },
+
+  addStair: (position) => {
+    const project = get().project;
+    if (!project) return null;
+    const level = resolveLevel(project, get().activeLevelId);
+    if (!level) return null;
+    const above = project.levels
+      .filter((entry) => entry.elevation > level.elevation + 0.2)
+      .sort((a, b) => a.elevation - b.elevation)[0];
+    const rise = above
+      ? Math.min(20, above.elevation - level.elevation)
+      : Math.max(0.3, project.defaultWall.height);
+    const stair = createStair(position, { rise });
+    get().patchProject((draft) => {
+      const target = draft.levels.find((entry) => entry.id === level.id);
+      target?.stairs.push(stair);
+    });
+    set({ selection: { type: 'stair', id: stair.id } });
+    return stair.id;
+  },
+
+  updateStair: (id, patch, options = {}) =>
+    get().patchProject((draft) => {
+      const level = levelForStair(draft, get().activeLevelId, id);
+      const stair = level?.stairs.find((entry) => entry.id === id);
+      if (!stair) return;
+      Object.assign(stair, patch, { id: stair.id });
+    }, { coalesceKey: `stair:${id}`, ...options }),
+
+  moveStair: (id, position, options = {}) =>
+    get().patchProject((draft) => {
+      const level = levelForStair(draft, get().activeLevelId, id);
+      const stair = level?.stairs.find((entry) => entry.id === id);
+      if (!stair) return;
+      stair.position = { ...position };
+    }, { coalesceKey: `stair-move:${id}`, ...options }),
+
+  deleteStair: (id) => {
+    get().patchProject((draft) => {
+      const level = levelForStair(draft, get().activeLevelId, id);
+      if (level) level.stairs = level.stairs.filter((stair) => stair.id !== id);
+    });
+    const selection = get().selection;
+    if (selection?.type === 'stair' && selection.id === id) set({ selection: null });
+  },
+
   setSaveStatus: (saveStatus, saveError = null) => set({ saveStatus, saveError }),
   markSaved: (date = new Date().toISOString()) =>
     set({ dirty: false, saveStatus: 'saved', saveError: null, lastSavedAt: date }),
@@ -468,16 +828,22 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
   setPlanVertices: (vertices, options = {}) =>
     get().patchProject((draft) => {
-      draft.floor.vertices = vertices.map((vertex) => ({ ...vertex }));
-      draft.edges = normalizeEdges(draft.floor.vertices, draft.edges, draft.defaultWall);
-      draft.openings = normalizeOpenings(draft);
+      const level = resolveLevel(draft, get().activeLevelId);
+      const space = resolveSpace(level, get().activeSpaceId);
+      if (!level || !space) return;
+      space.vertices = vertices.map((vertex) => ({ ...vertex }));
+      space.edges = normalizeEdges(space.vertices, space.edges, draft.defaultWall);
+      level.openings = normalizeOpenings(level);
     }, options),
 
   replacePlan: (vertices) =>
     get().patchProject((draft) => {
-      const oldEdgeIds = new Set(draft.edges.map((edge) => edge.id));
-      draft.floor.vertices = vertices.map((vertex) => ({ ...vertex }));
-      draft.edges = draft.floor.vertices.map(() =>
+      const level = resolveLevel(draft, get().activeLevelId);
+      const space = resolveSpace(level, get().activeSpaceId);
+      if (!level || !space) return;
+      const oldEdgeIds = new Set(space.edges.map((edge) => edge.id));
+      space.vertices = vertices.map((vertex) => ({ ...vertex }));
+      space.edges = space.vertices.map(() =>
         createEdgeConfig({
           height: draft.defaultWall.height,
           thickness: draft.defaultWall.thickness,
@@ -486,24 +852,29 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       );
       // Las aberturas perimetrales pertenecen a los bordes anteriores. Las
       // divisiones interiores y sus aberturas se conservan.
-      draft.openings = draft.openings.filter((opening) => !oldEdgeIds.has(opening.wallId));
+      level.openings = level.openings.filter((opening) => !oldEdgeIds.has(opening.wallId));
     }),
 
   insertVertexOnEdge: (edgeIndex, point) => {
     const project = get().project;
     if (!project) return;
-    const count = project.floor.vertices.length;
+    const level = resolveLevel(project, get().activeLevelId);
+    const space = resolveSpace(level, get().activeSpaceId);
+    if (!level || !space) return;
+    const count = space.vertices.length;
     if (edgeIndex < 0 || edgeIndex >= count) return;
-    const source = project.edges[edgeIndex];
-    const sourceA = project.floor.vertices[edgeIndex];
-    const sourceB = project.floor.vertices[(edgeIndex + 1) % count];
+    const sourceA = space.vertices[edgeIndex];
+    const sourceB = space.vertices[(edgeIndex + 1) % count];
     const splitOffset = sourceA && sourceB
       ? pointOffsetOnWall(point, sourceA, sourceB)
       : 0;
     get().patchProject((draft) => {
-      const vertices = [...draft.floor.vertices];
+      const draftLevel = resolveLevel(draft, get().activeLevelId);
+      const draftSpace = resolveSpace(draftLevel, get().activeSpaceId);
+      if (!draftLevel || !draftSpace) return;
+      const vertices = [...draftSpace.vertices];
       vertices.splice(edgeIndex + 1, 0, { ...point });
-      const edges = [...draft.edges];
+      const edges = [...draftSpace.edges];
       const current = edges[edgeIndex];
       const newEdge = createEdgeConfig({
         wall: current?.wall ?? true,
@@ -513,12 +884,12 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
         exhibitorId: current?.exhibitorId ?? null,
       });
       edges.splice(edgeIndex + 1, 0, newEdge);
-      draft.floor.vertices = vertices;
-      draft.edges = edges;
+      draftSpace.vertices = vertices;
+      draftSpace.edges = edges;
       // Las aberturas que quedan en la segunda mitad se trasladan al nuevo
       // borde para que no se deformen al insertar un vértice.
       if (current?.id) {
-        draft.openings = draft.openings.map((opening) => {
+        draftLevel.openings = draftLevel.openings.map((opening) => {
           if (opening.wallId !== current.id || opening.offset <= splitOffset) return opening;
           return {
             ...opening,
@@ -527,40 +898,51 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
           };
         });
       }
-      draft.openings = normalizeOpenings(draft);
+      draftLevel.openings = normalizeOpenings(draftLevel);
     });
-    set({ selection: { type: 'vertex', index: edgeIndex + 1 } });
+    set({ selection: { type: 'vertex', index: edgeIndex + 1, spaceId: space.id } });
   },
 
   removeVertex: (index) => {
     const project = get().project;
-    if (!project || project.floor.vertices.length <= 3) return;
+    if (!project) return;
+    const level = resolveLevel(project, get().activeLevelId);
+    const space = resolveSpace(level, get().activeSpaceId);
+    if (!space || space.vertices.length <= 3) return;
     get().patchProject((draft) => {
-      draft.floor.vertices.splice(index, 1);
-      draft.edges.splice(index, 1);
-      draft.edges = normalizeEdges(draft.floor.vertices, draft.edges, draft.defaultWall);
-      draft.openings = normalizeOpenings(draft);
+      const draftLevel = resolveLevel(draft, get().activeLevelId);
+      const draftSpace = resolveSpace(draftLevel, get().activeSpaceId);
+      if (!draftLevel || !draftSpace) return;
+      draftSpace.vertices.splice(index, 1);
+      draftSpace.edges.splice(index, 1);
+      draftSpace.edges = normalizeEdges(draftSpace.vertices, draftSpace.edges, draft.defaultWall);
+      draftLevel.openings = normalizeOpenings(draftLevel);
     });
     set({ selection: null });
   },
 
   moveVertex: (index, point, options = {}) =>
     get().patchProject((draft) => {
-      if (!draft.floor.vertices[index]) return;
-      draft.floor.vertices[index] = { ...point };
-      draft.openings = normalizeOpenings(draft);
+      const level = resolveLevel(draft, get().activeLevelId);
+      const space = resolveSpace(level, get().activeSpaceId);
+      if (!level || !space?.vertices[index]) return;
+      space.vertices[index] = { ...point };
+      level.openings = normalizeOpenings(level);
     }, options),
 
   setEdge: (index, patch, options = {}) =>
     get().patchProject((draft) => {
-      if (!draft.edges[index]) return;
-      draft.edges[index] = { ...draft.edges[index], ...patch };
+      const space = resolveSpace(resolveLevel(draft, get().activeLevelId), get().activeSpaceId);
+      if (!space?.edges[index]) return;
+      space.edges[index] = { ...space.edges[index], ...patch };
     }, options),
 
   toggleWall: (index) => {
     const project = get().project;
-    if (!project?.edges[index]) return;
-    get().setEdge(index, { wall: !project.edges[index].wall });
+    if (!project) return;
+    const space = resolveSpace(resolveLevel(project, get().activeLevelId), get().activeSpaceId);
+    if (!space?.edges[index]) return;
+    get().setEdge(index, { wall: !space.edges[index].wall });
   },
 
   setDefaultWall: (patch) =>
@@ -570,24 +952,31 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
   applyWallSettingsToAll: () =>
     get().patchProject((draft) => {
-      draft.edges = draft.edges.map((edge) => ({
-        ...edge,
-        height: draft.defaultWall.height,
-        thickness: draft.defaultWall.thickness,
-        color: draft.defaultWall.color,
+      const level = resolveLevel(draft, get().activeLevelId);
+      if (!level) return;
+      level.spaces = level.spaces.map((space) => ({
+        ...space,
+        edges: space.edges.map((edge) => ({
+          ...edge,
+          height: draft.defaultWall.height,
+          thickness: draft.defaultWall.thickness,
+          color: draft.defaultWall.color,
+        })),
       }));
-      draft.internalWalls = draft.internalWalls.map((wall) => ({
+      level.internalWalls = level.internalWalls.map((wall) => ({
         ...wall,
         height: draft.defaultWall.height,
         thickness: draft.defaultWall.thickness,
         color: draft.defaultWall.color,
       }));
-      draft.openings = normalizeOpenings(draft);
+      level.openings = normalizeOpenings(level);
     }),
 
   setFloorMaterial: (patch) =>
     get().patchProject((draft) => {
-      draft.floor = { ...draft.floor, ...patch };
+      const space = resolveSpace(resolveLevel(draft, get().activeLevelId), get().activeSpaceId);
+      if (!space) return;
+      Object.assign(space, patch);
     }, { coalesceKey: 'floor-material' }),
 
   addInternalWall: (a, b) => {
@@ -599,7 +988,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       color: project.defaultWall.color,
     });
     get().patchProject((draft) => {
-      draft.internalWalls.push(wall);
+      resolveLevel(draft, get().activeLevelId)?.internalWalls.push(wall);
     });
     set({ selection: { type: 'internalWall', id: wall.id } });
     return wall.id;
@@ -619,7 +1008,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       .filter((wall) => wallLength(wall.a, wall.b) > 0.05);
     if (!walls.length) return [];
     get().patchProject((draft) => {
-      draft.internalWalls.push(...walls);
+      resolveLevel(draft, get().activeLevelId)?.internalWalls.push(...walls);
     });
     set({ selection: null });
     return walls.map((wall) => wall.id);
@@ -627,19 +1016,21 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
   updateInternalWall: (id, patch, options = {}) =>
     get().patchProject((draft) => {
-      const index = draft.internalWalls.findIndex((wall) => wall.id === id);
-      if (index < 0) return;
-      draft.internalWalls[index] = { ...draft.internalWalls[index], ...patch, id };
-      draft.openings = normalizeOpenings(draft);
+      const level = resolveLevel(draft, get().activeLevelId);
+      const index = level?.internalWalls.findIndex((wall) => wall.id === id) ?? -1;
+      if (!level || index < 0) return;
+      level.internalWalls[index] = { ...level.internalWalls[index], ...patch, id };
+      level.openings = normalizeOpenings(level);
     }, { coalesceKey: `internal-wall:${id}`, ...options }),
 
   moveInternalWallPoint: (id, endpoint, point, options = {}) =>
     get().patchProject((draft) => {
-      const wall = draft.internalWalls.find((entry) => entry.id === id);
-      if (!wall) return;
+      const level = resolveLevel(draft, get().activeLevelId);
+      const wall = level?.internalWalls.find((entry) => entry.id === id);
+      if (!level || !wall) return;
       const oldPoint = wall[endpoint];
       const tolerance = 0.002;
-      draft.internalWalls = draft.internalWalls.map((entry) => {
+      level.internalWalls = level.internalWalls.map((entry) => {
         if (entry.id === id) {
           return { ...entry, [endpoint]: { ...point } };
         }
@@ -652,30 +1043,32 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
           ...(sharesB ? { b: { ...point } } : {}),
         };
       });
-      draft.openings = normalizeOpenings(draft);
+      level.openings = normalizeOpenings(level);
     }, { coalesceKey: `internal-point:${id}:${endpoint}`, ...options }),
 
   insertVertexOnInternalWall: (id, point) => {
     const project = get().project;
-    const wall = project?.internalWalls.find((entry) => entry.id === id);
-    if (!project || !wall) return;
+    const level = project ? resolveLevel(project, get().activeLevelId) : undefined;
+    const wall = level?.internalWalls.find((entry) => entry.id === id);
+    if (!level || !wall) return;
     const length = wallLength(wall.a, wall.b);
     const offset = pointOffsetOnWall(point, wall.a, wall.b);
     if (offset <= 0.1 || length - offset <= 0.1) return;
     const splitPoint = pointAtWallOffset(wall.a, wall.b, offset);
     get().patchProject((draft) => {
-      const index = draft.internalWalls.findIndex((entry) => entry.id === id);
-      if (index < 0) return;
-      const current = draft.internalWalls[index];
+      const draftLevel = resolveLevel(draft, get().activeLevelId);
+      const index = draftLevel?.internalWalls.findIndex((entry) => entry.id === id) ?? -1;
+      if (!draftLevel || index < 0) return;
+      const current = draftLevel.internalWalls[index];
       const newWall = createInternalWall(splitPoint, current.b, {
         height: current.height,
         thickness: current.thickness,
         color: current.color,
         exhibitorId: current.exhibitorId ?? null,
       });
-      draft.internalWalls[index] = { ...current, b: { ...splitPoint } };
-      draft.internalWalls.splice(index + 1, 0, newWall);
-      draft.openings = draft.openings.map((opening) => {
+      draftLevel.internalWalls[index] = { ...current, b: { ...splitPoint } };
+      draftLevel.internalWalls.splice(index + 1, 0, newWall);
+      draftLevel.openings = draftLevel.openings.map((opening) => {
         if (opening.wallId !== current.id || opening.offset <= offset) return opening;
         return {
           ...opening,
@@ -683,20 +1076,25 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
           offset: Math.max(0.1, opening.offset - offset),
         };
       });
-      draft.openings = normalizeOpenings(draft);
+      draftLevel.openings = normalizeOpenings(draftLevel);
     });
     set({ selection: { type: 'internalWall', id } });
   },
 
   deleteInternalWall: (id) => {
     get().patchProject((draft) => {
-      draft.internalWalls = draft.internalWalls.filter((wall) => wall.id !== id);
-      draft.openings = draft.openings.filter((opening) => opening.wallId !== id);
+      const level = resolveLevel(draft, get().activeLevelId);
+      if (!level) return;
+      level.internalWalls = level.internalWalls.filter((wall) => wall.id !== id);
+      level.openings = level.openings.filter((opening) => opening.wallId !== id);
     });
     const selection = get().selection;
     if (
       (selection?.type === 'internalWall' && selection.id === id) ||
-      (selection?.type === 'opening' && !get().project?.openings.some((opening) => opening.id === selection.id))
+      (selection?.type === 'opening' &&
+        !get().project?.levels.some((level) =>
+          level.openings.some((opening) => opening.id === selection.id),
+        ))
     ) {
       set({ selection: null });
     }
@@ -705,8 +1103,9 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   addOpening: (wallId, kind, offset) => {
     const project = get().project;
     if (!project) return null;
-    const wall = getWallById(project, wallId);
-    if (!wall || (wall.edge && !wall.edge.wall)) return null;
+    const level = levelForWall(project, get().activeLevelId, wallId);
+    const wall = level ? getWallById(level, wallId) : undefined;
+    if (!level || !wall || (wall.edge && !wall.edge.wall)) return null;
     const length = wallLength(wall.a, wall.b);
     if (length < 0.25) return null;
     const defaults = openingDefaults(kind);
@@ -724,7 +1123,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       exhibitorId: null,
     };
     get().patchProject((draft) => {
-      draft.openings.push(opening);
+      const target = draft.levels.find((entry) => entry.id === level.id);
+      target?.openings.push(opening);
     });
     set({ selection: { type: 'opening', id: opening.id } });
     return opening.id;
@@ -732,17 +1132,19 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
   updateOpening: (id, patch, options = {}) =>
     get().patchProject((draft) => {
-      const index = draft.openings.findIndex((opening) => opening.id === id);
-      if (index < 0) return;
-      const next = { ...draft.openings[index], ...patch, id };
+      const level = levelForOpening(draft, get().activeLevelId, id);
+      const index = level?.openings.findIndex((opening) => opening.id === id) ?? -1;
+      if (!level || index < 0) return;
+      const next = { ...level.openings[index], ...patch, id };
       if (next.kind === 'door') next.sillHeight = 0;
-      draft.openings[index] = next;
-      draft.openings = normalizeOpenings(draft);
+      level.openings[index] = next;
+      level.openings = normalizeOpenings(level);
     }, { coalesceKey: `opening:${id}`, ...options }),
 
   deleteOpening: (id) => {
     get().patchProject((draft) => {
-      draft.openings = draft.openings.filter((opening) => opening.id !== id);
+      const level = levelForOpening(draft, get().activeLevelId, id);
+      if (level) level.openings = level.openings.filter((opening) => opening.id !== id);
     });
     const selection = get().selection;
     if (selection?.type === 'opening' && selection.id === id) set({ selection: null });
@@ -769,6 +1171,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       visible: true,
       size: source.type === 'primitive' ? primitiveSize(source.shape) : undefined,
       exhibitorId: null,
+      levelId: get().activeLevelId,
       locked: false,
     };
     get().patchProject((draft) => {
@@ -853,6 +1256,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const newId = createId('obj');
     const copy = structuredClone(clipboard);
     copy.id = newId;
+    copy.levelId = get().activeLevelId ?? copy.levelId;
     copy.transform.position = [
       clipboard.transform.position[0] + 0.5,
       clipboard.transform.position[1],
@@ -881,7 +1285,12 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const project = get().project;
     if (!project) return null;
     const id = createId('exp');
-    const camera = defaultExhibitorCamera(position, project.floor.vertices);
+    const level = resolveLevel(project, get().activeLevelId);
+    const camera = defaultExhibitorCamera(
+      position,
+      levelVertices(level),
+      level?.elevation ?? 0,
+    );
     const exhibitor: Exhibitor = {
       id,
       name: `Expositor ${project.exhibitors.length + 1}`,
@@ -890,6 +1299,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       color: DEFAULT_EXHIBITOR_COLOR,
       position: { ...position },
       rotation: 0,
+      levelId: level?.id ?? get().activeLevelId,
       cameraPosition: camera.position,
       cameraTarget: camera.target,
       relatedObjectIds: [],
@@ -924,15 +1334,6 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       draft.objects = draft.objects.map((object) =>
         object.exhibitorId === id ? { ...object, exhibitorId: null } : object,
       );
-      draft.edges = draft.edges.map((edge) =>
-        edge.exhibitorId === id ? { ...edge, exhibitorId: null } : edge,
-      );
-      draft.internalWalls = draft.internalWalls.map((wall) =>
-        wall.exhibitorId === id ? { ...wall, exhibitorId: null } : wall,
-      );
-      draft.openings = draft.openings.map((opening) =>
-        opening.exhibitorId === id ? { ...opening, exhibitorId: null } : opening,
-      );
       normalizeExhibitorLinks(draft);
     });
     const selection = get().selection;
@@ -946,15 +1347,6 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       draft.objects = draft.objects.map((object) =>
         object.exhibitorId && missingIds.has(object.exhibitorId) ? { ...object, exhibitorId: null } : object,
       );
-      draft.edges = draft.edges.map((edge) =>
-        edge.exhibitorId && missingIds.has(edge.exhibitorId) ? { ...edge, exhibitorId: null } : edge,
-      );
-      draft.internalWalls = draft.internalWalls.map((wall) =>
-        wall.exhibitorId && missingIds.has(wall.exhibitorId) ? { ...wall, exhibitorId: null } : wall,
-      );
-      draft.openings = draft.openings.map((opening) =>
-        opening.exhibitorId && missingIds.has(opening.exhibitorId) ? { ...opening, exhibitorId: null } : opening,
-      );
       normalizeExhibitorLinks(draft);
     }),
 
@@ -966,6 +1358,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       id,
       name: `Punto de rotación ${project.rotationPoints.length + 1}`,
       position: { ...position },
+      levelId: get().activeLevelId,
     };
     get().patchProject((draft) => {
       draft.rotationPoints.push(point);
@@ -1000,7 +1393,11 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const project = get().project;
     if (!project) return null;
     const id = createId('light');
-    const center = polygonCentroid(project.floor.vertices);
+    const level = resolveLevel(project, get().activeLevelId);
+    const primary = level?.spaces.find((space) => space.vertices.length >= 3);
+    const center = primary
+      ? polygonCentroid(primary.vertices)
+      : { x: 0, z: 0 };
     const count = project.lights.filter((light) => light.type === type).length + 1;
     const names: Record<LightConfig['type'], string> = {
       ambient: 'Luz ambiental',

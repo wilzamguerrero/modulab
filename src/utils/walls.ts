@@ -1,7 +1,15 @@
-import type { EdgeConfig, InternalWall, Project, Vec2, WallOpening } from '@/types/project';
+import type {
+  EdgeConfig,
+  InternalWall,
+  Level,
+  Project,
+  Space,
+  Vec2,
+  WallOpening,
+} from '@/types/project';
 
 export type WallTarget =
-  | { type: 'edge'; index: number }
+  | { type: 'edge'; index: number; spaceId: string }
   | { type: 'internalWall'; id: string };
 
 export interface WallDefinition {
@@ -13,6 +21,8 @@ export interface WallDefinition {
   thickness: number;
   color: string;
   exhibitorId?: string | null;
+  /** Espacio al que pertenece el muro (solo bordes de contorno). */
+  spaceId?: string;
   edge?: EdgeConfig;
   internalWall?: InternalWall;
 }
@@ -44,26 +54,37 @@ export function wallDirection(a: Vec2, b: Vec2): { x: number; z: number; length:
   return { x: (b.x - a.x) / length, z: (b.z - a.z) / length, length };
 }
 
-export function getWalls(project: Project): WallDefinition[] {
+/** Muros perimetrales de un espacio (solo los bordes marcados como muro). */
+export function getSpaceWalls(space: Space): WallDefinition[] {
   const walls: WallDefinition[] = [];
-  project.edges.forEach((edge, index) => {
+  space.edges.forEach((edge, index) => {
     if (!edge.wall) return;
-    const a = project.floor.vertices[index];
-    const b = project.floor.vertices[(index + 1) % project.floor.vertices.length];
+    const a = space.vertices[index];
+    const b = space.vertices[(index + 1) % space.vertices.length];
     if (!a || !b) return;
     walls.push({
       id: edge.id,
-      target: { type: 'edge', index },
+      target: { type: 'edge', index, spaceId: space.id },
       a,
       b,
       height: edge.height,
       thickness: edge.thickness,
       color: edge.color,
       exhibitorId: edge.exhibitorId ?? null,
+      spaceId: space.id,
       edge,
     });
   });
-  for (const wall of project.internalWalls) {
+  return walls;
+}
+
+/** Todos los muros de un nivel: bordes de todos los espacios + muros libres. */
+export function getLevelWalls(level: Level): WallDefinition[] {
+  const walls: WallDefinition[] = [];
+  for (const space of level.spaces) {
+    walls.push(...getSpaceWalls(space));
+  }
+  for (const wall of level.internalWalls) {
     walls.push({
       id: wall.id,
       target: { type: 'internalWall', id: wall.id },
@@ -79,26 +100,33 @@ export function getWalls(project: Project): WallDefinition[] {
   return walls;
 }
 
-export function getWallById(project: Project, wallId: string): WallDefinition | undefined {
-  const edgeIndex = project.edges.findIndex((edge) => edge.id === wallId);
-  if (edgeIndex >= 0) {
-    const edge = project.edges[edgeIndex];
-    const a = project.floor.vertices[edgeIndex];
-    const b = project.floor.vertices[(edgeIndex + 1) % project.floor.vertices.length];
-    if (!a || !b) return undefined;
-    return {
-      id: edge.id,
-      target: { type: 'edge', index: edgeIndex },
-      a,
-      b,
-      height: edge.height,
-      thickness: edge.thickness,
-      color: edge.color,
-      exhibitorId: edge.exhibitorId ?? null,
-      edge,
-    };
+export function getSpaceWallById(space: Space, wallId: string): WallDefinition | undefined {
+  const index = space.edges.findIndex((edge) => edge.id === wallId);
+  if (index < 0) return undefined;
+  const edge = space.edges[index];
+  const a = space.vertices[index];
+  const b = space.vertices[(index + 1) % space.vertices.length];
+  if (!a || !b) return undefined;
+  return {
+    id: edge.id,
+    target: { type: 'edge', index, spaceId: space.id },
+    a,
+    b,
+    height: edge.height,
+    thickness: edge.thickness,
+    color: edge.color,
+    exhibitorId: edge.exhibitorId ?? null,
+    spaceId: space.id,
+    edge,
+  };
+}
+
+export function getWallById(level: Level, wallId: string): WallDefinition | undefined {
+  for (const space of level.spaces) {
+    const wall = getSpaceWallById(space, wallId);
+    if (wall) return wall;
   }
-  const internalWall = project.internalWalls.find((wall) => wall.id === wallId);
+  const internalWall = level.internalWalls.find((wall) => wall.id === wallId);
   if (!internalWall) return undefined;
   return {
     id: internalWall.id,
@@ -113,8 +141,20 @@ export function getWallById(project: Project, wallId: string): WallDefinition | 
   };
 }
 
-export function getWallOpenings(project: Project, wallId: string): WallOpening[] {
-  return project.openings.filter((opening) => opening.wallId === wallId);
+/** Busca un muro en todo el proyecto (necesario para aberturas e historial). */
+export function findWallInProject(
+  project: Project,
+  wallId: string,
+): { level: Level; wall: WallDefinition } | undefined {
+  for (const level of project.levels) {
+    const wall = getWallById(level, wallId);
+    if (wall) return { level, wall };
+  }
+  return undefined;
+}
+
+export function getWallOpenings(level: Level, wallId: string): WallOpening[] {
+  return level.openings.filter((opening) => opening.wallId === wallId);
 }
 
 /** Proyecta un punto sobre el muro y devuelve la distancia desde su inicio. */

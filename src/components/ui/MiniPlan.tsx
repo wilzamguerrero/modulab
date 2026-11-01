@@ -16,7 +16,10 @@ export function MiniPlan({
   accent?: string;
 }) {
   const patternId = useId().replace(/:/g, '');
-  const points = vertices ?? project?.floor.vertices ?? [];
+  const primarySpace = project?.levels
+    .flatMap((level) => level.spaces)
+    .find((space) => space.vertices.length >= 3) ?? project?.levels[0]?.spaces[0];
+  const points = vertices ?? primarySpace?.vertices ?? [];
   const bounds = useMemo(() => polygonBounds(points), [points]);
   const center = useMemo(() => (points.length ? polygonCentroid(points) : { x: 0, z: 0 }), [points]);
   const padding = Math.max(bounds.width, bounds.depth) * 0.12 + 1;
@@ -64,8 +67,8 @@ export function MiniPlan({
             strokeWidth="0.05"
             strokeLinejoin="round"
           />
-          {project
-            ? project.edges.map((edge, index) => {
+          {primarySpace
+            ? primarySpace.edges.map((edge, index) => {
                 if (!edge.wall) return null;
                 const a = points[index];
                 const b = points[(index + 1) % points.length];

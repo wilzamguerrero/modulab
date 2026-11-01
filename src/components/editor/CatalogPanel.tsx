@@ -16,6 +16,7 @@ import { loadCatalog, uploadCatalogFile } from '@/services/assets/catalogService
 import { getCatalogThumbnail } from '@/services/thumbnails/thumbnailService';
 import { PRIMITIVE_CATALOG } from '@/data/defaults';
 import { polygonBounds, polygonCentroid, pointInPolygon } from '@/utils/geometry';
+import { getLevel, getSpace } from '@/utils/levels';
 import { formatBytes } from '@/utils/format';
 
 function CatalogThumbnail({ item }: { item: CatalogItem }) {
@@ -65,6 +66,8 @@ export function CatalogPanel({ project }: { project: Project }) {
   const setPendingCatalogItem = useEditorStore((state) => state.setPendingCatalogItem);
   const pendingCatalogItem = useEditorStore((state) => state.pendingCatalogItem);
   const addObject = useEditorStore((state) => state.addObject);
+  const activeLevelId = useEditorStore((state) => state.activeLevelId);
+  const activeSpaceId = useEditorStore((state) => state.activeSpaceId);
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [directory, setDirectory] = useState('catalog');
   const [loading, setLoading] = useState(true);
@@ -115,11 +118,12 @@ export function CatalogPanel({ project }: { project: Project }) {
 
   const placeAtCenter = (item: CatalogItem) => {
     let position: Vec2 = { x: 0, z: 0 };
-    if (project.floor.vertices.length >= 3) {
-      const center = polygonCentroid(project.floor.vertices);
-      position = pointInPolygon(center, project.floor.vertices)
+    const space = getSpace(getLevel(project, activeLevelId), activeSpaceId);
+    if (space && space.vertices.length >= 3) {
+      const center = polygonCentroid(space.vertices);
+      position = pointInPolygon(center, space.vertices)
         ? center
-        : polygonBounds(project.floor.vertices).center;
+        : polygonBounds(space.vertices).center;
     }
     const id = addObject(item, position);
     if (id) toast(`«${item.name}» colocado en el centro de la planta.`, 'success');

@@ -53,6 +53,8 @@ export const sceneObjectSchema = z.object({
   visible: z.boolean().default(true),
   size: vec3Schema.optional(),
   exhibitorId: z.string().nullable().optional(),
+  /** Nivel al que pertenece el objeto (su Y es relativa a la elevación). */
+  levelId: z.string().nullable().optional(),
   locked: z.boolean().default(false),
 });
 
@@ -100,6 +102,66 @@ export const floorPlanSchema = z.object({
   metalness: z.number().min(0).max(1).default(0.02),
 });
 
+/** Hueco recortado en el suelo de un espacio (p. ej. para una escalera). */
+export const spaceHoleSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().default('Hueco'),
+  vertices: z.array(vec2Schema).default([]),
+});
+
+/**
+ * Un espacio o recinto dentro de un nivel: un contorno cerrado con su propio
+ * suelo y sus muros perimetrales (`edges` va en paralelo a `vertices`).
+ */
+export const spaceSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().default('Espacio'),
+  vertices: z.array(vec2Schema).default([]),
+  edges: z.array(edgeConfigSchema).default([]),
+  holes: z.array(spaceHoleSchema).default([]),
+  color: z.string().default('#b8ae9d'),
+  roughness: z.number().min(0).max(1).default(0.86),
+  metalness: z.number().min(0).max(1).default(0.02),
+  visible: z.boolean().default(true),
+});
+
+export const stairKindSchema = z.enum(['straight', 'l', 'u']);
+export const stairDirectionSchema = z.enum(['up', 'down']);
+
+/**
+ * Escalera situada en un nivel. `position` es la base del primer tramo y
+ * `rotation` el giro en Y (radianes). La altura total (`rise`) se reparte
+ * entre `steps` escalones de huella `tread`.
+ */
+export const stairSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().default('Escalera'),
+  position: vec2Schema.default({ x: 0, z: 0 }),
+  rotation: z.number().finite().default(0),
+  kind: stairKindSchema.default('straight'),
+  direction: stairDirectionSchema.default('up'),
+  width: z.number().min(0.4).max(6).default(1),
+  steps: z.number().int().min(2).max(80).default(16),
+  rise: z.number().min(0.2).max(30).default(2.8),
+  tread: z.number().min(0.1).max(1).default(0.28),
+  landingDepth: z.number().min(0).max(6).default(1.1),
+  railing: z.boolean().default(true),
+  color: z.string().default('#c9c2b4'),
+  visible: z.boolean().default(true),
+});
+
+export const levelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().default('Nivel'),
+  /** Elevación del suelo del nivel en metros. Puede ser negativa. */
+  elevation: z.number().finite().default(0),
+  spaces: z.array(spaceSchema).default([]),
+  internalWalls: z.array(internalWallSchema).default([]),
+  openings: z.array(wallOpeningSchema).default([]),
+  stairs: z.array(stairSchema).default([]),
+  visible: z.boolean().default(true),
+});
+
 export const defaultWallSchema = z.object({
   height: z.number().min(0.05).max(20).default(2.8),
   thickness: z.number().min(0.02).max(2).default(0.14),
@@ -142,6 +204,8 @@ export const exhibitorSchema = z.object({
   notionUrl: z.string().optional(),
   position: vec2Schema.default({ x: 0, z: 0 }),
   rotation: z.number().default(0),
+  /** Nivel en el que se sitúa el expositor. */
+  levelId: z.string().nullable().optional(),
   cameraPosition: vec3Schema.default([4, 2, 4]),
   cameraTarget: vec3Schema.default([0, 1, 0]),
   relatedObjectIds: z.array(z.string()).default([]),
@@ -209,11 +273,12 @@ export const rotationPointSchema = z.object({
   id: z.string().min(1),
   name: z.string().default('Punto de rotación'),
   position: vec2Schema.default({ x: 0, z: 0 }),
+  levelId: z.string().nullable().optional(),
 });
 
 export const projectSchema = z
   .object({
-    schemaVersion: z.literal(1).default(1),
+    schemaVersion: z.literal(2).default(2),
     id: z.string().min(1),
     name: z.string().min(1).default('Proyecto sin título'),
     description: z.string().default(''),
@@ -221,10 +286,8 @@ export const projectSchema = z
     createdAt: z.string().default(() => new Date().toISOString()),
     updatedAt: z.string().default(() => new Date().toISOString()),
     units: z.literal('m').default('m'),
-    floor: floorPlanSchema.default({}),
-    edges: z.array(edgeConfigSchema).default([]),
-    internalWalls: z.array(internalWallSchema).default([]),
-    openings: z.array(wallOpeningSchema).default([]),
+    /** Niveles del edificio. Cada nivel contiene sus espacios, muros y escaleras. */
+    levels: z.array(levelSchema).default([]),
     defaultWall: defaultWallSchema.default({}),
     objects: z.array(sceneObjectSchema).default([]),
     lights: z.array(lightConfigSchema).default([]),
@@ -252,6 +315,12 @@ export type InternalWall = z.infer<typeof internalWallSchema>;
 export type OpeningKind = z.infer<typeof openingKindSchema>;
 export type WallOpening = z.infer<typeof wallOpeningSchema>;
 export type FloorPlan = z.infer<typeof floorPlanSchema>;
+export type Space = z.infer<typeof spaceSchema>;
+export type SpaceHole = z.infer<typeof spaceHoleSchema>;
+export type StairKind = z.infer<typeof stairKindSchema>;
+export type StairDirection = z.infer<typeof stairDirectionSchema>;
+export type Stair = z.infer<typeof stairSchema>;
+export type Level = z.infer<typeof levelSchema>;
 export type LightConfig = z.infer<typeof lightConfigSchema>;
 export type Exhibitor = z.infer<typeof exhibitorSchema>;
 export type RotationPoint = z.infer<typeof rotationPointSchema>;
@@ -280,14 +349,18 @@ export interface ProjectSummary {
 }
 
 export type Selection =
-  | { type: 'vertex'; index: number }
-  | { type: 'edge'; index: number }
+  | { type: 'vertex'; index: number; spaceId?: string }
+  | { type: 'edge'; index: number; spaceId?: string }
   | { type: 'internalWall'; id: string }
   | { type: 'opening'; id: string }
   | { type: 'object'; id: string }
   | { type: 'light'; id: string }
   | { type: 'exhibitor'; id: string }
   | { type: 'rotationPoint'; id: string }
+  | { type: 'stair'; id: string }
+  | { type: 'level'; id: string }
+  | { type: 'space'; id: string }
+  | { type: 'hole'; id: string; spaceId?: string }
   | null;
 
 export type EditorTool =
@@ -297,12 +370,14 @@ export type EditorTool =
   | 'internalWall'
   | 'door'
   | 'window'
+  | 'stair'
+  | 'hole'
   | 'exhibitor'
   | 'rotationPoint'
   | 'pan';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 export type EditorView = 'plan' | '3d';
-export type PlanDrawMode = 'outline' | 'partition';
+export type PlanDrawMode = 'outline' | 'partition' | 'space' | 'hole';
 
 export interface CatalogItem {
   id: string;

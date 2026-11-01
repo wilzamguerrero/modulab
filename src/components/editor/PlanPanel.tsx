@@ -9,6 +9,8 @@ import {
   PanelTop,
   PenTool,
   Ruler,
+  Scissors,
+  Trash2,
 } from 'lucide-react';
 import type { ExhibitorColorMode, Project, ShadowQuality } from '@/types/project';
 import {
@@ -35,6 +37,7 @@ import {
   polygonBounds,
   validatePolygon,
 } from '@/utils/geometry';
+import { getLevel, getSpace } from '@/utils/levels';
 import { wallLength } from '@/utils/walls';
 
 export function PlanPanel({ project }: { project: Project }) {
@@ -49,21 +52,35 @@ export function PlanPanel({ project }: { project: Project }) {
   const setSettings = useEditorStore((state) => state.setSettings);
   const toggleWall = useEditorStore((state) => state.toggleWall);
   const setSelection = useEditorStore((state) => state.setSelection);
+  const deleteHole = useEditorStore((state) => state.deleteHole);
+  const activeLevelId = useEditorStore((state) => state.activeLevelId);
+  const activeSpaceId = useEditorStore((state) => state.activeSpaceId);
 
   const [template, setTemplate] = useState<TemplateId>('rectangle');
   const [confirmTemplate, setConfirmTemplate] = useState(false);
 
-  const validation = validatePolygon(project.floor.vertices);
-  const bounds = polygonBounds(project.floor.vertices);
-  const area = polygonArea(project.floor.vertices);
-  const perimeter = project.floor.vertices.reduce(
-    (total, _vertex, index) => total + edgeLength(project.floor.vertices, index),
+  const activeLevel = getLevel(project, activeLevelId);
+  const activeSpace = getSpace(activeLevel, activeSpaceId);
+  const vertices = activeSpace?.vertices ?? [];
+  const edges = activeSpace?.edges ?? [];
+  const internalWalls = activeLevel?.internalWalls ?? [];
+  const openings = activeLevel?.openings ?? [];
+
+  const validation = validatePolygon(vertices);
+  const bounds = polygonBounds(vertices);
+  const area = polygonArea(vertices);
+  const perimeter = vertices.reduce(
+    (total, _vertex, index) => total + edgeLength(vertices, index),
     0,
   );
-  const wallCount = project.edges.filter((edge) => edge.wall).length + project.internalWalls.length;
-  const openingCount = project.openings.length;
+  const wallCount =
+    (activeLevel?.spaces.reduce(
+      (total, space) => total + space.edges.filter((edge) => edge.wall).length,
+      0,
+    ) ?? 0) + internalWalls.length;
+  const openingCount = openings.length;
 
-  const startDraw = (mode: 'outline' | 'partition' = 'outline') => {
+  const startDraw = (mode: 'outline' | 'partition' | 'space' | 'hole' = 'outline') => {
     setView('plan');
     setPlanDrawMode(mode);
     setTool('draw');
@@ -111,9 +128,11 @@ export function PlanPanel({ project }: { project: Project }) {
           <div className="prop-row"><span>Área</span><strong>{formatArea(area)}</strong></div>
           <div className="prop-row"><span>Perímetro</span><strong>{formatMeters(perimeter, 1)}</strong></div>
           <div className="prop-row"><span>Dimensiones</span><strong>{bounds.width.toFixed(1)} × {bounds.depth.toFixed(1)} m</strong></div>
-          <div className="prop-row"><span>Vértices</span><strong>{project.floor.vertices.length}</strong></div>
-          <div className="prop-row"><span>Muros</span><strong>{wallCount} / {project.edges.length + project.internalWalls.length}</strong></div>
-          <div className="prop-row"><span>Divisiones</span><strong>{project.internalWalls.length}</strong></div>
+          <div className="prop-row"><span>Nivel</span><strong>{activeLevel?.name ?? '—'}</strong></div>
+          <div className="prop-row"><span>Espacio</span><strong>{activeSpace?.name ?? '—'}</strong></div>
+          <div className="prop-row"><span>Vértices</span><strong>{vertices.length}</strong></div>
+          <div className="prop-row"><span>Muros</span><strong>{wallCount} / {edges.length + internalWalls.length}</strong></div>
+          <div className="prop-row"><span>Divisiones</span><strong>{internalWalls.length}</strong></div>
           <div className="prop-row"><span>Aberturas</span><strong>{openingCount}</strong></div>
         </div>
         {validation.errors.length > 0 ? (
@@ -122,7 +141,7 @@ export function PlanPanel({ project }: { project: Project }) {
           <div className="panel-note">{validation.warnings[0]}</div>
         ) : null}
         <div className="inline-actions">
-          {project.floor.vertices.length >= 3 ? (
+          {vertices.length >= 3 ? (
             <>
               <Button size="sm" variant="primary" onClick={() => startDraw('partition')} icon={<PenTool size={13} />}>
                 Añadir división
@@ -136,6 +155,18 @@ export function PlanPanel({ project }: { project: Project }) {
               Dibujar contorno
             </Button>
           )}
+          <Button size="sm" variant="outline" onClick={() => startDraw('space')} icon={<Layers size={13} />}>
+            Nuevo espacio
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => startDraw('hole')}
+            icon={<Scissors size={13} />}
+            disabled={vertices.length < 3}
+          >
+            Hueco para escalera
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setView('3d')} icon={<Layers size={13} />}>
             Ver en 3D
           </Button>
@@ -204,7 +235,7 @@ export function PlanPanel({ project }: { project: Project }) {
               </p>
               <p>Selecciona un muro o abertura para ajustar medidas en el inspector.</p>
             </HelpButton>
-            <small>{project.internalWalls.length} muros · {openingCount} aberturas</small>
+            <small>{internalWalls.length} muros · {openingCount} aberturas</small>
           </span>
         </div>
         <div className="inline-actions">
@@ -218,9 +249,9 @@ export function PlanPanel({ project }: { project: Project }) {
             Ventana
           </Button>
         </div>
-        {project.internalWalls.length || project.openings.length ? (
+        {internalWalls.length || openings.length ? (
           <div className="segment-list">
-            {project.internalWalls.map((wall, index) => (
+            {internalWalls.map((wall, index) => (
               <div className="segment-row" key={wall.id}>
                 <button
                   type="button"
@@ -231,11 +262,11 @@ export function PlanPanel({ project }: { project: Project }) {
                   <strong>{formatMeters(wallLength(wall.a, wall.b), 2)}</strong>
                 </button>
                 <span className="chip is-active">
-                  {project.openings.filter((opening) => opening.wallId === wall.id).length} aberturas
+                  {openings.filter((opening) => opening.wallId === wall.id).length} aberturas
                 </span>
               </div>
             ))}
-            {project.openings.map((opening) => (
+            {openings.map((opening) => (
               <div className="segment-row" key={opening.id}>
                 <button
                   type="button"
@@ -263,11 +294,11 @@ export function PlanPanel({ project }: { project: Project }) {
       <section className="panel-section">
         <div className="panel-title">
           <span><BrickWall size={12} /> Segmentos</span>
-          <small>{project.edges.length}</small>
+          <small>{edges.length}</small>
         </div>
         <div className="segment-list">
-          {project.edges.map((edge, index) => {
-            const length = edgeLength(project.floor.vertices, index);
+          {edges.map((edge, index) => {
+            const length = edgeLength(vertices, index);
             return (
               <div className="segment-row" key={edge.id || index}>
                 <button
@@ -289,18 +320,21 @@ export function PlanPanel({ project }: { project: Project }) {
               </div>
             );
           })}
-          {project.edges.length === 0 ? <p className="panel-note">Dibuja el contorno para crear segmentos.</p> : null}
+          {edges.length === 0 ? <p className="panel-note">Dibuja el contorno del espacio activo para crear segmentos.</p> : null}
         </div>
       </section>
 
       <section className="panel-section">
         <div className="panel-title"><span><PaintBucket size={12} /> Piso</span></div>
         <Field label="Color">
-          <ColorInput value={project.floor.color} onChange={(color) => setFloorMaterial({ color })} />
+          <ColorInput
+            value={activeSpace?.color ?? '#b8ae9d'}
+            onChange={(color) => setFloorMaterial({ color })}
+          />
         </Field>
         <RangeInput
           label="Rugosidad"
-          value={project.floor.roughness}
+          value={activeSpace?.roughness ?? 0.86}
           onChange={(roughness) => setFloorMaterial({ roughness })}
           min={0}
           max={1}
@@ -309,13 +343,40 @@ export function PlanPanel({ project }: { project: Project }) {
         />
         <RangeInput
           label="Metalicidad"
-          value={project.floor.metalness}
+          value={activeSpace?.metalness ?? 0.02}
           onChange={(metalness) => setFloorMaterial({ metalness })}
           min={0}
           max={1}
           step={0.01}
           format={(value) => value.toFixed(2)}
         />
+        {(activeSpace?.holes.length ?? 0) > 0 ? (
+          <div className="segment-list">
+            {activeSpace?.holes.map((hole, index) => (
+              <div className="segment-row" key={hole.id}>
+                <button
+                  type="button"
+                  className="segment-name"
+                  onClick={() => {
+                    setView('plan');
+                    setSelection({ type: 'hole', id: hole.id, spaceId: activeSpace?.id });
+                  }}
+                >
+                  <span>{hole.name || `Hueco ${index + 1}`}</span>
+                  <strong>{hole.vertices.length} vértices</strong>
+                </button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Trash2 size={13} />}
+                  onClick={() => deleteHole(hole.id)}
+                >
+                  Eliminar
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <section className="panel-section">

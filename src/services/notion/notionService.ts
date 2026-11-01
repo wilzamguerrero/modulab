@@ -4,7 +4,8 @@ import { apiDelete, apiGet, apiPost } from '@/services/api';
 import { defaultExhibitorCamera } from '@/data/defaults';
 import { createId } from '@/utils/id';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
-import { distanceToSegment, pointInPolygon, polygonBounds } from '@/utils/geometry';
+import { distanceToSegment, pointInPolygon } from '@/utils/geometry';
+import { levelBounds, levelVertices } from '@/utils/levels';
 
 export function getNotionStatus(): Promise<NotionConfigStatus> {
   return apiGet<NotionConfigStatus>('/api/notion/config');
@@ -37,20 +38,23 @@ export function notionPhotoUrl(exhibitor: Pick<Exhibitor, 'photoNotionBlockId' |
 }
 
 function isPositionFree(project: Project, point: Vec2, occupied: Vec2[]): boolean {
-  const vertices = project.floor.vertices;
-  if (vertices.length >= 3) {
-    if (!pointInPolygon(point, vertices)) return false;
-    for (let i = 0; i < vertices.length; i++) {
-      const a = vertices[i];
-      const b = vertices[(i + 1) % vertices.length];
-      if (distanceToSegment(point, a, b) < 0.65) return false;
+  const spaces = (project.levels[0]?.spaces ?? []).filter((space) => space.vertices.length >= 3);
+  if (spaces.length) {
+    if (!spaces.some((space) => pointInPolygon(point, space.vertices))) return false;
+    for (const space of spaces) {
+      const vertices = space.vertices;
+      for (let i = 0; i < vertices.length; i++) {
+        const a = vertices[i];
+        const b = vertices[(i + 1) % vertices.length];
+        if (distanceToSegment(point, a, b) < 0.65) return false;
+      }
     }
   }
   return !occupied.some((other) => Math.hypot(other.x - point.x, other.z - point.z) < 1.15);
 }
 
 function suggestPosition(project: Project, occupied: Vec2[]): Vec2 {
-  const bounds = polygonBounds(project.floor.vertices);
+  const bounds = levelBounds(project.levels[0]);
   const center = bounds.center;
   const step = 1.35;
   const candidates: Vec2[] = [{ ...center }];
@@ -127,7 +131,8 @@ export async function syncPeopleIntoProject(
     } else {
       const position = suggestPosition(project, occupied);
       occupied.push(position);
-      const camera = defaultExhibitorCamera(position, project.floor.vertices);
+      const level = project.levels[0];
+      const camera = defaultExhibitorCamera(position, levelVertices(level), level?.elevation ?? 0);
       nextExhibitors.push({
         id: createId('exp'),
         name: person.name,
@@ -139,6 +144,7 @@ export async function syncPeopleIntoProject(
         notionUrl: person.notionUrl,
         position,
         rotation: 0,
+        levelId: level?.id ?? null,
         cameraPosition: camera.position,
         cameraTarget: camera.target,
         relatedObjectIds: [],

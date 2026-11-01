@@ -1,10 +1,13 @@
 import type {
   EdgeConfig,
   InternalWall,
+  Level,
   LightConfig,
   OpeningKind,
   Project,
   ProjectCamera,
+  Space,
+  Stair,
   Vec2,
   Vec3,
   WallOpening,
@@ -31,6 +34,62 @@ export function createEdgeConfig(overrides: Partial<EdgeConfig> = {}): EdgeConfi
     thickness: DEFAULT_WALL_THICKNESS,
     color: DEFAULT_WALL_COLOR,
     exhibitorId: null,
+    ...overrides,
+  };
+}
+
+export function createSpace(vertices: Vec2[], overrides: Partial<Space> = {}): Space {
+  return {
+    id: createId('spc'),
+    name: 'Espacio',
+    vertices: vertices.map((vertex) => ({ ...vertex })),
+    edges: vertices.map(() => createEdgeConfig()),
+    holes: [],
+    color: DEFAULT_FLOOR_COLOR,
+    roughness: 0.86,
+    metalness: 0.02,
+    visible: true,
+    ...overrides,
+  };
+}
+
+export function createLevel(
+  name: string,
+  elevation: number,
+  overrides: Partial<Level> = {},
+): Level {
+  return {
+    id: createId('lvl'),
+    name,
+    elevation,
+    spaces: [],
+    internalWalls: [],
+    openings: [],
+    stairs: [],
+    visible: true,
+    ...overrides,
+  };
+}
+
+export function createStair(
+  position: Vec2,
+  overrides: Partial<Stair> = {},
+): Stair {
+  return {
+    id: createId('stair'),
+    name: 'Escalera',
+    position: { ...position },
+    rotation: 0,
+    kind: 'straight',
+    direction: 'up',
+    width: 1,
+    steps: 16,
+    rise: DEFAULT_WALL_HEIGHT,
+    tread: 0.28,
+    landingDepth: 1.1,
+    railing: true,
+    color: '#c9c2b4',
+    visible: true,
     ...overrides,
   };
 }
@@ -107,11 +166,13 @@ export function createProject(options: {
 }): Project {
   const template = getTemplate(options.template ?? 'rectangle');
   const vertices = template.vertices.map((vertex) => ({ ...vertex }));
-  const edges = vertices.map(() => createEdgeConfig());
   const now = new Date().toISOString();
   const camera = cameraForVertices(vertices);
+  const baseLevel = createLevel('Planta baja', 0, {
+    spaces: [createSpace(vertices, { name: 'Espacio 1' })],
+  });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: createId('prj'),
     name: options.name.trim() || 'Proyecto sin título',
     description: options.description?.trim() ?? '',
@@ -119,15 +180,7 @@ export function createProject(options: {
     createdAt: now,
     updatedAt: now,
     units: 'm',
-    floor: {
-      vertices,
-      color: DEFAULT_FLOOR_COLOR,
-      roughness: 0.86,
-      metalness: 0.02,
-    },
-    edges,
-    internalWalls: [],
-    openings: [],
+    levels: [baseLevel],
     defaultWall: {
       height: DEFAULT_WALL_HEIGHT,
       thickness: DEFAULT_WALL_THICKNESS,
@@ -158,9 +211,19 @@ export function createProject(options: {
   };
 }
 
-export function planCenter(project: Project): Vec2 {
-  if (project.floor.vertices.length === 0) return { x: 0, z: 0 };
-  return polygonCentroid(project.floor.vertices);
+export function planCenter(
+  project: Project,
+  levelId?: string | null,
+  spaceId?: string | null,
+): Vec2 {
+  const level = levelId
+    ? project.levels.find((entry) => entry.id === levelId) ?? project.levels[0]
+    : project.levels[0];
+  const space = spaceId
+    ? level?.spaces.find((entry) => entry.id === spaceId) ?? level?.spaces[0]
+    : level?.spaces[0];
+  if (!space || space.vertices.length === 0) return { x: 0, z: 0 };
+  return polygonCentroid(space.vertices);
 }
 
 function wallClearance(point: Vec2, vertices: Vec2[]): number {
@@ -201,14 +264,15 @@ export function isExhibitorCameraUsable(position: Vec3, vertices: Vec2[]): boole
 export function defaultExhibitorCamera(
   position: Vec2,
   vertices: Vec2[] = [],
+  elevation = 0,
 ): { position: Vec3; target: Vec3 } {
-  const target: Vec3 = [position.x, 1.15, position.z];
+  const target: Vec3 = [position.x, 1.15 + elevation, position.z];
   if (vertices.length < 3 || !pointInPolygon(position, vertices)) {
     // Sin planta válida (o con el marcador fuera del recinto) una vista
     // elevada evita atravesar muros y sigue mostrando el punto seleccionado.
     return {
-      position: [position.x, 4.2, position.z + 0.02],
-      target: [position.x, 0.8, position.z],
+      position: [position.x, 4.2 + elevation, position.z + 0.02],
+      target: [position.x, 0.8 + elevation, position.z],
     };
   }
 
@@ -232,7 +296,7 @@ export function defaultExhibitorCamera(
     }
     if (bestForRadius) {
       return {
-        position: [bestForRadius.position.x, 1.9, bestForRadius.position.z],
+        position: [bestForRadius.position.x, 1.9 + elevation, bestForRadius.position.z],
         target,
       };
     }
@@ -240,8 +304,8 @@ export function defaultExhibitorCamera(
 
   // Último recurso: vista elevada, por encima de los muros, siempre despejada.
   return {
-    position: [position.x, 4.2, position.z + 0.02],
-    target: [position.x, 0.8, position.z],
+    position: [position.x, 4.2 + elevation, position.z + 0.02],
+    target: [position.x, 0.8 + elevation, position.z],
   };
 }
 

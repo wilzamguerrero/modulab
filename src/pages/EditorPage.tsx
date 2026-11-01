@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowUpDown,
   Box,
   Boxes,
   BrickWall,
@@ -31,6 +32,7 @@ import {
   Ruler,
   Save,
   Scaling,
+  Scissors,
   Sparkles,
   Undo2,
   UserPlus,
@@ -45,11 +47,13 @@ import {
   ConfirmDialog,
   IconButton,
   Segmented,
+  Select,
   Spinner,
 } from '@/components/ui';
 import { PlanEditor2D } from '@/components/plan/PlanEditor2D';
 import { EditorCanvas, type CameraRequest } from '@/components/scene/EditorCanvas';
 import { PlanPanel } from '@/components/editor/PlanPanel';
+import { LevelsPanel } from '@/components/editor/LevelsPanel';
 import { CatalogPanel } from '@/components/editor/CatalogPanel';
 import { ExhibitorsPanel } from '@/components/editor/ExhibitorsPanel';
 import { LightsPanel } from '@/components/editor/LightsPanel';
@@ -61,12 +65,14 @@ import { useUiStore } from '@/store/uiStore';
 import { loadProject, refreshProjectFromNotion, saveProjectLocal, saveProjectToNotion } from '@/services/projects/projectService';
 import { getNotionStatus } from '@/services/notion/notionService';
 import { edgeLength, formatArea, formatMeters, polygonArea, validatePolygon } from '@/utils/geometry';
+import { getLevel, getSpace, levelBounds, sortedLevels } from '@/utils/levels';
 import { formatRelativeDate } from '@/utils/format';
 
-type SidebarTab = 'plan' | 'catalog' | 'exhibitors' | 'lights' | 'environment';
+type SidebarTab = 'plan' | 'levels' | 'catalog' | 'exhibitors' | 'lights' | 'environment';
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string; icon: ReactNode }> = [
   { id: 'plan', label: 'Planta', icon: <DraftingCompass size={16} /> },
+  { id: 'levels', label: 'Niveles', icon: <Layers size={16} /> },
   { id: 'catalog', label: 'Catálogo', icon: <Boxes size={16} /> },
   { id: 'exhibitors', label: 'Expositores', icon: <Users size={16} /> },
   { id: 'lights', label: 'Luces', icon: <Lightbulb size={16} /> },
@@ -128,7 +134,15 @@ export function EditorPage() {
   const deleteLight = useEditorStore((state) => state.deleteLight);
   const deleteInternalWall = useEditorStore((state) => state.deleteInternalWall);
   const deleteOpening = useEditorStore((state) => state.deleteOpening);
+  const deleteStair = useEditorStore((state) => state.deleteStair);
+  const deleteHole = useEditorStore((state) => state.deleteHole);
+  const setPlanDrawMode = useEditorStore((state) => state.setPlanDrawMode);
+  const planDrawMode = useEditorStore((state) => state.planDrawMode);
   const deleteRotationPoint = useEditorStore((state) => state.deleteRotationPoint);
+  const activeLevelId = useEditorStore((state) => state.activeLevelId);
+  const activeSpaceId = useEditorStore((state) => state.activeSpaceId);
+  const setActiveLevel = useEditorStore((state) => state.setActiveLevel);
+  const setActiveSpace = useEditorStore((state) => state.setActiveSpace);
   const removeVertex = useEditorStore((state) => state.removeVertex);
   const setClipboardObject = useEditorStore((state) => state.setClipboardObject);
   const clipboardObject = useEditorStore((state) => state.clipboardObject);
@@ -316,9 +330,33 @@ export function EditorPage() {
         else if (state.selection?.type === 'light') deleteLight(state.selection.id);
         else if (state.selection?.type === 'internalWall') deleteInternalWall(state.selection.id);
         else if (state.selection?.type === 'opening') deleteOpening(state.selection.id);
+        else if (state.selection?.type === 'stair') deleteStair(state.selection.id);
+        else if (state.selection?.type === 'hole') deleteHole(state.selection.id);
         else if (state.selection?.type === 'rotationPoint') deleteRotationPoint(state.selection.id);
         else if (state.selection?.type === 'vertex') removeVertex(state.selection.index);
         return;
+      }
+      if (event.altKey && state.project) {
+        const levels = sortedLevels(state.project);
+        const level = getLevel(state.project, state.activeLevelId);
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+          event.preventDefault();
+          const index = levels.findIndex((entry) => entry.id === level?.id);
+          const delta = event.key === 'ArrowUp' ? 1 : -1;
+          const next = levels[(index + delta + levels.length) % levels.length];
+          if (next) setActiveLevel(next.id);
+          return;
+        }
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          event.preventDefault();
+          const spaces = level?.spaces ?? [];
+          if (!spaces.length) return;
+          const index = spaces.findIndex((entry) => entry.id === state.activeSpaceId);
+          const delta = event.key === 'ArrowRight' ? 1 : -1;
+          const next = spaces[(index + delta + spaces.length) % spaces.length];
+          if (next) setActiveSpace(next.id);
+          return;
+        }
       }
       if (mod || event.altKey) return;
       if (key === '1') { setView('plan'); return; }
@@ -329,6 +367,8 @@ export function EditorPage() {
       if (key === 'f') { setView('plan'); setTool('internalWall'); return; }
       if (key === 'p') { setView('plan'); setTool('door'); return; }
       if (key === 'n') { setView('plan'); setTool('window'); return; }
+      if (key === 'u') { setView('plan'); setTool('stair'); return; }
+      if (key === 'h') { setView('plan'); setPlanDrawMode('hole'); setTool('draw'); return; }
       if (key === 'e') { setTool('exhibitor'); return; }
       if (key === 'o') { setTool('rotationPoint'); return; }
       if (key === 't') { setView('3d'); toggleMeasureMode(); return; }
@@ -378,6 +418,7 @@ export function EditorPage() {
         saveStatus: 'saved',
         lastSavedAt: new Date().toISOString(),
       });
+      if (saved.levels[0]) useEditorStore.getState().setActiveLevel(saved.levels[0].id);
       useEditorStore.getState().setNotionSaveStatus('saved');
       toast(project.notionBlockId ? 'Proyecto sincronizado con Notion.' : 'Proyecto guardado en Notion.', 'success');
     } catch (error) {
@@ -401,7 +442,7 @@ export function EditorPage() {
     }
   };
 
-  const planOnlyTools: EditorTool[] = ['draw', 'wall', 'internalWall', 'door', 'window'];
+  const planOnlyTools: EditorTool[] = ['draw', 'wall', 'internalWall', 'door', 'window', 'stair'];
   const chooseTool = (nextTool: EditorTool) => {
     if (planOnlyTools.includes(nextTool)) setView('plan');
     setTool(nextTool);
@@ -421,13 +462,26 @@ export function EditorPage() {
       saveStatus: 'saved',
       lastSavedAt: new Date().toISOString(),
     });
+    if (publishedProject.levels[0]) {
+      useEditorStore.getState().setActiveLevel(publishedProject.levels[0].id);
+    }
   };
 
-  const area = project ? polygonArea(project.floor.vertices) : 0;
-  const validation = project ? validatePolygon(project.floor.vertices) : null;
-  const wallCount = (project?.edges.filter((edge) => edge.wall).length ?? 0) + (project?.internalWalls.length ?? 0);
+  const activeLevel = project ? getLevel(project, activeLevelId) : undefined;
+  const activeSpace = project ? getSpace(activeLevel, activeSpaceId) : undefined;
+  const area = activeSpace ? polygonArea(activeSpace.vertices) : 0;
+  const validation = activeSpace ? validatePolygon(activeSpace.vertices) : null;
+  const wallCount = activeLevel
+    ? activeLevel.spaces.reduce(
+        (total, space) => total + space.edges.filter((edge) => edge.wall).length,
+        0,
+      ) + activeLevel.internalWalls.length
+    : 0;
   const selectedObject = project && selection?.type === 'object'
     ? project.objects.find((entry) => entry.id === selection.id)
+    : null;
+  const selectedStair = project && selection?.type === 'stair'
+    ? project.levels.flatMap((level) => level.stairs).find((entry) => entry.id === selection.id)
     : null;
 
   const saveLabel = useMemo(() => {
@@ -462,10 +516,13 @@ export function EditorPage() {
     );
   }
 
-  const totalWallLength = project.floor.vertices.reduce(
-    (sum, _vertex, index) => sum + (project.edges[index]?.wall ? edgeLength(project.floor.vertices, index) : 0),
-    0,
-  );
+  const totalWallLength = activeSpace
+    ? activeSpace.vertices.reduce(
+        (sum, _vertex, index) =>
+          sum + (activeSpace.edges[index]?.wall ? edgeLength(activeSpace.vertices, index) : 0),
+        0,
+      )
+    : 0;
 
   return (
     <div className="editor-shell">
@@ -496,6 +553,32 @@ export function EditorPage() {
         </div>
 
         <div className="topbar-center">
+          <div className="level-switcher">
+            <Select
+              value={activeLevelId ?? ''}
+              onChange={(event) => setActiveLevel(event.target.value)}
+              aria-label="Nivel activo"
+            >
+              {sortedLevels(project).map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.name} · {entry.elevation.toFixed(2)} m
+                </option>
+              ))}
+            </Select>
+            {activeLevel && activeLevel.spaces.length > 0 ? (
+              <Select
+                value={activeSpaceId ?? ''}
+                onChange={(event) => setActiveSpace(event.target.value)}
+                aria-label="Espacio activo"
+              >
+                {activeLevel.spaces.map((space) => (
+                  <option key={space.id} value={space.id}>
+                    {space.name}
+                  </option>
+                ))}
+              </Select>
+            ) : null}
+          </div>
           <Segmented<EditorView>
             value={view}
             onChange={changeView}
@@ -570,6 +653,7 @@ export function EditorPage() {
           </div>
           <div className="sidebar-content">
             {activeTab === 'plan' ? <PlanPanel project={project} /> : null}
+            {activeTab === 'levels' ? <LevelsPanel project={project} /> : null}
             {activeTab === 'catalog' ? <CatalogPanel project={project} /> : null}
             {activeTab === 'exhibitors' ? (
               <ExhibitorsPanel project={project} notionConfigured={Boolean(notionStatus?.configured)} />
@@ -611,6 +695,21 @@ export function EditorPage() {
             <button type="button" className={`tool-btn${tool === 'window' ? ' is-active' : ''}`} title="Ventana (N)" onClick={() => chooseTool('window')}>
               <PanelTop size={16} />
             </button>
+            <button type="button" className={`tool-btn${tool === 'stair' ? ' is-active' : ''}`} title="Escalera (U)" onClick={() => chooseTool('stair')}>
+              <ArrowUpDown size={16} />
+            </button>
+            <button
+              type="button"
+              className={`tool-btn${tool === 'draw' && planDrawMode === 'hole' ? ' is-active' : ''}`}
+              title="Hueco en el suelo (H)"
+              onClick={() => {
+                setView('plan');
+                setPlanDrawMode('hole');
+                setTool('draw');
+              }}
+            >
+              <Scissors size={16} />
+            </button>
             <button type="button" className={`tool-btn${tool === 'exhibitor' ? ' is-active' : ''}`} title="Colocar expositor (E)" onClick={() => chooseTool('exhibitor')}>
               <UserPlus size={16} />
             </button>
@@ -623,7 +722,7 @@ export function EditorPage() {
             <button type="button" className={`tool-btn${tool === 'pan' ? ' is-active' : ''}`} title="Mover vista (espacio)" onClick={() => chooseTool('pan')}>
               <Hand size={16} />
             </button>
-            {view === '3d' && selectedObject ? (
+            {view === '3d' && (selectedObject || selectedStair) ? (
               <>
                 <span className="tool-sep" />
                 <button type="button" className={`tool-btn${transformMode === 'translate' ? ' is-active' : ''}`} title="Mover (G)" onClick={() => setTransformMode('translate')}>
@@ -632,9 +731,11 @@ export function EditorPage() {
                 <button type="button" className={`tool-btn${transformMode === 'rotate' ? ' is-active' : ''}`} title="Rotar (R)" onClick={() => setTransformMode('rotate')}>
                   <RotateCw size={16} />
                 </button>
-                <button type="button" className={`tool-btn${transformMode === 'scale' ? ' is-active' : ''}`} title="Escalar (S)" onClick={() => setTransformMode('scale')}>
-                  <Scaling size={16} />
-                </button>
+                {selectedObject ? (
+                  <button type="button" className={`tool-btn${transformMode === 'scale' ? ' is-active' : ''}`} title="Escalar (S)" onClick={() => setTransformMode('scale')}>
+                    <Scaling size={16} />
+                  </button>
+                ) : null}
               </>
             ) : null}
             {view === '3d' ? (
@@ -819,7 +920,8 @@ export function EditorPage() {
 
       <footer className="editor-statusbar">
         <span className="status-item"><LayoutGrid size={11} /> <strong>{formatArea(area)}</strong></span>
-        <span className="status-item"><DraftingCompass size={11} /> <strong>{project.floor.vertices.length}</strong> vértices</span>
+        <span className="status-item"><Layers size={11} /> <strong>{activeLevel?.name ?? '—'}</strong> · {activeSpace?.name ?? 'sin espacio'}</span>
+        <span className="status-item"><DraftingCompass size={11} /> <strong>{activeSpace?.vertices.length ?? 0}</strong> vértices</span>
         <span className="status-item"><Boxes size={11} /> <strong>{project.objects.length}</strong> objetos</span>
         <span className="status-item"><Users size={11} /> <strong>{project.exhibitors.length}</strong> expositores</span>
         <span className="status-item"><Layers size={11} /> <strong>{wallCount}</strong> muros · {formatMeters(totalWallLength, 1)}</span>

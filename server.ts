@@ -259,7 +259,12 @@ app.post(
     if (!/^[a-z0-9][a-z0-9-]{2,120}$/.test(publicId)) {
       return jsonError(res, 400, 'El identificador público solo puede tener minúsculas, números y guiones.');
     }
-    if (!project || typeof project !== 'object' || !Array.isArray(project.floor?.vertices)) {
+    const projectData = project as { levels?: unknown; floor?: { vertices?: unknown } } | null;
+    const validProject =
+      projectData &&
+      typeof projectData === 'object' &&
+      (Array.isArray(projectData.levels) || Array.isArray(projectData.floor?.vertices));
+    if (!validProject) {
       return jsonError(res, 400, 'Los datos de la escena publicada no son válidos.');
     }
     const document = {

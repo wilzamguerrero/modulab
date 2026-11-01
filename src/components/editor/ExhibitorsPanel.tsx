@@ -14,14 +14,15 @@ import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { notionPhotoUrl, syncPeopleIntoProject } from '@/services/notion/notionService';
 import { polygonBounds, polygonCentroid, pointInPolygon } from '@/utils/geometry';
+import { getLevel, getSpace } from '@/utils/levels';
 import { formatRelativeDate } from '@/utils/format';
 import { exhibitorColor } from '@/utils/exhibitorColors';
 
-function freePosition(project: Project): Vec2 {
-  if (project.floor.vertices.length < 3) return { x: 0, z: 0 };
-  const center = polygonCentroid(project.floor.vertices);
-  if (pointInPolygon(center, project.floor.vertices)) return center;
-  return polygonBounds(project.floor.vertices).center;
+function freePosition(vertices: Vec2[]): Vec2 {
+  if (vertices.length < 3) return { x: 0, z: 0 };
+  const center = polygonCentroid(vertices);
+  if (pointInPolygon(center, vertices)) return center;
+  return polygonBounds(vertices).center;
 }
 
 export function ExhibitorsPanel({
@@ -39,6 +40,8 @@ export function ExhibitorsPanel({
   const deleteExhibitor = useEditorStore((state) => state.deleteExhibitor);
   const removeMissingExhibitors = useEditorStore((state) => state.removeMissingExhibitors);
   const replaceProject = useEditorStore((state) => state.replaceProject);
+  const activeLevelId = useEditorStore((state) => state.activeLevelId);
+  const activeSpaceId = useEditorStore((state) => state.activeSpaceId);
   const [pageId, setPageId] = useState(
     project.notionExhibitorsPageId || project.notionBlockId || '',
   );
@@ -50,7 +53,8 @@ export function ExhibitorsPanel({
   }, [project.id, project.notionExhibitorsPageId, project.notionBlockId]);
 
   const add = () => {
-    const id = addExhibitor(freePosition(project));
+    const space = getSpace(getLevel(project, activeLevelId), activeSpaceId);
+    const id = addExhibitor(freePosition(space?.vertices ?? []));
     if (id) {
       setView('3d');
       toast('Expositor creado. Completa su ficha en el inspector.', 'success');

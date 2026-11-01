@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
-import type { InternalWall, Vec2, WallOpening } from '@/types/project';
+import type { InternalWall, Level, Vec2, WallOpening } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { snapPoint, snapValue } from '@/utils/geometry';
+import { getLevel, getSpace } from '@/utils/levels';
 import { markSceneDragActive, markSceneDragEnd } from './sceneDragGuard';
 import {
   getOpeningSpans,
@@ -23,10 +24,12 @@ const MIN_OPENING_WIDTH = 0.2;
 const MIN_OPENING_HEIGHT = 0.2;
 
 function usePlanarDrag({
+  elevation = 0,
   onStart,
   onMove,
   onEnd,
 }: {
+  elevation?: number;
   onStart: (event: PointerEvent) => void;
   onMove: (point: Vec2, event: PointerEvent) => void;
   onEnd: () => void;
@@ -38,7 +41,8 @@ function usePlanarDrag({
   const callbacks = useRef({ onStart, onMove, onEnd });
   callbacks.current = { onStart, onMove, onEnd };
   const raycaster = useRef(new THREE.Raycaster());
-  const plane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
+  const plane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), -elevation));
+  plane.current.constant = -elevation;
   const hit = useRef(new THREE.Vector3());
 
   const start = (event: ThreeEvent<PointerEvent>) => {
@@ -88,12 +92,14 @@ function usePlanarDrag({
 function useHistoryDrag(
   onStart: (event: PointerEvent) => void,
   onMove: (point: Vec2, event: PointerEvent) => void,
+  elevation = 0,
 ) {
   const beginHistory = useEditorStore((state) => state.beginHistory);
   const commitHistory = useEditorStore((state) => state.commitHistory);
   const cancelHistory = useEditorStore((state) => state.cancelHistory);
   const moved = useRef(false);
   return usePlanarDrag({
+    elevation,
     onStart: (event) => {
       moved.current = false;
       markSceneDragActive();
@@ -145,22 +151,36 @@ function Handle({
 }
 
 /** Arrastra un vértice del perímetro (los muros iniciales) sobre el suelo. */
-function FloorVertexHandle({ index }: { index: number }) {
+function FloorVertexHandle({
+  index,
+  spaceId,
+  elevation,
+}: {
+  index: number;
+  spaceId?: string;
+  elevation: number;
+}) {
   const moveVertex = useEditorStore((state) => state.moveVertex);
-  const snap = useEditorStore((state) => state.project?.settings.snapToGrid ?? false);
-  const gridSize = useEditorStore((state) => state.project?.settings.gridSize ?? 0.25);
-  const vertex = useEditorStore((state) => state.project?.floor.vertices[index]);
+  const project = useEditorStore((state) => state.project);
+  const activeLevelId = useEditorStore((state) => state.activeLevelId);
+  const activeSpaceId = useEditorStore((state) => state.activeSpaceId);
+  const snap = project?.settings.snapToGrid ?? false;
+  const gridSize = project?.settings.gridSize ?? 0.25;
+  const level = project ? getLevel(project, activeLevelId) : undefined;
+  const space = getSpace(level, spaceId ?? activeSpaceId);
+  const vertex = space?.vertices[index];
   const drag = useHistoryDrag(
     () => undefined,
     (point) => {
       const next = snap ? snapPoint(point, gridSize) : point;
       moveVertex(index, next, { history: false, touch: false });
     },
+    elevation,
   );
   if (!vertex) return null;
   return (
     <Handle
-      position={[vertex.x, 0.14, vertex.z]}
+      position={[vertex.x, elevation + 0.14, vertex.z]}
       color={VERTEX_HANDLE_COLOR}
       radius={0.12}
       onPointerDown={drag.start}
@@ -171,9 +191,11 @@ function FloorVertexHandle({ index }: { index: number }) {
 function WallEndpointHandle({
   wall,
   endpoint,
+  elevation,
 }: {
   wall: InternalWall;
   endpoint: 'a' | 'b';
+  elevation: number;
 }) {
   const moveInternalWallPoint = useEditorStore((state) => state.moveInternalWallPoint);
   const snap = useEditorStore((state) => state.project?.settings.snapToGrid ?? false);
@@ -184,11 +206,12 @@ function WallEndpointHandle({
       const next = snap ? snapPoint(point, gridSize) : point;
       moveInternalWallPoint(wall.id, endpoint, next, { history: false, touch: false });
     },
+    elevation,
   );
   const point = wall[endpoint];
   return (
     <Handle
-      position={[point.x, 0.14, point.z]}
+      position={[point.x, elevation + 0.14, point.z]}
       onPointerDown={drag.start}
       radius={0.11}
     />
@@ -200,11 +223,13 @@ function OpeningHandle({
   wall,
   span,
   kind,
+  elevation,
 }: {
   opening: WallOpening;
   wall: WallDefinition;
   span: OpeningSpan;
   kind: 'center' | 'start' | 'end' | 'height' | 'sill';
+  elevation: number;
 }) {
   const updateOpening = useEditorStore((state) => state.updateOpening);
   const snap = useEditorStore((state) => state.project?.settings.snapToGrid ?? false);
@@ -278,15 +303,17 @@ function OpeningHandle({
         { history: false, touch: false },
       );
     },
+    elevation,
   );
 
   const center = pointAtWallOffset(wall.a, wall.b, span.center);
   const start = pointAtWallOffset(wall.a, wall.b, span.start);
   const end = pointAtWallOffset(wall.a, wall.b, span.end);
+  const liftY = (value: number) => value + elevation;
   if (kind === 'start') {
     return (
       <Handle
-        position={[start.x, midY, start.z]}
+        position={[start.x, liftY(midY), start.z]}
         color={WIDTH_HANDLE_COLOR}
         radius={0.075}
         onPointerDown={drag.start}
@@ -296,7 +323,7 @@ function OpeningHandle({
   if (kind === 'end') {
     return (
       <Handle
-        position={[end.x, midY, end.z]}
+        position={[end.x, liftY(midY), end.z]}
         color={WIDTH_HANDLE_COLOR}
         radius={0.075}
         onPointerDown={drag.start}
@@ -306,7 +333,7 @@ function OpeningHandle({
   if (kind === 'height') {
     return (
       <Handle
-        position={[center.x, span.top + 0.07, center.z]}
+        position={[center.x, liftY(span.top + 0.07), center.z]}
         color={HEIGHT_HANDLE_COLOR}
         radius={0.075}
         onPointerDown={drag.start}
@@ -316,7 +343,7 @@ function OpeningHandle({
   if (kind === 'sill') {
     return (
       <Handle
-        position={[center.x, span.sill - 0.07, center.z]}
+        position={[center.x, liftY(span.sill - 0.07), center.z]}
         color={HEIGHT_HANDLE_COLOR}
         radius={0.075}
         onPointerDown={drag.start}
@@ -325,7 +352,7 @@ function OpeningHandle({
   }
   return (
     <Handle
-      position={[center.x, midY, center.z]}
+      position={[center.x, liftY(midY), center.z]}
       radius={0.095}
       onPointerDown={drag.start}
     />
@@ -335,51 +362,67 @@ function OpeningHandle({
 export function WallEditHandles() {
   const project = useEditorStore((state) => state.project);
   const selection = useEditorStore((state) => state.selection);
+  const activeLevelId = useEditorStore((state) => state.activeLevelId);
+  const activeSpaceId = useEditorStore((state) => state.activeSpaceId);
   if (!project || !selection) return null;
+  const level: Level | undefined = getLevel(project, activeLevelId);
+  if (!level) return null;
+  const elevation = level.elevation;
 
   if (selection.type === 'vertex') {
-    return <FloorVertexHandle index={selection.index} />;
+    return (
+      <FloorVertexHandle
+        index={selection.index}
+        spaceId={selection.spaceId ?? activeSpaceId ?? undefined}
+        elevation={elevation}
+      />
+    );
   }
 
   if (selection.type === 'edge') {
-    const count = project.floor.vertices.length;
+    const space = getSpace(level, selection.spaceId ?? activeSpaceId);
+    const count = space?.vertices.length ?? 0;
     if (selection.index < 0 || selection.index >= count) return null;
     const next = (selection.index + 1) % count;
     return (
       <group>
-        <FloorVertexHandle index={selection.index} />
-        <FloorVertexHandle index={next} />
+        <FloorVertexHandle index={selection.index} spaceId={space?.id} elevation={elevation} />
+        <FloorVertexHandle index={next} spaceId={space?.id} elevation={elevation} />
       </group>
     );
   }
 
   if (selection.type === 'internalWall') {
-    const wall = project.internalWalls.find((entry) => entry.id === selection.id);
+    const wall = level.internalWalls.find((entry) => entry.id === selection.id);
     if (!wall) return null;
     return (
       <group>
-        <WallEndpointHandle wall={wall} endpoint="a" />
-        <WallEndpointHandle wall={wall} endpoint="b" />
+        <WallEndpointHandle wall={wall} endpoint="a" elevation={elevation} />
+        <WallEndpointHandle wall={wall} endpoint="b" elevation={elevation} />
       </group>
     );
   }
 
   if (selection.type === 'opening') {
-    const opening = project.openings.find((entry) => entry.id === selection.id);
-    if (!opening) return null;
-    const wall = getWallById(project, opening.wallId);
+    const found = project.levels
+      .map((entry) => ({ level: entry, opening: entry.openings.find((o) => o.id === selection.id) }))
+      .find((entry) => entry.opening);
+    if (!found?.opening) return null;
+    const opening = found.opening;
+    const wall = getWallById(found.level, opening.wallId);
     if (!wall) return null;
     const length = wallLength(wall.a, wall.b);
     const span = getOpeningSpans(length, wall.height, [opening])[0];
     if (!span) return null;
+    const openingElevation = found.level.elevation;
     return (
       <group>
-        <OpeningHandle opening={opening} wall={wall} span={span} kind="center" />
-        <OpeningHandle opening={opening} wall={wall} span={span} kind="start" />
-        <OpeningHandle opening={opening} wall={wall} span={span} kind="end" />
-        <OpeningHandle opening={opening} wall={wall} span={span} kind="height" />
+        <OpeningHandle opening={opening} wall={wall} span={span} kind="center" elevation={openingElevation} />
+        <OpeningHandle opening={opening} wall={wall} span={span} kind="start" elevation={openingElevation} />
+        <OpeningHandle opening={opening} wall={wall} span={span} kind="end" elevation={openingElevation} />
+        <OpeningHandle opening={opening} wall={wall} span={span} kind="height" elevation={openingElevation} />
         {opening.kind === 'window' ? (
-          <OpeningHandle opening={opening} wall={wall} span={span} kind="sill" />
+          <OpeningHandle opening={opening} wall={wall} span={span} kind="sill" elevation={openingElevation} />
         ) : null}
       </group>
     );

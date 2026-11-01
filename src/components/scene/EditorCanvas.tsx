@@ -17,8 +17,18 @@ import { MeasurementGizmo } from './MeasurementGizmo';
 import { WallEditHandles } from './WallEditHandles';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
-import { pointInPolygon, polygonBounds, snapPoint } from '@/utils/geometry';
-import { getWallById, pointOffsetOnWall, type WallTarget } from '@/utils/walls';
+import { snapPoint } from '@/utils/geometry';
+import {
+  findWallInProject,
+  pointOffsetOnWall,
+  type WallTarget,
+} from '@/utils/walls';
+import {
+  getLevel,
+  levelElevation,
+  pointInLevel,
+  projectBounds,
+} from '@/utils/levels';
 import { isSceneDragClickBlocked } from './sceneDragGuard';
 
 export type EditorViewMode =
@@ -193,15 +203,16 @@ function FloorDropHandler() {
         ((event.clientX - rect.left) / rect.width) * 2 - 1,
         -((event.clientY - rect.top) / rect.height) * 2 + 1,
       );
+      const state = useEditorStore.getState();
+      const project = state.project;
+      if (!project) return;
+      const activeLevel = getLevel(project, state.activeLevelId);
+      const elevation = levelElevation(project, state.activeLevelId);
+      plane.constant = -elevation;
       raycaster.setFromCamera(ndc, camera);
       if (!raycaster.ray.intersectPlane(plane, point)) return;
-      const project = useEditorStore.getState().project;
-      if (!project) return;
-      if (
-        project.floor.vertices.length >= 3 &&
-        !pointInPolygon({ x: point.x, z: point.z }, project.floor.vertices)
-      ) {
-        toast('Suelta el objeto dentro de la planta para colocarlo.', 'warning');
+      if (activeLevel && !pointInLevel(activeLevel, { x: point.x, z: point.z })) {
+        toast('Suelta el objeto dentro de la planta del nivel activo.', 'warning');
         return;
       }
       const position = project.settings.snapToGrid
@@ -328,7 +339,7 @@ function CameraRig({
 
   // Encuadra la cámara ante una petición explícita de vista.
   useEffect(() => {
-    const bounds = polygonBounds(project.floor.vertices);
+    const bounds = projectBounds(project);
     const center = bounds.center;
     const span = Math.max(bounds.width, bounds.depth, 4);
     const eyeX = center.x;
@@ -519,12 +530,12 @@ function EditorSceneContents({
   const addExhibitor = useEditorStore((state) => state.addExhibitor);
   const addRotationPoint = useEditorStore((state) => state.addRotationPoint);
   const addOpening = useEditorStore((state) => state.addOpening);
+  const addStair = useEditorStore((state) => state.addStair);
   const toggleWall = useEditorStore((state) => state.toggleWall);
+  const setActiveLevel = useEditorStore((state) => state.setActiveLevel);
+  const setActiveSpace = useEditorStore((state) => state.setActiveSpace);
   const toast = useUiStore((state) => state.toast);
-  const shadowBounds = useMemo(
-    () => polygonBounds(project.floor.vertices),
-    [project.floor.vertices],
-  );
+  const shadowBounds = useMemo(() => projectBounds(project), [project]);
 
   // La vista previa local (blob) tiene prioridad sobre la URL guardada.
   const sceneEnvironment = environmentPreview
@@ -535,7 +546,10 @@ function EditorSceneContents({
       }
     : project.environment;
 
-  const handleFloorClick = (point: Vec2) => {
+  const handleFloorClick = (
+    point: Vec2,
+    target: { levelId: string; spaceId: string },
+  ) => {
     // Un clic que cierra el arrastre de un gizmo no debe deseleccionar el objeto.
     if (isSceneDragClickBlocked()) return;
     const state = useEditorStore.getState();
@@ -543,6 +557,16 @@ function EditorSceneContents({
     if (!activeProject) return;
     // La medida se gestiona con el picking global de MeasurementTool.
     if (state.measureMode) return;
+    // Al hacer clic en el suelo se activa ese nivel/espacio para colocar en él.
+    if (state.activeLevelId !== target.levelId) setActiveLevel(target.levelId);
+    if (state.activeSpaceId !== target.spaceId) setActiveSpace(target.spaceId);
+    if (state.tool === 'stair') {
+      const position = activeProject.settings.snapToGrid
+        ? snapPoint(point, activeProject.settings.gridSize)
+        : point;
+      addStair(position);
+      return;
+    }
     if (state.pendingCatalogItem) {
       const position = activeProject.settings.snapToGrid
         ? snapPoint(point, activeProject.settings.gridSize)
@@ -586,23 +610,39 @@ function EditorSceneContents({
     const state = useEditorStore.getState();
     const activeProject = state.project;
     if (!activeProject) return;
+
+    let wallId = target.type === 'internalWall' ? target.id : '';
+    if (target.type === 'edge') {
+      const level = getLevel(activeProject, state.activeLevelId);
+      const space = level?.spaces.find((entry) => entry.id === target.spaceId);
+      wallId = space?.edges[target.index]?.id ?? '';
+    }
+    const found = wallId ? findWallInProject(activeProject, wallId) : undefined;
+    if (found) {
+      if (state.activeLevelId !== found.level.id) setActiveLevel(found.level.id);
+      const spaceId = found.wall.spaceId;
+      if (spaceId && useEditorStore.getState().activeSpaceId !== spaceId) {
+        setActiveSpace(spaceId);
+      }
+    }
+
     if (state.tool === 'door' || state.tool === 'window') {
-      const wall = getWallById(
-        activeProject,
-        target.type === 'edge' ? activeProject.edges[target.index]?.id ?? '' : target.id,
+      if (!found) return;
+      addOpening(
+        found.wall.id,
+        state.tool,
+        pointOffsetOnWall(point, found.wall.a, found.wall.b),
       );
-      if (!wall) return;
-      addOpening(wall.id, state.tool, pointOffsetOnWall(point, wall.a, wall.b));
       return;
     }
     if (state.tool === 'wall' && target.type === 'edge') {
       toggleWall(target.index);
-      setSelection({ type: 'edge', index: target.index });
+      setSelection({ type: 'edge', index: target.index, spaceId: target.spaceId });
       return;
     }
     setSelection(
       target.type === 'edge'
-        ? { type: 'edge', index: target.index }
+        ? { type: 'edge', index: target.index, spaceId: target.spaceId }
         : { type: 'internalWall', id: target.id },
     );
   };
@@ -629,6 +669,15 @@ function EditorSceneContents({
       <Architecture
         project={project}
         selectedExhibitorId={selectedExhibitorId}
+        selectedStairId={selection?.type === 'stair' ? selection.id : null}
+        onSelectStair={(id) => {
+          const found = project.levels.find((level) => level.stairs.some((stair) => stair.id === id));
+          if (found) {
+            const current = useEditorStore.getState();
+            if (current.activeLevelId !== found.id) setActiveLevel(found.id);
+          }
+          setSelection({ type: 'stair', id });
+        }}
         onFloorClick={handleFloorClick}
         onWallClick={handleWallClick}
         onOpeningClick={(id) => setSelection({ type: 'opening', id })}
@@ -652,12 +701,14 @@ function EditorSceneContents({
       <WallEditHandles />
       <ExhibitorMarkers
         exhibitors={project.exhibitors}
+        project={project}
         editor
         selectedId={selection?.type === 'exhibitor' ? selection.id : null}
         onSelect={(id) => setSelection({ type: 'exhibitor', id })}
       />
       <RotationPointMarkers
         points={project.rotationPoints}
+        project={project}
         editor
         selectedId={selection?.type === 'rotationPoint' ? selection.id : null}
         onSelect={(id) => setSelection({ type: 'rotationPoint', id })}

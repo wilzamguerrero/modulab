@@ -3657,3 +3657,22 @@ input[type="range"] {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Selector de nivel/espacio en la barra superior */
+.level-switcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.level-switcher select {
+  min-width: 110px;
+  max-width: 200px;
+}
+
+@media (max-width: 720px) {
+  .level-switcher {
+    display: none;
+  }
+}

@@ -2,24 +2,28 @@ import { useState } from 'react';
 import * as THREE from 'three';
 import { Html, TransformControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
-import type { Exhibitor } from '@/types/project';
+import type { Exhibitor, Project } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { snapValue } from '@/utils/geometry';
 import { exhibitorColor } from '@/utils/exhibitorColors';
+import { entityLevelId, levelElevationMap } from '@/utils/levels';
 
 const MARKER_Y = 0.02;
 
 function ExhibitorMarker({
   exhibitor,
+  elevation = 0,
   selected,
   editor,
   onSelect,
 }: {
   exhibitor: Exhibitor;
+  elevation?: number;
   selected: boolean;
   editor: boolean;
   onSelect?: (id: string) => void;
 }) {
+  const markerY = MARKER_Y + elevation;
   const [group, setGroup] = useState<THREE.Group | null>(null);
   const beginHistory = useEditorStore((state) => state.beginHistory);
   const commitHistory = useEditorStore((state) => state.commitHistory);
@@ -39,7 +43,7 @@ function ExhibitorMarker({
       x = snapValue(x, gridSize);
       z = snapValue(z, gridSize);
     }
-    group.position.set(x, MARKER_Y, z);
+    group.position.set(x, markerY, z);
     moveExhibitor(exhibitor.id, { x, z }, { history: false });
     commitHistory();
     if (controls) controls.enabled = true;
@@ -49,7 +53,7 @@ function ExhibitorMarker({
     <>
       <group
         ref={setGroup}
-        position={[exhibitor.position.x, MARKER_Y, exhibitor.position.z]}
+        position={[exhibitor.position.x, markerY, exhibitor.position.z]}
         onClick={(event) => {
           if (!onSelect) return;
           event.stopPropagation();
@@ -103,8 +107,8 @@ function ExhibitorMarker({
           showZ
           translationSnap={snap ? gridSize : null}
           onObjectChange={() => {
-            if (group && Math.abs(group.position.y - MARKER_Y) > 1e-4) {
-              group.position.y = MARKER_Y;
+            if (group && Math.abs(group.position.y - markerY) > 1e-4) {
+              group.position.y = markerY;
             }
           }}
           onMouseDown={() => {
@@ -120,15 +124,18 @@ function ExhibitorMarker({
 
 export function ExhibitorMarkers({
   exhibitors,
+  project,
   selectedId,
   editor = false,
   onSelect,
 }: {
   exhibitors: Exhibitor[];
+  project?: Project;
   selectedId?: string | null;
   editor?: boolean;
   onSelect?: (id: string) => void;
 }) {
+  const elevations = project ? levelElevationMap(project) : {};
   return (
     <group>
       {exhibitors
@@ -137,6 +144,9 @@ export function ExhibitorMarkers({
           <ExhibitorMarker
             key={exhibitor.id}
             exhibitor={exhibitor}
+            elevation={
+              project ? elevations[entityLevelId(project, exhibitor) ?? ''] ?? 0 : 0
+            }
             selected={selectedId === exhibitor.id}
             editor={editor}
             onSelect={onSelect}

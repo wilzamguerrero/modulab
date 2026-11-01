@@ -12,7 +12,7 @@ import { SceneShadows } from '@/components/scene/SceneShadows';
 import { SceneObjects } from '@/components/scene/SceneObjects';
 import { ExhibitorMarkers } from '@/components/scene/ExhibitorMarkers';
 import { SceneSplat } from '@/components/scene/SceneSplat';
-import { polygonBounds } from '@/utils/geometry';
+import { projectBounds } from '@/utils/levels';
 
 export interface ViewerCameraCommand {
   mode: 'reset' | 'focus' | 'top';
@@ -44,7 +44,7 @@ function ViewerCamera({
       position = command.position;
       target = command.target;
     } else if (command.mode === 'top') {
-      const bounds = polygonBounds(project.floor.vertices);
+      const bounds = projectBounds(project);
       const height = Math.max(bounds.width, bounds.depth, 6) * 1.25 + 5;
       position = [bounds.center.x, height, bounds.center.z + 0.02];
       target = [bounds.center.x, 0, bounds.center.z];
@@ -117,10 +117,7 @@ export function PublicScene({
   onSelectExhibitor: (id: string) => void;
   onClearSelection: () => void;
 }) {
-  const shadowBounds = useMemo(
-    () => polygonBounds(project.floor.vertices),
-    [project.floor.vertices],
-  );
+  const shadowBounds = useMemo(() => projectBounds(project), [project]);
   const environment = useMemo(
     () => ({ ...project.environment, visible: project.environment.visible && showSplat }),
     [project.environment, showSplat],
@@ -159,6 +156,7 @@ export function PublicScene({
         />
         <ExhibitorMarkers
           exhibitors={project.exhibitors}
+          project={project}
           selectedId={selectedExhibitorId}
           onSelect={onSelectExhibitor}
         />

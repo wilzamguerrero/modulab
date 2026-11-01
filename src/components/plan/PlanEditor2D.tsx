@@ -9,7 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { Check, Maximize, Minus, Plus, X } from 'lucide-react';
-import type { SceneObject, Vec2, WallOpening } from '@/types/project';
+import type { SceneObject, Space, Stair, Vec2, WallOpening } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import {
@@ -23,6 +23,19 @@ import {
   snapPoint,
   validatePolygon,
 } from '@/utils/geometry';
+import {
+  entityLevelId,
+  getLevel,
+  getSpace,
+  levelAllVertices,
+  levelBounds,
+  pointInLevel,
+} from '@/utils/levels';
+import {
+  stairFootprintBounds,
+  stairFootprintRects,
+  transformStairPoint,
+} from '@/utils/stairs';
 import {
   getOpeningSpans,
   getSolidRanges,
@@ -54,7 +67,8 @@ type DragState =
   | { type: 'internalWallPoint'; id: string; endpoint: 'a' | 'b' }
   | { type: 'object'; id: string; offset: Vec2 }
   | { type: 'exhibitor'; id: string; offset: Vec2 }
-  | { type: 'rotationPoint'; id: string; offset: Vec2 };
+  | { type: 'rotationPoint'; id: string; offset: Vec2 }
+  | { type: 'stair'; id: string; offset: Vec2 };
 
 function fitViewport(vertices: Vec2[]): Viewport {
   if (vertices.length === 0) {
@@ -246,6 +260,14 @@ export function PlanEditor2D() {
   const moveInternalWallPoint = useEditorStore((state) => state.moveInternalWallPoint);
   const insertVertexOnInternalWall = useEditorStore((state) => state.insertVertexOnInternalWall);
   const addOpening = useEditorStore((state) => state.addOpening);
+  const activeLevelId = useEditorStore((state) => state.activeLevelId);
+  const activeSpaceId = useEditorStore((state) => state.activeSpaceId);
+  const setActiveLevel = useEditorStore((state) => state.setActiveLevel);
+  const setActiveSpace = useEditorStore((state) => state.setActiveSpace);
+  const addSpace = useEditorStore((state) => state.addSpace);
+  const addHole = useEditorStore((state) => state.addHole);
+  const addStair = useEditorStore((state) => state.addStair);
+  const moveStair = useEditorStore((state) => state.moveStair);
   const toast = useUiStore((state) => state.toast);
 
   const gridId = `plan-grid-${useId().replace(/:/g, '')}`;
@@ -256,15 +278,23 @@ export function PlanEditor2D() {
   const suppressClickRef = useRef(false);
   const lastProjectId = useRef(project?.id ?? '');
 
+  const activeLevel = project ? getLevel(project, activeLevelId) : undefined;
+  const activeSpace = getSpace(activeLevel, activeSpaceId);
   const [viewport, setViewport] = useState<Viewport>(() =>
-    fitViewport(project?.floor.vertices ?? []),
+    fitViewport(activeSpace?.vertices ?? []),
   );
   const [draft, setDraft] = useState<Vec2[]>([]);
   const [hover, setHover] = useState<Vec2 | null>(null);
   const [wallStart, setWallStart] = useState<Vec2 | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
+  const lastScope = useRef(`${activeLevelId ?? ''}:${activeSpaceId ?? ''}`);
 
-  const vertices = project?.floor.vertices ?? [];
+  const vertices = activeSpace?.vertices ?? [];
+  const edges = activeSpace?.edges ?? [];
+  const spaces = activeLevel?.spaces ?? [];
+  const internalWalls = activeLevel?.internalWalls ?? [];
+  const levelOpenings = activeLevel?.openings ?? [];
+  const stairs = activeLevel?.stairs ?? [];
   const settings = project?.settings;
   const snap = settings?.snapToGrid ?? false;
   const gridSize = settings?.gridSize ?? 0.25;
@@ -272,11 +302,17 @@ export function PlanEditor2D() {
   const showGrid = settings?.showGrid ?? true;
 
   useEffect(() => {
-    if (!project || lastProjectId.current === project.id) return;
+    if (!project) return;
+    const scope = `${activeLevelId ?? ''}:${activeSpaceId ?? ''}`;
+    if (lastProjectId.current === project.id && lastScope.current === scope) return;
     lastProjectId.current = project.id;
-    setViewport(fitViewport(project.floor.vertices));
+    lastScope.current = scope;
+    const level = getLevel(project, activeLevelId);
+    setViewport(fitViewport(levelBounds(level).width ? levelAllVertices(level) : []));
     setDraft([]);
-  }, [project]);
+    setWallStart(null);
+    setHover(null);
+  }, [project, activeLevelId, activeSpaceId]);
 
   useEffect(() => {
     if (tool !== 'draw') setDraft([]);
@@ -304,9 +340,11 @@ export function PlanEditor2D() {
   const snapToPlanPoint = useCallback(
     (point: Vec2) => {
       const threshold = Math.max(viewport.width / 55, 0.18);
+      const level = project ? getLevel(project, activeLevelId) : undefined;
       const candidates: Vec2[] = [
-        ...(project?.floor.vertices ?? []),
-        ...(project?.internalWalls.flatMap((wall) => [wall.a, wall.b]) ?? []),
+        ...levelAllVertices(level),
+        ...(level?.internalWalls.flatMap((wall) => [wall.a, wall.b]) ?? []),
+        ...(level?.stairs.map((stair) => stair.position) ?? []),
       ];
       let closest: Vec2 | null = null;
       let closestDistance = threshold;
@@ -320,7 +358,7 @@ export function PlanEditor2D() {
       if (closest) return { ...closest };
       return snap ? snapPoint(point, gridSize) : point;
     },
-    [project?.floor.vertices, project?.internalWalls, viewport.width, snap, gridSize],
+    [project, activeLevelId, viewport.width, snap, gridSize],
   );
 
   const zoomAt = useCallback((factor: number, center?: Vec2) => {
@@ -360,10 +398,39 @@ export function PlanEditor2D() {
       toast(validation.errors[0] || 'La planta no es válida.', 'error');
       return;
     }
+    if (planDrawMode === 'space') {
+      const id = addSpace(draft.map((point) => ({ ...point })));
+      if (!id) {
+        toast('No se pudo crear el espacio.', 'error');
+        return;
+      }
+      setViewport(fitViewport(levelAllVertices(activeLevel).concat(draft)));
+      setDraft([]);
+      setHover(null);
+      setTool('select');
+      toast('Espacio creado en el nivel activo.', 'success');
+      return;
+    }
+    if (planDrawMode === 'hole') {
+      if (!draft.every((point) => pointInPolygon(point, vertices))) {
+        toast('El corte debe quedar dentro del espacio activo.', 'warning');
+        return;
+      }
+      const id = addHole(draft.map((point) => ({ ...point })));
+      if (!id) {
+        toast('No se pudo crear el hueco.', 'error');
+        return;
+      }
+      setDraft([]);
+      setHover(null);
+      setTool('select');
+      toast('Hueco recortado en el suelo. Coloca la escalera en el corte.', 'success');
+      return;
+    }
     const canPartition = vertices.length >= 3;
     if (canPartition && planDrawMode === 'partition') {
-      if (!draft.every((point) => pointInPolygon(point, vertices))) {
-        toast('La división debe quedar dentro de la planta actual.', 'warning');
+      if (!draft.every((point) => pointInLevel(activeLevel, point))) {
+        toast('La división debe quedar dentro de algún espacio del nivel.', 'warning');
         return;
       }
       const ids = addInternalWallLoop(draft.map((point) => ({ ...point })));
@@ -382,8 +449,19 @@ export function PlanEditor2D() {
     setDraft([]);
     setHover(null);
     setTool('select');
-    toast('Contorno reemplazado. Las divisiones interiores se conservaron.', 'success');
-  }, [draft, vertices, planDrawMode, addInternalWallLoop, replacePlan, setTool, toast]);
+    toast('Contorno del espacio reemplazado. Las divisiones interiores se conservaron.', 'success');
+  }, [
+    draft,
+    vertices,
+    planDrawMode,
+    activeLevel,
+    addSpace,
+    addHole,
+    addInternalWallLoop,
+    replacePlan,
+    setTool,
+    toast,
+  ]);
 
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null) => {
@@ -528,6 +606,14 @@ export function PlanEditor2D() {
         z: point.z + drag.offset.z,
       });
       moveRotationPoint(drag.id, next, { history: false, touch: false });
+      return;
+    }
+    if (drag.type === 'stair') {
+      const next = snapPointIfNeeded({
+        x: point.x + drag.offset.x,
+        z: point.z + drag.offset.z,
+      });
+      moveStair(drag.id, next, { history: false, touch: false });
     }
   };
 
@@ -582,8 +668,8 @@ export function PlanEditor2D() {
     }
 
     if (state.pendingCatalogItem) {
-      if (vertices.length >= 3 && !pointInPolygon(point, vertices)) {
-        toast('Coloca el objeto dentro de la planta.', 'warning');
+      if (activeLevel && (activeLevel.spaces.some((s) => s.vertices.length >= 3)) && !pointInLevel(activeLevel, point)) {
+        toast('Coloca el objeto dentro de un espacio del nivel activo.', 'warning');
         return;
       }
       const id = addObject(state.pendingCatalogItem, point);
@@ -591,9 +677,18 @@ export function PlanEditor2D() {
       return;
     }
 
+    if (state.tool === 'stair') {
+      if (activeLevel && (activeLevel.spaces.some((s) => s.vertices.length >= 3)) && !pointInLevel(activeLevel, point)) {
+        toast('Coloca la escalera dentro de un espacio del nivel activo.', 'warning');
+        return;
+      }
+      addStair(point);
+      return;
+    }
+
     if (state.tool === 'exhibitor') {
-      if (vertices.length >= 3 && !pointInPolygon(point, vertices)) {
-        toast('Coloca el expositor dentro de la planta.', 'warning');
+      if (activeLevel && (activeLevel.spaces.some((s) => s.vertices.length >= 3)) && !pointInLevel(activeLevel, point)) {
+        toast('Coloca el expositor dentro de un espacio del nivel activo.', 'warning');
         return;
       }
       addExhibitor(point);
@@ -601,8 +696,8 @@ export function PlanEditor2D() {
     }
 
     if (state.tool === 'rotationPoint') {
-      if (vertices.length >= 3 && !pointInPolygon(point, vertices)) {
-        toast('Coloca el punto de rotación dentro de la planta.', 'warning');
+      if (activeLevel && (activeLevel.spaces.some((s) => s.vertices.length >= 3)) && !pointInLevel(activeLevel, point)) {
+        toast('Coloca el punto de rotación dentro de un espacio del nivel activo.', 'warning');
         return;
       }
       addRotationPoint(point);
@@ -617,7 +712,7 @@ export function PlanEditor2D() {
     event.stopPropagation();
     event.preventDefault();
     beginDrag(event, { type: 'vertex', index });
-    setSelection({ type: 'vertex', index });
+    setSelection({ type: 'vertex', index, spaceId: activeSpace?.id });
   };
 
   const onInternalWallPointPointerDown = (
@@ -674,11 +769,24 @@ export function PlanEditor2D() {
     setSelection({ type: 'rotationPoint', id });
   };
 
+  const onStairPointerDown = (event: ReactPointerEvent, stair: Stair) => {
+    if (tool !== 'select') return;
+    event.stopPropagation();
+    event.preventDefault();
+    const point = toWorld(event.clientX, event.clientY);
+    beginDrag(event, {
+      type: 'stair',
+      id: stair.id,
+      offset: { x: stair.position.x - point.x, z: stair.position.z - point.z },
+    });
+    setSelection({ type: 'stair', id: stair.id });
+  };
+
   const handleEdgeClick = (event: ReactMouseEvent, index: number) => {
     if (tool === 'internalWall') return;
     event.stopPropagation();
     if ((tool === 'door' || tool === 'window') && event.detail > 1) return;
-    const edge = project.edges[index];
+    const edge = activeSpace?.edges[index];
     const a = vertices[index];
     const b = vertices[(index + 1) % vertices.length];
     if (!edge || !a || !b) return;
@@ -697,14 +805,14 @@ export function PlanEditor2D() {
     if (tool === 'wall') {
       toggleWall(index);
     }
-    setSelection({ type: 'edge', index });
+    setSelection({ type: 'edge', index, spaceId: activeSpace?.id });
   };
 
   const handleInternalWallClick = (event: ReactMouseEvent, wallId: string) => {
     if (tool === 'internalWall') return;
     event.stopPropagation();
     if ((tool === 'door' || tool === 'window') && event.detail > 1) return;
-    const wall = project.internalWalls.find((entry) => entry.id === wallId);
+    const wall = internalWalls.find((entry) => entry.id === wallId);
     if (!wall) return;
     if (tool === 'door' || tool === 'window') {
       const point = toWorld(event.clientX, event.clientY);
@@ -719,16 +827,22 @@ export function PlanEditor2D() {
   };
 
   const area = vertices.length >= 3 ? polygonArea(vertices) : 0;
-  const wallCount = project.edges.filter((edge) => edge.wall).length + project.internalWalls.length;
+  const wallCount = spaces.reduce(
+    (total, space) => total + space.edges.filter((edge) => edge.wall).length,
+    0,
+  ) + internalWalls.length;
   const validation = validatePolygon(vertices);
   const textSize = Math.max(viewport.width / 115, 0.11);
   const hitWidth = Math.max(viewport.width / 90, 0.22);
   const vertexRadius = Math.max(viewport.width / 230, 0.055);
+  const sameSpace = (spaceId?: string) => !spaceId || spaceId === activeSpace?.id;
   const selectedVertex =
-    selection?.type === 'vertex' ? selection.index : null;
-  const selectedEdge = selection?.type === 'edge' ? selection.index : null;
+    selection?.type === 'vertex' && sameSpace(selection.spaceId) ? selection.index : null;
+  const selectedEdge =
+    selection?.type === 'edge' && sameSpace(selection.spaceId) ? selection.index : null;
   const selectedInternalWall = selection?.type === 'internalWall' ? selection.id : null;
   const selectedOpening = selection?.type === 'opening' ? selection.id : null;
+  const selectedHole = selection?.type === 'hole' ? selection.id : null;
   const selectedExhibitorId = selection?.type === 'exhibitor' ? selection.id : null;
   const openingPaintColor = (opening: WallOpening) => {
     const exhibitor = findExhibitor(project, opening.exhibitorId);
@@ -741,7 +855,9 @@ export function PlanEditor2D() {
 
   const objectFootprints = useMemo(
     () =>
-      project.objects.map((object) => {
+      project.objects
+        .filter((object) => entityLevelId(project, object) === activeLevel?.id)
+        .map((object) => {
         const size = object.size ?? [0.8, 1, 0.8];
         return {
           object,
@@ -749,7 +865,7 @@ export function PlanEditor2D() {
           depth: Math.max(size[2] * Math.abs(object.transform.scale[2]), 0.18),
         };
       }),
-    [project.objects],
+    [project, activeLevel],
   );
 
   return (
@@ -839,17 +955,56 @@ export function PlanEditor2D() {
           strokeWidth={Math.max(viewport.width / 1400, 0.004)}
         />
 
+        {spaces
+          .filter((space) => space.id !== activeSpace?.id && space.vertices.length >= 3)
+          .map((space) => (
+            <polygon
+              key={space.id}
+              points={space.vertices.map((point) => `${point.x},${point.z}`).join(' ')}
+              fill={space.color}
+              fillOpacity={0.08}
+              stroke="rgba(255,255,255,.16)"
+              strokeWidth={Math.max(viewport.width / 1200, 0.005)}
+              strokeDasharray={`${viewport.width / 140} ${viewport.width / 200}`}
+              style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
+              onClick={(event) => {
+                if (tool !== 'select') return;
+                event.stopPropagation();
+                setActiveSpace(space.id);
+              }}
+            />
+          ))}
+
         {vertices.length >= 3 ? (
           <g opacity={dimExisting ? 0.35 : 1}>
             <polygon
               points={vertices.map((point) => `${point.x},${point.z}`).join(' ')}
-              fill={project.floor.color}
+              fill={activeSpace?.color ?? '#b8ae9d'}
               fillOpacity={0.22}
               stroke="rgba(255,255,255,.16)"
               strokeWidth={Math.max(viewport.width / 1000, 0.006)}
               strokeLinejoin="round"
             />
-            {project.edges.map((edge, index) => {
+            {(activeSpace?.holes ?? []).map((hole) =>
+              hole.vertices.length >= 3 ? (
+                <polygon
+                  key={hole.id}
+                  data-hole-id={hole.id}
+                  points={hole.vertices.map((point) => `${point.x},${point.z}`).join(' ')}
+                  fill="rgba(9,12,15,.94)"
+                  stroke={selectedHole === hole.id ? '#ff8a65' : 'rgba(255,138,101,.75)'}
+                  strokeWidth={Math.max(viewport.width / 1100, 0.008)}
+                  strokeDasharray={`${viewport.width / 150} ${viewport.width / 220}`}
+                  style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
+                  onClick={(event) => {
+                    if (tool !== 'select') return;
+                    event.stopPropagation();
+                    setSelection({ type: 'hole', id: hole.id, spaceId: activeSpace?.id });
+                  }}
+                />
+              ) : null,
+            )}
+            {edges.map((edge, index) => {
               const a = vertices[index];
               const b = vertices[(index + 1) % vertices.length];
               if (!a || !b) return null;
@@ -858,7 +1013,7 @@ export function PlanEditor2D() {
               const length = edgeLength(vertices, index);
               const edgeOpenings = isOpen
                 ? []
-                : project.openings.filter((opening) => opening.wallId === edge.id);
+                : levelOpenings.filter((opening) => opening.wallId === edge.id);
               const ranges = isOpen ? [] : getSolidRanges(length, edgeOpenings);
               const wallColor = isSelected
                 ? '#d7ff4f'
@@ -914,7 +1069,7 @@ export function PlanEditor2D() {
                       event.stopPropagation();
                       if (tool === 'wall' || tool === 'door' || tool === 'window' || tool === 'internalWall') return;
                       toggleWall(index);
-                      setSelection({ type: 'edge', index });
+                      setSelection({ type: 'edge', index, spaceId: activeSpace?.id });
                     }}
                   />
                   {!isOpen ? (
@@ -951,11 +1106,11 @@ export function PlanEditor2D() {
           </g>
         ) : null}
 
-        {project.internalWalls.map((wall) => {
+        {internalWalls.map((wall) => {
           const selected = selectedInternalWall === wall.id;
           const length = wallLength(wall.a, wall.b);
           if (length <= 0.01) return null;
-          const wallOpenings = project.openings.filter((opening) => opening.wallId === wall.id);
+          const wallOpenings = levelOpenings.filter((opening) => opening.wallId === wall.id);
           const ranges = getSolidRanges(length, wallOpenings);
           const wallColor = selected
             ? '#d7ff4f'
@@ -1042,9 +1197,92 @@ export function PlanEditor2D() {
           );
         })}
 
+        {stairs.map((stair) => {
+          if (!stair.visible) return null;
+          const selected = selection?.type === 'stair' && selection.id === stair.id;
+          const rects = stairFootprintRects(stair);
+          const bounds = stairFootprintBounds(stair);
+          const run = stair.kind === 'straight'
+            ? stair.steps * stair.tread
+            : Math.max(0.6, stair.steps * stair.tread * 0.5);
+          const start = transformStairPoint(stair, { x: 0, z: 0 });
+          const end = transformStairPoint(stair, { x: 0, z: run });
+          const length = Math.max(distance(start, end), 0.001);
+          const ux = (end.x - start.x) / length;
+          const uz = (end.z - start.z) / length;
+          const head = Math.max(viewport.width / 90, 0.16);
+          return (
+            <g
+              key={stair.id}
+              data-stair-id={stair.id}
+              style={{ cursor: tool === 'select' ? 'grab' : 'default' }}
+              onPointerDown={(event) => onStairPointerDown(event, stair)}
+              onClick={(event) => {
+                if (tool !== 'select') return;
+                event.stopPropagation();
+                setSelection({ type: 'stair', id: stair.id });
+              }}
+            >
+              {rects.map((rect, index) => {
+                const points = [
+                  { x: rect.x0, z: rect.z0 },
+                  { x: rect.x1, z: rect.z0 },
+                  { x: rect.x1, z: rect.z1 },
+                  { x: rect.x0, z: rect.z1 },
+                ]
+                  .map((corner) => transformStairPoint(stair, corner))
+                  .map((corner) => `${corner.x},${corner.z}`)
+                  .join(' ');
+                return (
+                  <polygon
+                    key={`${stair.id}-rect-${index}`}
+                    points={points}
+                    fill={selected ? 'rgba(215,255,79,.3)' : 'rgba(201,194,180,.24)'}
+                    stroke={selected ? '#d7ff4f' : 'rgba(255,255,255,.45)'}
+                    strokeWidth={Math.max(viewport.width / 1300, 0.008)}
+                    strokeLinejoin="round"
+                  />
+                );
+              })}
+              <line
+                x1={start.x}
+                y1={start.z}
+                x2={end.x}
+                y2={end.z}
+                stroke={selected ? '#d7ff4f' : 'rgba(255,255,255,.7)'}
+                strokeWidth={Math.max(viewport.width / 1100, 0.012)}
+                pointerEvents="none"
+              />
+              <polyline
+                points={[
+                  { x: end.x - ux * head - uz * head * 0.6, z: end.z - uz * head + ux * head * 0.6 },
+                  { x: end.x, z: end.z },
+                  { x: end.x - ux * head + uz * head * 0.6, z: end.z - uz * head - ux * head * 0.6 },
+                ].map((point) => `${point.x},${point.z}`).join(' ')}
+                fill="none"
+                stroke={selected ? '#d7ff4f' : 'rgba(255,255,255,.7)'}
+                strokeWidth={Math.max(viewport.width / 1100, 0.012)}
+                pointerEvents="none"
+              />
+              <text
+                x={bounds.center.x}
+                y={bounds.center.z}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill={selected ? '#d7ff4f' : 'rgba(255,255,255,.75)'}
+                fontSize={textSize * 0.9}
+                fontFamily="var(--mono)"
+                pointerEvents="none"
+              >
+                {stair.name}
+              </text>
+            </g>
+          );
+        })}
+
         {selectedInternalWall && tool === 'select'
           ? (() => {
-              const wall = project.internalWalls.find((entry) => entry.id === selectedInternalWall);
+              const wall = internalWalls.find((entry) => entry.id === selectedInternalWall);
               if (!wall) return null;
               return (['a', 'b'] as const).map((endpoint) => {
                 const point = wall[endpoint];
@@ -1127,7 +1365,9 @@ export function PlanEditor2D() {
           );
         })}
 
-        {project.exhibitors.map((exhibitor) => {
+        {project.exhibitors
+          .filter((exhibitor) => entityLevelId(project, exhibitor) === activeLevel?.id)
+          .map((exhibitor) => {
           const selected = selection?.type === 'exhibitor' && selection.id === exhibitor.id;
           const radius = Math.max(viewport.width / 120, 0.18);
           const color = exhibitor.notionMissing
@@ -1178,7 +1418,9 @@ export function PlanEditor2D() {
           );
         })}
 
-        {project.rotationPoints.map((point) => {
+        {project.rotationPoints
+          .filter((point) => entityLevelId(project, point) === activeLevel?.id)
+          .map((point) => {
           const selected = selection?.type === 'rotationPoint' && selection.id === point.id;
           const radius = Math.max(viewport.width / 170, 0.13);
           const color = selected ? '#d7ff4f' : '#b48cff';
@@ -1335,11 +1577,12 @@ export function PlanEditor2D() {
       </svg>
 
       <div className="plan-hud">
+        <span><strong>{activeLevel?.name ?? '—'}</strong> · {activeSpace?.name ?? 'sin espacio'}</span>
         <span><strong>{formatArea(area)}</strong> área</span>
         <span><strong>{vertices.length}</strong> vértices</span>
         <span><strong>{wallCount}</strong> muros</span>
-        <span><strong>{project.internalWalls.length}</strong> divisiones</span>
-        <span><strong>{project.openings.length}</strong> aberturas</span>
+        <span><strong>{internalWalls.length}</strong> divisiones</span>
+        <span><strong>{levelOpenings.length}</strong> aberturas</span>
         {!validation.valid ? <span className="status-error">planta incompleta</span> : null}
       </div>
 
@@ -1352,7 +1595,16 @@ export function PlanEditor2D() {
       <div className="plan-zoom">
         <button type="button" title="Acercar" onClick={() => zoomAt(0.82)}><Plus size={15} /></button>
         <button type="button" title="Alejar" onClick={() => zoomAt(1.22)}><Minus size={15} /></button>
-        <button type="button" title="Ajustar a la planta" onClick={() => setViewport(fitViewport(vertices))}><Maximize size={15} /></button>
+        <button
+          type="button"
+          title="Ajustar al nivel"
+          onClick={() => {
+            const all = levelAllVertices(activeLevel);
+            setViewport(fitViewport(all.length ? all : vertices));
+          }}
+        >
+          <Maximize size={15} />
+        </button>
       </div>
 
       {tool === 'draw' ? (
@@ -1373,6 +1625,21 @@ export function PlanEditor2D() {
           >
             Reemplazar contorno
           </button>
+          <button
+            type="button"
+            className={planDrawMode === 'space' ? 'is-active' : ''}
+            onClick={() => setPlanDrawMode('space')}
+          >
+            Nuevo espacio
+          </button>
+          <button
+            type="button"
+            className={planDrawMode === 'hole' ? 'is-active' : ''}
+            onClick={() => setPlanDrawMode('hole')}
+            disabled={vertices.length < 3}
+          >
+            Hueco en el suelo
+          </button>
         </div>
       ) : null}
 
@@ -1380,13 +1647,25 @@ export function PlanEditor2D() {
         <div className="plan-draw-actions">
           <span>
             {draft.length} vértice{draft.length === 1 ? '' : 's'} · Enter para{' '}
-            {planDrawMode === 'partition' && vertices.length >= 3 ? 'añadir la división' : 'cerrar'}
+            {planDrawMode === 'space'
+              ? 'crear el espacio'
+              : planDrawMode === 'hole'
+                ? 'recortar el hueco'
+                : planDrawMode === 'partition' && vertices.length >= 3
+                  ? 'añadir la división'
+                  : 'cerrar'}
           </span>
           <Button size="sm" variant="ghost" onClick={() => { setDraft([]); setHover(null); }} icon={<X size={13} />}>
             Descartar
           </Button>
           <Button size="sm" variant="primary" onClick={closeDraft} icon={<Check size={13} />} disabled={draft.length < 3}>
-            {planDrawMode === 'partition' && vertices.length >= 3 ? 'Añadir división' : 'Cerrar contorno'}
+            {planDrawMode === 'space'
+              ? 'Crear espacio'
+              : planDrawMode === 'hole'
+                ? 'Recortar hueco'
+                : planDrawMode === 'partition' && vertices.length >= 3
+                  ? 'Añadir división'
+                  : 'Cerrar contorno'}
           </Button>
         </div>
       ) : null}
@@ -1409,8 +1688,13 @@ export function PlanEditor2D() {
         {tool === 'draw' ? (
           <>
             <strong>Dibujar:</strong> haz clic para añadir vértices. Cierra haciendo clic en el primer
-            punto o pulsa Enter. Elige «Añadir división» para conservar la planta y los objetos, o
-            «Reemplazar contorno» para redibujar el perímetro.
+            punto o pulsa Enter. «Añadir división» crea muros interiores, «Reemplazar contorno»
+            redibuja el espacio activo y «Nuevo espacio» crea otro recinto en el mismo nivel.
+          </>
+        ) : tool === 'stair' ? (
+          <>
+            <strong>Escalera:</strong> haz clic dentro de un espacio para colocarla. Ajusta tipo
+            (recta, L o U), peldaños, altura, ancho, huella y barandilla en el inspector.
           </>
         ) : tool === 'internalWall' ? (
           <>
@@ -1470,8 +1754,8 @@ export function PlanEditor2D() {
 
       {vertices.length === 0 && tool !== 'draw' ? (
         <div className="plan-empty">
-          <strong>La planta está vacía</strong>
-          <p>Usa «Dibujar contorno» o reemplaza la planta por una plantilla desde el panel de planta.</p>
+          <strong>Este espacio está vacío</strong>
+          <p>Dibuja su contorno o crea un espacio nuevo desde el panel de planta.</p>
           <Button
             size="sm"
             variant="primary"

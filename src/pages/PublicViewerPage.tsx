@@ -22,6 +22,7 @@ import { fetchPublished } from '@/services/publishing/publishService';
 import { notionPhotoUrl } from '@/services/notion/notionService';
 import { defaultExhibitorCamera, isExhibitorCameraUsable } from '@/data/defaults';
 import { pointInPolygon } from '@/utils/geometry';
+import { entityLevelId, getLevel, levelVertices } from '@/utils/levels';
 import { exhibitorColor } from '@/utils/exhibitorColors';
 
 function initials(name: string): string {
@@ -89,6 +90,9 @@ export function focusCameraFor(
   exhibitor: Exhibitor,
   project: Project,
 ): { position: [number, number, number]; target: [number, number, number] } {
+  const level = getLevel(project, entityLevelId(project, exhibitor));
+  const vertices = levelVertices(level);
+  const elevation = level?.elevation ?? 0;
   const position = exhibitor.cameraPosition;
   const target = exhibitor.cameraTarget;
   const distance = Math.hypot(
@@ -97,21 +101,20 @@ export function focusCameraFor(
     position[2] - target[2],
   );
   const targetInside =
-    project.floor.vertices.length < 3 ||
-    pointInPolygon({ x: target[0], z: target[2] }, project.floor.vertices);
+    vertices.length < 3 || pointInPolygon({ x: target[0], z: target[2] }, vertices);
   if (
     finiteVector(position) &&
     finiteVector(target) &&
     !isSchemaDefaultCamera(position, target) &&
     !sharesCameraWithOther(exhibitor, project) &&
-    position[1] >= 0.35 &&
+    position[1] >= elevation + 0.35 &&
     distance >= 0.8 &&
     targetInside &&
-    isExhibitorCameraUsable(position, project.floor.vertices)
+    isExhibitorCameraUsable(position, vertices)
   ) {
     return { position, target };
   }
-  return defaultExhibitorCamera(exhibitor.position, project.floor.vertices);
+  return defaultExhibitorCamera(exhibitor.position, vertices, elevation);
 }
 
 function distanceToSegment(point: Vec2, a: Vec2, b: Vec2): number {
@@ -233,12 +236,22 @@ function ExhibitorCard({
     (object) =>
       object.exhibitorId === exhibitor.id || exhibitor.relatedObjectIds.includes(object.id),
   );
-  const relatedWalls =
-    project.edges.filter((edge) => edge.exhibitorId === exhibitor.id).length +
-    project.internalWalls.filter((wall) => wall.exhibitorId === exhibitor.id).length;
-  const relatedOpenings = project.openings.filter(
-    (opening) => opening.exhibitorId === exhibitor.id,
-  ).length;
+  const relatedWalls = project.levels.reduce(
+    (total, level) =>
+      total +
+      level.spaces.reduce(
+        (spaceTotal, space) =>
+          spaceTotal + space.edges.filter((edge) => edge.exhibitorId === exhibitor.id).length,
+        0,
+      ) +
+      level.internalWalls.filter((wall) => wall.exhibitorId === exhibitor.id).length,
+    0,
+  );
+  const relatedOpenings = project.levels.reduce(
+    (total, level) =>
+      total + level.openings.filter((opening) => opening.exhibitorId === exhibitor.id).length,
+    0,
+  );
   const relatedTotal = related.length + relatedWalls + relatedOpenings;
 
   return (
@@ -362,8 +375,13 @@ export function PublicViewerPage() {
       z: publicProject.camera.target[2],
     };
     const pivot = pickRotationPoint(publicProject.rotationPoints, from, exhibitor.position);
+    const pivotLevel = pivot ? getLevel(publicProject, entityLevelId(publicProject, pivot)) : undefined;
     const via = pivot
-      ? defaultExhibitorCamera(pivot.position, publicProject.floor.vertices)
+      ? defaultExhibitorCamera(
+          pivot.position,
+          levelVertices(pivotLevel),
+          pivotLevel?.elevation ?? 0,
+        )
       : undefined;
     setCameraCommand((current) => ({
       mode: 'focus',
