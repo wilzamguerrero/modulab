@@ -1124,15 +1124,24 @@ input[type="range"] {
   padding: 6px;
   gap: 2px;
   border-bottom: 1px solid var(--border);
+  /* Con cinco pestañas hay sitio de sobra; si el panel es muy estrecho se
+     desplazan en horizontal en vez de comprimir los iconos y traslaparse. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sidebar-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .sidebar-tabs button {
-  flex: 1;
+  flex: 1 0 auto;
+  min-width: 52px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  padding: 7px 3px 6px;
+  padding: 7px 8px 6px;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -1140,6 +1149,7 @@ input[type="range"] {
   font-size: 9px;
   font-weight: 650;
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .sidebar-tabs button:hover {
@@ -1154,6 +1164,57 @@ input[type="range"] {
 
 .sidebar-tabs button span {
   line-height: 1;
+}
+
+/* Subpestañas dentro de un panel (p. ej. Luces / Cortes en Entorno). */
+.panel-subtabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-soft);
+}
+
+.panel-subtabs button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.panel-subtabs button:hover {
+  color: var(--text);
+}
+
+.panel-subtabs button.is-active {
+  background: var(--panel-3);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.panel-subtabs .tab-count {
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 9px;
+  font-family: var(--mono);
 }
 
 .sidebar-content {

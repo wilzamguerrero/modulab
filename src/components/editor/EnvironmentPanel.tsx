@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Globe2, HardDriveUpload, Ruler, Trash2, Upload } from 'lucide-react';
+import { Globe2, HardDriveUpload, Lightbulb, Ruler, Scissors, Trash2, Upload } from 'lucide-react';
 import type { Project, Vec3 } from '@/types/project';
 import {
   Badge,
@@ -15,6 +15,11 @@ import {
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { detectSplatFormat, uploadSplatToNotion } from '@/services/assets/splatService';
+import { HolesPanel } from './HolesPanel';
+import { LightsPanel } from './LightsPanel';
+
+/** Secciones del panel de entorno: el propio splat y los ajustes del espacio. */
+export type EnvironmentSection = 'environment' | 'lights' | 'holes';
 
 function Vec3Field({
   value,
@@ -48,7 +53,70 @@ function measurementDistance(a: Vec3, b: Vec3): number {
   return Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
 }
 
-export function EnvironmentPanel({ project }: { project: Project }) {
+export function EnvironmentPanel({
+  project,
+  section: initialSection = 'environment',
+}: {
+  project: Project;
+  /** Sección con la que se abre el panel. */
+  section?: EnvironmentSection;
+}) {
+  const [section, setSection] = useState<EnvironmentSection>(initialSection);
+  const holeCount = project.levels.reduce(
+    (total, level) => total + level.spaces.reduce((sum, space) => sum + space.holes.length, 0),
+    0,
+  );
+
+  return (
+    <div>
+      {/* Iluminación y cortes son ajustes del espacio, no del proyecto, así que
+          viven aquí dentro y la barra lateral se queda en cinco pestañas. */}
+      <div className="panel-subtabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === 'environment'}
+          className={section === 'environment' ? 'is-active' : ''}
+          onClick={() => setSection('environment')}
+        >
+          <Globe2 size={13} />
+          Entorno
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === 'lights'}
+          className={section === 'lights' ? 'is-active' : ''}
+          onClick={() => setSection('lights')}
+        >
+          <Lightbulb size={13} />
+          Luces
+          <span className="tab-count">{project.lights.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === 'holes'}
+          className={section === 'holes' ? 'is-active' : ''}
+          onClick={() => setSection('holes')}
+        >
+          <Scissors size={13} />
+          Cortes
+          <span className="tab-count">{holeCount}</span>
+        </button>
+      </div>
+      {section === 'lights' ? (
+        <LightsPanel project={project} />
+      ) : section === 'holes' ? (
+        <HolesPanel project={project} />
+      ) : (
+        <EnvironmentSectionPanel project={project} />
+      )}
+    </div>
+  );
+}
+
+function EnvironmentSectionPanel({ project }: { project: Project }) {
   const setEnvironment = useEditorStore((state) => state.setEnvironment);
   const setEnvironmentPreview = useEditorStore((state) => state.setEnvironmentPreview);
   const environmentPreview = useEditorStore((state) => state.environmentPreview);

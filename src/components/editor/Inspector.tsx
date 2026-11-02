@@ -133,8 +133,11 @@ function CommitNumberInput({
     setEditing(false);
     const next = Number(text.replace(',', '.'));
     if (Number.isFinite(next)) {
+      // No se reformatea aquí: al salir se deja de editar y el efecto de arriba
+      // vuelve a pintar el valor real del piso. Eso importa porque el giro se
+      // normaliza (escribir 360° lo deja en 0°) y el campo debe coincidir con
+      // lo que de verdad quedó en el nivel.
       onCommit(next);
-      setText(format(next));
     } else {
       setText(format(value));
     }
@@ -148,7 +151,16 @@ function CommitNumberInput({
         step={step}
         value={text}
         onFocus={() => setEditing(true)}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => {
+          const raw = event.target.value;
+          setText(raw);
+          // Las flechas del campo (y las de teclado) emiten un valor ya completo:
+          // se aplica al momento para que el piso gire al pulsarlas. Mientras se
+          // escribe, los estados intermedios («-», «1.») no son números válidos y
+          // no se aplican, y el texto no se reformatea hasta salir del campo.
+          const next = Number(raw.replace(',', '.'));
+          if (raw.trim() !== '' && Number.isFinite(next)) onCommit(next);
+        }}
         onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
