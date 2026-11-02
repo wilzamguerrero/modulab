@@ -1893,6 +1893,16 @@ function SpaceInspector({ project, space }: { project: Project; space: Space }) 
       <Field label="Color del suelo">
         <ColorInput value={space.color} onChange={(color) => updateSpace(space.id, { color })} />
       </Field>
+      <Field label="Espesor del forjado (m)">
+        <NumberInput
+          value={space.thickness ?? 0.2}
+          onChange={(thickness) => updateSpace(space.id, { thickness })}
+          min={0.02}
+          max={2}
+          step={0.01}
+          suffix="m"
+        />
+      </Field>
       <Switch
         checked={space.visible}
         onChange={(visible) => updateSpace(space.id, { visible })}

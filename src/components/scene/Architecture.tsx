@@ -16,6 +16,7 @@ import {
 } from '@/utils/walls';
 import { buildStairBoxes } from '@/utils/stairs';
 import { fitStairToLevels } from '@/utils/levels';
+import { floorSlabGeometry } from '@/utils/floorGeometry';
 import {
   exhibitorColor,
   exhibitorPaintAmount,
@@ -26,21 +27,16 @@ import {
 /** Los muros se hunden unos centímetros en el piso para cerrar la junta. */
 const WALL_FLOOR_OVERLAP = 0.02;
 
-function floorGeometry(vertices: Vec2[], holes: Vec2[][] = []): THREE.BufferGeometry | null {
-  if (vertices.length < 3) return null;
-  const shape = new THREE.Shape(
-    vertices.map((vertex) => new THREE.Vector2(vertex.x, -vertex.z)),
-  );
-  for (const hole of holes) {
-    if (hole.length < 3) continue;
-    shape.holes.push(
-      new THREE.Path(hole.map((vertex) => new THREE.Vector2(vertex.x, -vertex.z))),
-    );
-  }
-  const geometry = new THREE.ShapeGeometry(shape);
-  geometry.rotateX(-Math.PI / 2);
-  geometry.computeVertexNormals();
-  return geometry;
+/** Espesor de forjado que se usa si un espacio antiguo llega sin el campo. */
+const FALLBACK_FLOOR_THICKNESS = 0.2;
+
+/**
+ * Oscurece un color hexadecimal. Se hace en espacio lineal (lo que hace
+ * three.js al construir `Color` desde un string), así que el resultado se lee
+ * como "el mismo material con menos luz" y no como un tinte lavado.
+ */
+function shadeHex(color: string, factor: number): string {
+  return `#${new THREE.Color(color).multiplyScalar(factor).getHexString()}`;
 }
 
 export type FloorClickHandler = (
@@ -57,9 +53,15 @@ export function FloorMesh({
   levelId: string;
   onFloorClick?: FloorClickHandler;
 }) {
+  const thickness = space.thickness ?? FALLBACK_FLOOR_THICKNESS;
   const geometry = useMemo(
-    () => floorGeometry(space.vertices, space.holes.map((hole) => hole.vertices)),
-    [space.vertices, space.holes],
+    () =>
+      floorSlabGeometry(
+        space.vertices,
+        space.holes.map((hole) => hole.vertices),
+        thickness,
+      ),
+    [space.vertices, space.holes, thickness],
   );
 
   useEffect(() => () => {
@@ -82,11 +84,19 @@ export function FloorMesh({
         );
       }}
     >
+      {/* Grupo 0: caras horizontales (piso arriba, envés abajo). */}
       <meshStandardMaterial
+        attach="material-0"
         color={space.color}
         roughness={space.roughness}
         metalness={space.metalness}
-        side={THREE.DoubleSide}
+      />
+      {/* Grupo 1: canto de la losa y jambas de los huecos, un tono más oscuro. */}
+      <meshStandardMaterial
+        attach="material-1"
+        color={shadeHex(space.color, 0.72)}
+        roughness={Math.min(1, space.roughness + 0.08)}
+        metalness={space.metalness}
       />
     </mesh>
   );

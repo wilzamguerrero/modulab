@@ -2731,6 +2731,22 @@ input[type="range"] {
   gap: 5px;
 }
 
+/*
+ * Fila de dos pisos: el nombre ocupa todo el ancho y debajo va una línea de
+ * metadatos. Se usa cuando el renglón arrastra varios chips e iconos y en una
+ * sola línea no caben en la barra lateral.
+ */
+.segment-row.is-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+/* En columna el botón se dimensiona por su contenido, no por el alto libre. */
+.segment-row.is-stacked > .segment-name {
+  flex: 0 0 auto;
+}
+
 .segment-name {
   flex: 1;
   min-width: 0;
@@ -2751,9 +2767,15 @@ input[type="range"] {
   color: var(--text-soft);
 }
 
-.segment-name span {
+/*
+ * La insignia cuadrada es solo para el prefijo corto de una fila (número de
+ * segmento, «D1», «P»…). Se excluyen el punto de color y la etiqueta de
+ * nombre, que también son <span> pero llevan su propio tamaño.
+ */
+.segment-name > span:not(.color-dot):not(.segment-label) {
   width: 16px;
   height: 16px;
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
   border-radius: 4px;
@@ -2763,8 +2785,21 @@ input[type="range"] {
   font-weight: 700;
 }
 
+/* Nombre completo: ocupa el hueco libre y se recorta con puntos suspensivos. */
+.segment-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
 .segment-name strong {
   margin-left: auto;
+  flex: 0 0 auto;
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 500;
@@ -2775,9 +2810,38 @@ input[type="range"] {
   border-color: rgba(215, 255, 79, 0.25);
 }
 
-.segment-name.is-wall span {
+.segment-name.is-wall > span:not(.color-dot):not(.segment-label) {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+/* Línea de metadatos bajo un renglón apilado. */
+.segment-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  padding-left: 2px;
+}
+
+.segment-meta .chip {
+  padding: 2px 7px;
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
+.segment-meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.segment-meta-actions .btn-icon {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  border-radius: 6px;
 }
 
 .plan-zoom {

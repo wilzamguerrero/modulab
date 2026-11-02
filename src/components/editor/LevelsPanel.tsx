@@ -45,6 +45,7 @@ export function LevelsPanel({ project }: { project: Project }) {
   const setView = useEditorStore((state) => state.setView);
   const setTool = useEditorStore((state) => state.setTool);
   const setPlanDrawMode = useEditorStore((state) => state.setPlanDrawMode);
+  const setLevelFloorThickness = useEditorStore((state) => state.setLevelFloorThickness);
 
   const [confirmLevel, setConfirmLevel] = useState<string | null>(null);
   const [confirmSpace, setConfirmSpace] = useState<string | null>(null);
@@ -127,7 +128,7 @@ export function LevelsPanel({ project }: { project: Project }) {
               0,
             );
             return (
-              <div className="segment-row" key={level.id}>
+              <div className="segment-row is-stacked" key={level.id}>
                 <button
                   type="button"
                   className={`segment-name${isActive ? ' is-wall' : ''}`}
@@ -137,48 +138,66 @@ export function LevelsPanel({ project }: { project: Project }) {
                   }}
                   title="Activar nivel"
                 >
-                  <span>{level.name}</span>
+                  <span className="segment-label">{level.name}</span>
                   <strong>{level.elevation.toFixed(2)} m</strong>
                 </button>
-                <div className="inline-actions">
+                <div className="segment-meta">
                   <span className="chip is-active">{spaceCount} espacios</span>
                   <span className="chip">{formatArea(area)}</span>
-                  <IconButton
-                    label={level.visible ? 'Ocultar nivel' : 'Mostrar nivel'}
-                    size="sm"
-                    icon={level.visible ? <Eye size={13} /> : <EyeOff size={13} />}
-                    onClick={() => updateLevel(level.id, { visible: !level.visible })}
-                  />
-                  <IconButton
-                    label="Duplicar nivel"
-                    size="sm"
-                    icon={<Copy size={13} />}
-                    onClick={() => {
-                      const id = duplicateLevel(level.id);
-                      if (id) toast(`«${level.name}» duplicado.`, 'success');
-                    }}
-                  />
-                  <IconButton
-                    label="Eliminar nivel"
-                    size="sm"
-                    icon={<Trash2 size={13} />}
-                    disabled={project.levels.length <= 1}
-                    onClick={() => setConfirmLevel(level.id)}
-                  />
+                  <span className="segment-meta-actions">
+                    <IconButton
+                      label={level.visible ? 'Ocultar nivel' : 'Mostrar nivel'}
+                      size="sm"
+                      icon={level.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+                      onClick={() => updateLevel(level.id, { visible: !level.visible })}
+                    />
+                    <IconButton
+                      label="Duplicar nivel"
+                      size="sm"
+                      icon={<Copy size={12} />}
+                      onClick={() => {
+                        const id = duplicateLevel(level.id);
+                        if (id) toast(`«${level.name}» duplicado.`, 'success');
+                      }}
+                    />
+                    <IconButton
+                      label="Eliminar nivel"
+                      size="sm"
+                      icon={<Trash2 size={12} />}
+                      disabled={project.levels.length <= 1}
+                      onClick={() => setConfirmLevel(level.id)}
+                    />
+                  </span>
                 </div>
               </div>
             );
           })}
         </div>
         {activeLevel ? (
-          <Field label="Elevación del nivel activo">
-            <NumberInput
-              value={activeLevel.elevation}
-              onChange={(value) => updateLevel(activeLevel.id, { elevation: value })}
-              step={0.1}
-              suffix="m"
-            />
-          </Field>
+          <>
+            <Field label="Elevación del nivel activo">
+              <NumberInput
+                value={activeLevel.elevation}
+                onChange={(value) => updateLevel(activeLevel.id, { elevation: value })}
+                step={0.1}
+                suffix="m"
+              />
+            </Field>
+            <Field label="Espesor del forjado del nivel">
+              <NumberInput
+                value={activeLevel.spaces[0]?.thickness ?? 0.2}
+                onChange={(value) => setLevelFloorThickness(value)}
+                min={0.02}
+                max={2}
+                step={0.01}
+                suffix="m"
+              />
+            </Field>
+            <p className="panel-note">
+              El suelo es una losa maciza: la cara superior queda a la elevación del nivel y el
+              canto cuelga este espesor. Se aplica a todos los espacios del nivel.
+            </p>
+          </>
         ) : null}
       </section>
 
@@ -216,15 +235,17 @@ export function LevelsPanel({ project }: { project: Project }) {
                 >
                   <span
                     className="color-dot"
-                    style={{ background: space.color, marginRight: 6 }}
+                    style={{ background: space.color }}
                   />
-                  <span>{space.name || `Espacio ${index + 1}`}</span>
+                  <span className="segment-label">
+                    {space.name || `Espacio ${index + 1}`}
+                  </span>
                   <strong>{formatArea(polygonArea(space.vertices))}</strong>
                 </button>
                 <IconButton
                   label="Eliminar espacio"
                   size="sm"
-                  icon={<Trash2 size={13} />}
+                  icon={<Trash2 size={12} />}
                   disabled={(activeLevel?.spaces.length ?? 0) <= 1}
                   onClick={() => setConfirmSpace(space.id)}
                 />
@@ -268,7 +289,7 @@ export function LevelsPanel({ project }: { project: Project }) {
         </div>
         <div className="segment-list">
           {(activeLevel?.stairs ?? []).map((stair) => (
-            <div className="segment-row" key={stair.id}>
+            <div className="segment-row is-stacked" key={stair.id}>
               <button
                 type="button"
                 className="segment-name"
@@ -277,18 +298,20 @@ export function LevelsPanel({ project }: { project: Project }) {
                   setSelection({ type: 'stair', id: stair.id });
                 }}
               >
-                <span>{stair.name}</span>
+                <span className="segment-label">{stair.name}</span>
                 <strong>{STAIR_KIND_LABEL[stair.kind]}</strong>
               </button>
-              <div className="inline-actions">
+              <div className="segment-meta">
                 <span className="chip">{stair.steps} peldaños</span>
                 <span className="chip">{stair.rise.toFixed(2)} m</span>
-                <IconButton
-                  label="Eliminar escalera"
-                  size="sm"
-                  icon={<Trash2 size={13} />}
-                  onClick={() => deleteStair(stair.id)}
-                />
+                <span className="segment-meta-actions">
+                  <IconButton
+                    label="Eliminar escalera"
+                    size="sm"
+                    icon={<Trash2 size={12} />}
+                    onClick={() => deleteStair(stair.id)}
+                  />
+                </span>
               </div>
             </div>
           ))}

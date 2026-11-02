@@ -20,6 +20,7 @@ import {
   ConfirmDialog,
   Field,
   HelpButton,
+  IconButton,
   NumberInput,
   RangeInput,
   Select,
@@ -350,6 +351,21 @@ export function PlanPanel({ project }: { project: Project }) {
           step={0.01}
           format={(value) => value.toFixed(2)}
         />
+        <Field label="Espesor del forjado">
+          <NumberInput
+            value={activeSpace?.thickness ?? 0.2}
+            onChange={(thickness) => setFloorMaterial({ thickness })}
+            min={0.02}
+            max={2}
+            step={0.01}
+            suffix="m"
+          />
+        </Field>
+        <p className="panel-note">
+          El piso es una losa maciza: su cara superior está a la altura del nivel y el canto
+          cuelga hacia abajo este espesor. Los huecos la atraviesan de lado a lado. Para cambiarlo
+          en todo el nivel usa el campo del panel de niveles.
+        </p>
         {(activeSpace?.holes.length ?? 0) > 0 ? (
           <div className="segment-list">
             {activeSpace?.holes.map((hole, index) => (
@@ -362,17 +378,15 @@ export function PlanPanel({ project }: { project: Project }) {
                     setSelection({ type: 'hole', id: hole.id, spaceId: activeSpace?.id });
                   }}
                 >
-                  <span>{hole.name || `Hueco ${index + 1}`}</span>
+                  <span className="segment-label">{hole.name || `Hueco ${index + 1}`}</span>
                   <strong>{hole.vertices.length} vértices</strong>
                 </button>
-                <Button
+                <IconButton
+                  label="Eliminar hueco"
                   size="sm"
-                  variant="ghost"
-                  icon={<Trash2 size={13} />}
+                  icon={<Trash2 size={12} />}
                   onClick={() => deleteHole(hole.id)}
-                >
-                  Eliminar
-                </Button>
+                />
               </div>
             ))}
           </div>

@@ -41,6 +41,20 @@ describe('project data', () => {
     expect(space.edges).toHaveLength(space.vertices.length);
   });
 
+  it('da espesor de forjado por defecto a proyectos sin ese campo', () => {
+    const project = createProject({ name: 'Prueba' });
+    const legacy = structuredClone(project);
+    // Proyectos anteriores al forjado sólido: el espacio no trae `thickness`.
+    delete (legacy.levels[0].spaces[0] as Partial<typeof legacy.levels[0]['spaces'][0]>)
+      .thickness;
+    const parsed = parseProject(legacy);
+    expect(parsed.levels[0].spaces[0].thickness).toBe(0.2);
+
+    // Y si ya lo trae, se respeta.
+    project.levels[0].spaces[0].thickness = 0.45;
+    expect(parseProject(project).levels[0].spaces[0].thickness).toBe(0.45);
+  });
+
   it('no marca como ausentes los expositores manuales al normalizar', () => {
     const project = createProject({ name: 'Prueba' });
     project.exhibitors = [

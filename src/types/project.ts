@@ -122,6 +122,12 @@ export const spaceSchema = z.object({
   color: z.string().default('#b8ae9d'),
   roughness: z.number().min(0).max(1).default(0.86),
   metalness: z.number().min(0).max(1).default(0.02),
+  /**
+   * Espesor del forjado en metros. El suelo no es un plano: es una losa cuyo
+   * cara superior coincide con la elevación del nivel y cuyo canto cuelga
+   * `thickness` por debajo. Los huecos la atraviesan de lado a lado.
+   */
+  thickness: z.number().min(0.02).max(2).default(0.2),
   visible: z.boolean().default(true),
 });
 

@@ -22,6 +22,7 @@ import {
 import { getTemplate, type TemplateId } from './templates';
 
 export const DEFAULT_FLOOR_COLOR = '#b8ae9d';
+export const DEFAULT_FLOOR_THICKNESS = 0.2;
 export const DEFAULT_WALL_COLOR = '#e6e0d4';
 export const DEFAULT_WALL_HEIGHT = 2.8;
 export const DEFAULT_WALL_THICKNESS = 0.14;
@@ -48,6 +49,7 @@ export function createSpace(vertices: Vec2[], overrides: Partial<Space> = {}): S
     color: DEFAULT_FLOOR_COLOR,
     roughness: 0.86,
     metalness: 0.02,
+    thickness: DEFAULT_FLOOR_THICKNESS,
     visible: true,
     ...overrides,
   };

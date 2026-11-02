@@ -227,8 +227,10 @@ interface EditorState {
   setDefaultWall: (patch: Partial<Project['defaultWall']>) => void;
   applyWallSettingsToAll: () => void;
   setFloorMaterial: (
-    patch: Partial<Pick<Space, 'color' | 'roughness' | 'metalness'>>,
+    patch: Partial<Pick<Space, 'color' | 'roughness' | 'metalness' | 'thickness'>>,
   ) => void;
+  /** Espesor del forjado en metros para todos los espacios del nivel activo. */
+  setLevelFloorThickness: (thickness: number) => void;
 
   addInternalWall: (a: Vec2, b: Vec2) => string | null;
   addInternalWallLoop: (points: Vec2[]) => string[];
@@ -1101,6 +1103,14 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       if (!space) return;
       Object.assign(space, patch);
     }, { coalesceKey: 'floor-material' }),
+
+  setLevelFloorThickness: (thickness) =>
+    get().patchProject((draft) => {
+      const level = resolveLevel(draft, get().activeLevelId);
+      if (!level) return;
+      const value = Math.max(0.02, Math.min(2, thickness));
+      for (const space of level.spaces) space.thickness = value;
+    }, { coalesceKey: 'floor-thickness' }),
 
   addInternalWall: (a, b) => {
     const project = get().project;
