@@ -623,6 +623,10 @@ function EditorSceneContents({
         setSelection({ type: 'hole', id: hole.hole.id, spaceId: hole.space.id });
         return;
       }
+      // Clic sobre el forjado en modo selección: se activa el piso y su gizmo, que
+      // ya lo enciende `setSelection` al seleccionar un nivel.
+      setSelection({ type: 'level', id: target.levelId });
+      return;
     }
     setSelection(null);
   };

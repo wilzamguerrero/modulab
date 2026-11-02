@@ -626,7 +626,16 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     });
   },
 
-  setSelection: (selection) => set({ selection }),
+  setSelection: (selection) =>
+    set((state) => ({
+      selection,
+      // Seleccionar un piso muestra su gizmo directamente: así basta con hacer
+      // clic en el forjado (en planta o en 3D) para poder moverlo o girarlo
+      // entero, sin pasar por los botones del panel de niveles. Al seleccionar
+      // cualquier otro elemento el gizmo se apaga para no tener dos a la vez.
+      levelGizmoId: selection?.type === 'level' ? selection.id : null,
+      levelGizmoMode: state.levelGizmoMode,
+    })),
   setTool: (tool) => set({ tool, pendingCatalogItem: tool === 'select' ? get().pendingCatalogItem : null }),
   setView: (view) => set({ view }),
   setTransformMode: (transformMode) => set({ transformMode }),
@@ -658,6 +667,9 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     set({
       activeSpaceId: space.id,
       selection: null,
+      // El gizmo de piso va ligado a una selección: al cambiar de espacio se
+      // apaga, igual que al seleccionar cualquier otro elemento.
+      levelGizmoId: null,
       planDrawMode: space.vertices.length >= 3 ? 'partition' : 'outline',
     });
   },
@@ -1688,9 +1700,10 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const current = get().project;
     if (!current) return;
     const angle = transform.angle ?? 0;
-    if (!transform.delta && Math.abs(angle) < 1e-9) return;
     // Se parte siempre de la instantánea del inicio del arrastre: así el piso
-    // sigue al cursor en tiempo real y no acumula desfase entre frames.
+    // sigue al cursor en tiempo real y no acumula desfase entre frames. Tampoco
+    // se descarta el caso sin desplazamiento: si el usuario vuelve al punto de
+    // partida hay que poder devolver el piso a su sitio original.
     const draft = structuredClone(base);
     const level = draft.levels.find((entry) => entry.id === id);
     if (!level) return;

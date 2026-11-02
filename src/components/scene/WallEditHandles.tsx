@@ -386,8 +386,10 @@ function HoleHandles({
   const center = { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 };
   // Origen del arrastre: el centro del corte al empezar. Se recoloca respecto a
   // este punto en vez de acumular deltas, para que no se desfase al moverlo.
-  // El primer punto del plano bajo el cursor se toma como referencia.
-  const dragOrigin = { current: null as { pointer: Vec2; center: Vec2 } | null };
+  // Tiene que ser un ref: el componente se vuelve a renderizar en cada cambio
+  // del proyecto, y un objeto normal se reiniciaría en cada frame (con lo que
+  // el corte se quedaba clavado y no se dejaba desplazar).
+  const dragOrigin = useRef<{ pointer: Vec2; center: Vec2 } | null>(null);
 
   const centerDrag = useHistoryDrag(
     () => {

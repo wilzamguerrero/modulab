@@ -9,7 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { Check, Maximize, Minus, Plus, X } from 'lucide-react';
-import type { SceneObject, Space, Stair, Vec2, WallOpening } from '@/types/project';
+import type { Project, SceneObject, Space, Stair, Vec2, WallOpening } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import {
@@ -21,6 +21,7 @@ import {
   polygonArea,
   polygonBounds,
   snapPoint,
+  snapValue,
   validatePolygon,
 } from '@/utils/geometry';
 import {
@@ -46,6 +47,7 @@ import {
 } from '@/utils/walls';
 import { Button } from '@/components/ui';
 import { clipFloorPieces } from '@/utils/floorOutline';
+import { levelPivot } from '@/utils/levelTransform';
 import {
   exhibitorColor,
   exhibitorPaintAmount,
@@ -79,7 +81,21 @@ type DragState =
       /** Centro del hueco al empezar el arrastre. */
       startCenter: Vec2;
     }
-  | { type: 'holeVertex'; id: string; index: number };
+  | { type: 'holeVertex'; id: string; index: number }
+  | {
+      /** Arrastre del piso completo desde el gizmo de la planta. */
+      type: 'level';
+      levelId: string;
+      mode: 'translate' | 'rotate';
+      /** Punto bajo el cursor al empezar el arrastre. */
+      startPointer: Vec2;
+      /** Pivote del giro (centro del piso), fijado al empezar. */
+      pivot: Vec2;
+      /** Ángulo del cursor respecto al pivote al empezar. */
+      startAngle: number;
+      /** Proyecto al empezar, base de todas las previsualizaciones. */
+      base: Project;
+    };
 
 /** Anillo de puntos como sub-trayecto SVG cerrado. */
 function ringToPath(ring: Vec2[]): string {
@@ -288,6 +304,10 @@ export function PlanEditor2D() {
   const setHoleVertex = useEditorStore((state) => state.setHoleVertex);
   const addStair = useEditorStore((state) => state.addStair);
   const moveStair = useEditorStore((state) => state.moveStair);
+  const previewLevelTransform = useEditorStore((state) => state.previewLevelTransform);
+  const levelGizmoId = useEditorStore((state) => state.levelGizmoId);
+  const levelGizmoMode = useEditorStore((state) => state.levelGizmoMode);
+  const setLevelGizmoMode = useEditorStore((state) => state.setLevelGizmoMode);
   const toast = useUiStore((state) => state.toast);
 
   const gridId = `plan-grid-${useId().replace(/:/g, '')}`;
@@ -691,6 +711,34 @@ export function PlanEditor2D() {
     if (drag.type === 'holeVertex') {
       movedRef.current = true;
       setHoleVertex(drag.id, drag.index, snapPointIfNeeded(point), { history: false, touch: false });
+      return;
+    }
+    if (drag.type === 'level') {
+      movedRef.current = true;
+      if (drag.mode === 'translate') {
+        // Se recoloca desde el inicio del arrastre: el cursor marca cuánto se
+        // movió el piso, sin acumular deriva entre frames.
+        const delta = { x: point.x - drag.startPointer.x, z: point.z - drag.startPointer.z };
+        previewLevelTransform(drag.levelId, drag.base, {
+          delta: snap
+            ? { x: snapValue(delta.x, gridSize), z: snapValue(delta.z, gridSize) }
+            : delta,
+          angle: 0,
+          pivot: drag.pivot,
+        });
+      } else {
+        // En planta la Y del SVG apunta hacia +Z, así que el ángulo medido por
+        // `atan2` crece en sentido horario; el nivel gira en el sentido de
+        // three.js (positivo = antihorario visto desde arriba), de ahí el signo.
+        const angle = drag.startAngle
+          - Math.atan2(point.z - drag.pivot.z, point.x - drag.pivot.x);
+        previewLevelTransform(drag.levelId, drag.base, {
+          delta: { x: 0, z: 0 },
+          angle: snap ? snapValue(angle, Math.PI / 12) : angle,
+          pivot: drag.pivot,
+        });
+      }
+      return;
     }
   };
 
@@ -781,7 +829,44 @@ export function PlanEditor2D() {
       return;
     }
 
+    // Clic sobre el forjado en modo selección: se selecciona el piso completo
+    // para moverlo o girarlo en 3D con el gizmo, que `setSelection` enciende al
+    // seleccionar un nivel. Fuera de la planta se deselecciona, como siempre.
+    if (
+      state.tool === 'select' &&
+      activeLevel &&
+      activeSpace &&
+      activeSpace.vertices.length >= 3 &&
+      pointInPolygon(point, activeSpace.vertices)
+    ) {
+      setSelection({ type: 'level', id: activeLevel.id });
+      return;
+    }
+
     setSelection(null);
+  };
+
+  const onLevelGizmoPointerDown = (
+    event: ReactPointerEvent,
+    mode: 'translate' | 'rotate',
+    pivot: Vec2,
+  ) => {
+    if (tool !== 'select' || !activeLevel) return;
+    event.stopPropagation();
+    event.preventDefault();
+    const current = useEditorStore.getState().project;
+    if (!current) return;
+    const point = toWorld(event.clientX, event.clientY);
+    beginDrag(event, {
+      type: 'level',
+      levelId: activeLevel.id,
+      mode,
+      startPointer: point,
+      pivot: { ...pivot },
+      startAngle: Math.atan2(point.z - pivot.z, point.x - pivot.x),
+      base: structuredClone(current),
+    });
+    setSelection({ type: 'level', id: activeLevel.id });
   };
 
   const onHolePointerDown = (event: ReactPointerEvent, holeId: string) => {
@@ -957,6 +1042,14 @@ export function PlanEditor2D() {
     return pieces ?? [];
   }, [vertices, activeSpace?.holes]);
   const selectedExhibitorId = selection?.type === 'exhibitor' ? selection.id : null;
+  /**
+   * Gizmo del piso en planta: al hacer clic sobre el forjado se selecciona el
+   * nivel y aparece este control, igual que en 3D, para moverlo o girarlo
+   * entero sin pasar por los botones del panel de niveles.
+   */
+  const levelGizmoActive =
+    tool === 'select' && levelGizmoId !== null && levelGizmoId === activeLevel?.id;
+  const levelGizmoPivot = levelGizmoActive && activeLevel ? levelPivot(activeLevel) : null;
   const openingPaintColor = (opening: WallOpening) => {
     const exhibitor = findExhibitor(project, opening.exhibitorId);
     const amount = exhibitorPaintAmount(project, opening.exhibitorId, selectedExhibitorId);
@@ -1657,6 +1750,114 @@ export function PlanEditor2D() {
             </g>
           );
         })}
+
+        {/* Gizmo del piso en planta. Se dibuja sobre todo lo demás para poder
+            arrastrarlo sin que lo tape otro elemento. */}
+        {levelGizmoActive && levelGizmoPivot ? (
+          <g>
+            <circle
+              cx={levelGizmoPivot.x}
+              cy={levelGizmoPivot.z}
+              r={Math.max(viewport.width / 60, 0.4)}
+              fill="none"
+              stroke="rgba(215,255,79,.45)"
+              strokeWidth={Math.max(viewport.width / 1600, 0.005)}
+              strokeDasharray={`${viewport.width / 200} ${viewport.width / 260}`}
+              pointerEvents="none"
+            />
+            {levelGizmoMode === 'translate' ? (
+              <g
+                data-level-gizmo="translate"
+                style={{ cursor: 'move' }}
+                onPointerDown={(event) => onLevelGizmoPointerDown(event, 'translate', levelGizmoPivot)}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <line
+                  x1={levelGizmoPivot.x - Math.max(viewport.width / 40, 0.6)}
+                  y1={levelGizmoPivot.z}
+                  x2={levelGizmoPivot.x + Math.max(viewport.width / 40, 0.6)}
+                  y2={levelGizmoPivot.z}
+                  stroke="#ff5d5d"
+                  strokeWidth={Math.max(viewport.width / 900, 0.012)}
+                  pointerEvents="none"
+                />
+                <line
+                  x1={levelGizmoPivot.x}
+                  y1={levelGizmoPivot.z - Math.max(viewport.width / 40, 0.6)}
+                  x2={levelGizmoPivot.x}
+                  y2={levelGizmoPivot.z + Math.max(viewport.width / 40, 0.6)}
+                  stroke="#5dbaff"
+                  strokeWidth={Math.max(viewport.width / 900, 0.012)}
+                  pointerEvents="none"
+                />
+                <circle
+                  cx={levelGizmoPivot.x}
+                  cy={levelGizmoPivot.z}
+                  r={Math.max(viewport.width / 120, 0.18)}
+                  fill="rgba(215,255,79,.22)"
+                  stroke="#d7ff4f"
+                  strokeWidth={Math.max(viewport.width / 900, 0.012)}
+                />
+              </g>
+            ) : (
+              <g
+                data-level-gizmo="rotate"
+                style={{ cursor: 'grab' }}
+                onPointerDown={(event) => onLevelGizmoPointerDown(event, 'rotate', levelGizmoPivot)}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <circle
+                  cx={levelGizmoPivot.x}
+                  cy={levelGizmoPivot.z}
+                  r={Math.max(viewport.width / 60, 0.4)}
+                  fill="rgba(215,255,79,.08)"
+                  stroke="#d7ff4f"
+                  strokeWidth={Math.max(viewport.width / 700, 0.016)}
+                  strokeDasharray={`${viewport.width / 160} ${viewport.width / 240}`}
+                />
+                <circle
+                  cx={levelGizmoPivot.x + Math.max(viewport.width / 60, 0.4)}
+                  cy={levelGizmoPivot.z}
+                  r={Math.max(viewport.width / 190, 0.1)}
+                  fill="#d7ff4f"
+                />
+              </g>
+            )}
+            <g
+              transform={`translate(${levelGizmoPivot.x} ${levelGizmoPivot.z + Math.max(viewport.width / 26, 0.9)})`}
+              style={{ cursor: 'pointer' }}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                event.preventDefault();
+                setLevelGizmoMode(levelGizmoMode === 'translate' ? 'rotate' : 'translate');
+              }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <rect
+                x={-(viewport.width / 18)}
+                y={-textSize * 0.85}
+                width={viewport.width / 9}
+                height={textSize * 1.7}
+                rx={textSize * 0.35}
+                fill="rgba(14,17,20,.88)"
+                stroke="#d7ff4f"
+                strokeWidth={Math.max(viewport.width / 1800, 0.005)}
+              />
+              <text
+                x={0}
+                y={0}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="#d7ff4f"
+                fontSize={textSize * 0.78}
+                fontFamily="var(--mono)"
+                pointerEvents="none"
+              >
+                {levelGizmoMode === 'translate' ? 'Mover piso ▸ girar' : 'Girar piso ▸ mover'}
+              </text>
+            </g>
+          </g>
+        ) : null}
 
         {tool === 'draw' ? (
           <g>
