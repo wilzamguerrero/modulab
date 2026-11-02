@@ -64,6 +64,7 @@ export function createLevel(
     id: createId('lvl'),
     name,
     elevation,
+    rotation: 0,
     spaces: [],
     internalWalls: [],
     openings: [],

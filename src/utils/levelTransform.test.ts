@@ -191,6 +191,7 @@ describe('transformación de un nivel completo', () => {
       id: 'lvl_other',
       name: 'Otro',
       elevation: 3,
+      rotation: 0,
       spaces: [],
       internalWalls: [],
       openings: [],
@@ -245,5 +246,29 @@ describe('transformación de un nivel completo', () => {
     const expected = rotateAround(start, pivot, 0.7);
     expect(level.spaces[0].vertices[0].x).toBeCloseTo(expected.x, 6);
     expect(level.spaces[0].vertices[0].z).toBeCloseTo(expected.z, 6);
+  });
+
+  it('acumula el giro del piso para poder mostrarlo y corregirlo', () => {
+    const { project, level } = projectWithLevel();
+    const pivot = levelPivot(level);
+    expect(level.rotation).toBe(0);
+    applyLevelTransform(project, level.id, { delta: { x: 0, z: 0 }, angle: 0.5, pivot });
+    expect(level.rotation).toBeCloseTo(0.5, 6);
+    applyLevelTransform(project, level.id, { delta: { x: 0, z: 0 }, angle: -0.2, pivot });
+    expect(level.rotation).toBeCloseTo(0.3, 6);
+    // El giro se normaliza, no crece sin límite.
+    applyLevelTransform(project, level.id, { delta: { x: 0, z: 0 }, angle: Math.PI * 2, pivot });
+    expect(level.rotation).toBeCloseTo(0.3, 6);
+  });
+
+  it('un desplazamiento sin giro no altera el ángulo guardado', () => {
+    const { project, level } = projectWithLevel();
+    level.rotation = 0.4;
+    applyLevelTransform(project, level.id, {
+      delta: { x: 2, z: -1 },
+      angle: 0,
+      pivot: levelPivot(level),
+    });
+    expect(level.rotation).toBeCloseTo(0.4, 6);
   });
 });

@@ -96,7 +96,7 @@ describe('level helpers', () => {
 
 describe('fitStairToLevels', () => {
   it('ajusta la altura de la escalera al nivel superior real', () => {
-    const base = { id: 'a', name: 'PB', elevation: 0, spaces: [], internalWalls: [], openings: [], stairs: [], visible: true };
+    const base = { id: 'a', name: 'PB', elevation: 0, rotation: 0, spaces: [], internalWalls: [], openings: [], stairs: [], visible: true };
     const upper = { ...base, id: 'b', name: 'P1', elevation: 3.4 };
     const project = { levels: [base, upper] } as unknown as Project;
     const stair = createStair({ x: 0, z: 0 }, { rise: 2.8, direction: 'up' });
@@ -104,7 +104,7 @@ describe('fitStairToLevels', () => {
   });
 
   it('al bajar usa el nivel inferior', () => {
-    const base = { id: 'a', name: 'PB', elevation: 0, spaces: [], internalWalls: [], openings: [], stairs: [], visible: true };
+    const base = { id: 'a', name: 'PB', elevation: 0, rotation: 0, spaces: [], internalWalls: [], openings: [], stairs: [], visible: true };
     const upper = { ...base, id: 'b', name: 'P1', elevation: 3.4 };
     const project = { levels: [base, upper] } as unknown as Project;
     const stair = createStair({ x: 0, z: 0 }, { direction: 'down' });

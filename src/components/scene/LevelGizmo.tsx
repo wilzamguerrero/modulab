@@ -1,12 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { TransformControls } from '@react-three/drei';
+import { Html, TransformControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
+import type { CSSProperties } from 'react';
 import type { Level, Project, Vec2 } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { snapValue } from '@/utils/geometry';
 import { levelPivot } from '@/utils/levelTransform';
 import { markSceneDragActive, markSceneDragEnd } from './sceneDragGuard';
+
+/** Etiqueta de la lectura numérica del piso, sobre el propio gizmo. */
+const READOUT_STYLE: CSSProperties = {
+  background: 'rgba(10, 13, 16, 0.92)',
+  border: '1px solid #d7ff4f',
+  color: '#d7ff4f',
+  borderRadius: 6,
+  padding: '3px 7px',
+  fontSize: 10,
+  fontFamily: 'var(--mono)',
+  lineHeight: 1.45,
+  whiteSpace: 'nowrap',
+  textAlign: 'center',
+};
 
 interface DragStart {
   /** Pivote desde el que empezó el arrastre. */
@@ -45,9 +60,13 @@ export function LevelGizmo({
   const beginHistory = useEditorStore((state) => state.beginHistory);
   const commitHistory = useEditorStore((state) => state.commitHistory);
   const cancelHistory = useEditorStore((state) => state.cancelHistory);
+  const clearLevelDragReadout = useEditorStore((state) => state.clearLevelDragReadout);
   const snap = project.settings.snapToGrid;
   const gridSize = project.settings.gridSize;
   const controls = useThree((state) => state.controls) as { enabled: boolean } | null;
+  const levelDragReadout = useEditorStore((state) => state.levelDragReadout);
+  const live = levelDragReadout && levelDragReadout.levelId === level.id ? levelDragReadout : null;
+  const degrees = (level.rotation * 180) / Math.PI;
 
   // El marcador vuelve a su sitio cuando no se está arrastrando: es solo un
   // mango. Durante el arrastre manda el cursor, no el pivote recalculado.
@@ -107,6 +126,7 @@ export function LevelGizmo({
       cancelHistory();
     }
     resetHandle();
+    clearLevelDragReadout();
     if (controls) controls.enabled = true;
     markSceneDragEnd();
   };
@@ -120,6 +140,23 @@ export function LevelGizmo({
           <cylinderGeometry args={[0.16, 0.16, 0.02, 24]} />
           <meshBasicMaterial color="#d7ff4f" transparent opacity={0.35} depthWrite={false} />
         </mesh>
+        {/* Lectura numérica: el gizmo por sí solo no dice cuánto se movió ni
+            cuántos grados lleva girados el piso. */}
+        <Html center position={[0, 0.42, 0]} zIndexRange={[140, 0]} style={{ pointerEvents: 'none' }}>
+          <div style={READOUT_STYLE}>
+            <div>
+              {pivot.x.toFixed(2)} · {pivot.z.toFixed(2)} m · {degrees.toFixed(1).replace(/\.0$/, '')}°
+            </div>
+            {live ? (
+              <div style={{ color: '#ffffff' }}>
+                Δ {live.delta.x.toFixed(2)} · Δ {live.delta.z.toFixed(2)} m
+                {Math.abs(live.angle) > 1e-9
+                  ? ` · ${((live.angle * 180) / Math.PI).toFixed(1).replace(/\.0$/, '')}°`
+                  : ''}
+              </div>
+            ) : null}
+          </div>
+        </Html>
       </group>
       {handle ? (
         <TransformControls

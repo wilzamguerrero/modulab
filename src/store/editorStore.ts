@@ -179,6 +179,21 @@ interface EditorState {
   /** Centro de giro natural del nivel (su centroide en planta). */
   levelPivotOf: (id: string) => Vec2 | null;
   /**
+   * Valores en vivo del arrastre de un piso (desplazamiento y giro acumulados
+   * desde que se agarró el gizmo). Sirve para enseñar los números mientras se
+   * mueve; al soltar se limpia.
+   */
+  levelDragReadout: { levelId: string; delta: Vec2; angle: number } | null;
+  clearLevelDragReadout: () => void;
+  /**
+   * Gira el piso hasta un ángulo absoluto (radianes) alrededor de su centroide.
+   * Es lo que usan los campos numéricos del inspector: nunca acumula error,
+   * porque calcula el giro que falta respecto al valor guardado.
+   */
+  rotateLevelTo: (id: string, angle: number, options?: PatchOptions) => void;
+  /** Lleva el centroide del piso a un punto concreto de la planta. */
+  centerLevelAt: (id: string, point: Vec2, options?: PatchOptions) => void;
+  /**
    * Nivel seleccionado para moverlo/girarlo entero con el gizmo 3D.
    * `null` = gizmo apagado.
    */
@@ -382,6 +397,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   environmentGizmoMode: 'translate',
   levelGizmoId: null,
   levelGizmoMode: 'translate',
+  levelDragReadout: null,
   measureMode: false,
   measurePending: null,
   measurements: [],
@@ -1675,12 +1691,40 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     return level ? levelPivot(level) : null;
   },
 
+  rotateLevelTo: (id, angle, options = {}) => {
+    const project = get().project;
+    const level = project?.levels.find((entry) => entry.id === id);
+    if (!project || !level) return;
+    // Diferencia respecto al giro ya acumulado: así el campo dice «el piso está
+    // a X grados» y escribir otro valor lo corrige de una vez.
+    const target = normalizeAngle(angle);
+    const delta = normalizeAngle(target - (level.rotation ?? 0));
+    if (Math.abs(delta) < 1e-9) return;
+    get().transformLevel(id, { angle: delta, pivot: levelPivot(level) }, {
+      coalesceKey: `level-rotation:${id}`,
+      ...options,
+    });
+  },
+
+  centerLevelAt: (id, point, options = {}) => {
+    const project = get().project;
+    const level = project?.levels.find((entry) => entry.id === id);
+    if (!project || !level) return;
+    const pivot = levelPivot(level);
+    get().transformLevel(id, {
+      delta: { x: point.x - pivot.x, z: point.z - pivot.z },
+      angle: 0,
+      pivot,
+    }, { coalesceKey: `level-center:${id}`, ...options });
+  },
+
   setLevelGizmo: (levelId, mode) =>
     set((state) => ({
       levelGizmoId: levelId,
       levelGizmoMode: mode ?? state.levelGizmoMode,
     })),
   setLevelGizmoMode: (mode) => set({ levelGizmoMode: mode }),
+  clearLevelDragReadout: () => set({ levelDragReadout: null }),
 
   transformLevel: (id, transform, options = {}) => {
     get().patchProject((draft) => {
@@ -1714,6 +1758,13 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     });
     set({
       project: draft,
+      // Lectura en vivo del arrastre: la planta y el inspector muestran cuánto
+      // se movió y cuánto giró el piso sin esperar a soltar el gizmo.
+      levelDragReadout: {
+        levelId: id,
+        delta: transform.delta ?? { x: 0, z: 0 },
+        angle: normalizeAngle(angle),
+      },
       dirty: true,
       saveStatus: get().saveStatus === 'saving' ? 'saving' : 'dirty',
     });

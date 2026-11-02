@@ -60,6 +60,8 @@ import { notionPhotoUrl } from '@/services/notion/notionService';
 import { uploadExhibitorPhoto } from '@/services/assets/catalogService';
 import { formatDateTime } from '@/utils/format';
 import { edgeLength, formatArea, formatMeters, polygonArea, polygonBounds, snapValue } from '@/utils/geometry';
+import { levelPivot } from '@/utils/levelTransform';
+import { LevelReadout } from '@/components/editor/LevelReadout';
 import { findWallInProject, getWallById, wallLength } from '@/utils/walls';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
 
@@ -95,6 +97,70 @@ function AxisInput({
           />
         </label>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Campo numérico que aplica el valor al confirmar (Enter o al salir), no en cada
+ * tecla. El de `ui` aplica en `onChange` y, al ser controlado, impide escribir
+ * valores intermedios como «-» o «12.» para corregir el giro a mano.
+ */
+function CommitNumberInput({
+  value,
+  onCommit,
+  step = 0.1,
+  suffix,
+  decimals = 2,
+}: {
+  value: number;
+  onCommit: (value: number) => void;
+  step?: number;
+  suffix?: string;
+  decimals?: number;
+}) {
+  const format = (next: number) => String(Number(next.toFixed(decimals)));
+  const [text, setText] = useState(format(value));
+  const [editing, setEditing] = useState(false);
+
+  // Mientras no se esté escribiendo, el campo refleja el valor real (también
+  // durante el arrastre del gizmo).
+  useEffect(() => {
+    if (!editing) setText(format(value));
+  }, [value, editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const next = Number(text.replace(',', '.'));
+    if (Number.isFinite(next)) {
+      onCommit(next);
+      setText(format(next));
+    } else {
+      setText(format(value));
+    }
+  };
+
+  return (
+    <div className="number-input">
+      <input
+        className="input"
+        type="number"
+        step={step}
+        value={text}
+        onFocus={() => setEditing(true)}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.currentTarget.blur();
+          } else if (event.key === 'Escape') {
+            setText(format(value));
+            setEditing(false);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+      {suffix ? <span className="number-suffix">{suffix}</span> : null}
     </div>
   );
 }
@@ -1802,10 +1868,14 @@ function LevelInspector({ project, level }: { project: Project; level: Level }) 
   const setLevelGizmo = useEditorStore((state) => state.setLevelGizmo);
   const levelGizmoId = useEditorStore((state) => state.levelGizmoId);
   const levelGizmoMode = useEditorStore((state) => state.levelGizmoMode);
+  const rotateLevelTo = useEditorStore((state) => state.rotateLevelTo);
+  const centerLevelAt = useEditorStore((state) => state.centerLevelAt);
   const setView = useEditorStore((state) => state.setView);
   const toast = useUiStore((state) => state.toast);
   const area = level.spaces.reduce((total, space) => total + polygonArea(space.vertices), 0);
   const gizmoActive = levelGizmoId === level.id;
+  const pivot = levelPivot(level);
+  const degrees = (level.rotation * 180) / Math.PI;
 
   return (
     <Section title="Nivel">
@@ -1838,8 +1908,63 @@ function LevelInspector({ project, level }: { project: Project; level: Level }) 
       </div>
       <p className="panel-note">
         Mueve o gira el nivel con todo lo que tiene encima para colocarlo sobre otro piso.
-        Se hace con el gizmo de la vista 3D.
+        Se hace con el gizmo de la vista 3D o arrastrando el centro en la planta.
       </p>
+      <LevelReadout level={level} />
+      <Field
+        label="Giro"
+        hint="Ángulo absoluto del piso. Escribe un valor para corregirlo de una vez."
+      >
+        <CommitNumberInput
+          value={degrees}
+          onCommit={(value) => rotateLevelTo(level.id, (value * Math.PI) / 180)}
+          step={1}
+          decimals={2}
+          suffix="°"
+        />
+      </Field>
+      <Field label="Centro X" hint="Posición del centro del piso en planta.">
+        <CommitNumberInput
+          value={pivot.x}
+          onCommit={(x) => centerLevelAt(level.id, { x, z: pivot.z })}
+          step={0.1}
+          decimals={3}
+          suffix="m"
+        />
+      </Field>
+      <Field label="Centro Z">
+        <CommitNumberInput
+          value={pivot.z}
+          onCommit={(z) => centerLevelAt(level.id, { x: pivot.x, z })}
+          step={0.1}
+          decimals={3}
+          suffix="m"
+        />
+      </Field>
+      <div className="inline-actions">
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<RotateCcw size={13} />}
+          onClick={() => {
+            rotateLevelTo(level.id, 0);
+            toast('Giro del piso restablecido.', 'success');
+          }}
+        >
+          Resetear giro
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<MapPin size={13} />}
+          onClick={() => {
+            centerLevelAt(level.id, { x: 0, z: 0 });
+            toast('Piso centrado en el origen.', 'success');
+          }}
+        >
+          Centrar
+        </Button>
+      </div>
       <div className="inline-actions">
         <Button
           size="sm"

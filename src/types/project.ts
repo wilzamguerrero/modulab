@@ -161,6 +161,12 @@ export const levelSchema = z.object({
   name: z.string().default('Nivel'),
   /** Elevación del suelo del nivel en metros. Puede ser negativa. */
   elevation: z.number().finite().default(0),
+  /**
+   * Giro acumulado del piso completo, en radianes. La geometría ya está girada
+   * en el espacio; este valor sirve para mostrarlo en el inspector y para poder
+   * corregirlo a mano (girar «hasta» X grados en vez de «X grados más»).
+   */
+  rotation: z.number().finite().default(0),
   spaces: z.array(spaceSchema).default([]),
   internalWalls: z.array(internalWallSchema).default([]),
   openings: z.array(wallOpeningSchema).default([]),

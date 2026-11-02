@@ -117,6 +117,11 @@ export function applyLevelTransform(
   const { delta, angle, pivot } = transform;
   const mapPoint = (point: Vec2) => transformPoint(point, delta, pivot, angle);
 
+  // El giro acumulado del piso se guarda para poder mostrarlo y corregirlo.
+  if (Math.abs(angle) > 1e-9) {
+    level.rotation = normalizeAngle((level.rotation ?? 0) + angle);
+  }
+
   for (const space of level.spaces) {
     space.vertices = space.vertices.map(mapPoint);
     for (const hole of space.holes) {

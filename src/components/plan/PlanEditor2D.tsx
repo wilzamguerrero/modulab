@@ -48,6 +48,7 @@ import {
 import { Button } from '@/components/ui';
 import { clipFloorPieces } from '@/utils/floorOutline';
 import { levelPivot } from '@/utils/levelTransform';
+import { LevelReadout } from '@/components/editor/LevelReadout';
 import {
   exhibitorColor,
   exhibitorPaintAmount,
@@ -305,6 +306,7 @@ export function PlanEditor2D() {
   const addStair = useEditorStore((state) => state.addStair);
   const moveStair = useEditorStore((state) => state.moveStair);
   const previewLevelTransform = useEditorStore((state) => state.previewLevelTransform);
+  const clearLevelDragReadout = useEditorStore((state) => state.clearLevelDragReadout);
   const levelGizmoId = useEditorStore((state) => state.levelGizmoId);
   const levelGizmoMode = useEditorStore((state) => state.levelGizmoMode);
   const setLevelGizmoMode = useEditorStore((state) => state.setLevelGizmoMode);
@@ -575,6 +577,7 @@ export function PlanEditor2D() {
       }
     }
     if (drag && drag.type !== 'pan' && drag.type !== 'holeRect') commitHistory();
+    if (drag?.type === 'level') clearLevelDragReadout();
     if (movedRef.current) {
       suppressClickRef.current = true;
       window.setTimeout(() => {
@@ -1959,6 +1962,19 @@ export function PlanEditor2D() {
         <span><strong>{levelOpenings.length}</strong> aberturas</span>
         {!validation.valid ? <span className="status-error">planta incompleta</span> : null}
       </div>
+
+      {/* Lectura numérica del piso: centímetros movidos y grados girados, para
+          poder corregirlo sin adivinar. Solo cuando el piso está en el gizmo. */}
+      {levelGizmoActive && activeLevel ? (
+        <div className="plan-level-readout">
+          <LevelReadout level={activeLevel} />
+          <span className="plan-level-readout-hint">
+            {levelGizmoMode === 'translate'
+              ? 'Arrastra el centro para mover el piso.'
+              : 'Arrastra el anillo para girar el piso.'}
+          </span>
+        </div>
+      ) : null}
 
       <div className="plan-scale">
         <span>Ancho visible</span>
