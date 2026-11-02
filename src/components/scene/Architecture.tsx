@@ -102,6 +102,67 @@ export function FloorMesh({
   );
 }
 
+/**
+ * Superficie invisible sobre cada corte del forjado.
+ *
+ * Desde que la losa se resta de verdad, dentro de un hueco no hay suelo que
+ * golpear con el rayo: sin esto, hacer clic sobre un corte en 3D no seleccionaba
+ * nada. El captador reutiliza `onFloorClick`, que ya sabe reconocer cuándo el
+ * punto cae dentro de un hueco.
+ */
+function HolePicker({
+  space,
+  levelId,
+  onFloorClick,
+}: {
+  space: Space;
+  levelId: string;
+  onFloorClick?: FloorClickHandler;
+}) {
+  const geometries = useMemo(
+    () =>
+      space.holes
+        .filter((hole) => hole.vertices.length >= 3)
+        .map((hole) => {
+          const shape = new THREE.Shape(hole.vertices.map((point) => new THREE.Vector2(point.x, -point.z)));
+          const geometry = new THREE.ShapeGeometry(shape);
+          geometry.rotateX(-Math.PI / 2);
+          return { id: hole.id, geometry };
+        }),
+    [space.holes],
+  );
+
+  useEffect(
+    () => () => {
+      for (const entry of geometries) entry.geometry.dispose();
+    },
+    [geometries],
+  );
+
+  if (!onFloorClick) return null;
+
+  return (
+    <>
+      {geometries.map((entry) => (
+        <mesh
+          key={entry.id}
+          geometry={entry.geometry}
+          position={[0, 0.002, 0]}
+          onClick={(event) => {
+            event.stopPropagation();
+            onFloorClick(
+              { x: event.point.x, z: event.point.z },
+              { levelId, spaceId: space.id },
+            );
+          }}
+        >
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
 function WallPieceMesh({
   piece,
   wall,
@@ -436,12 +497,18 @@ export function Architecture({
           <group key={level.id} position={[0, level.elevation, 0]}>
             {level.spaces.map((space) =>
               space.visible ? (
-                <FloorMesh
-                  key={space.id}
-                  space={space}
-                  levelId={level.id}
-                  onFloorClick={onFloorClick}
-                />
+                <group key={space.id}>
+                  <FloorMesh
+                    space={space}
+                    levelId={level.id}
+                    onFloorClick={onFloorClick}
+                  />
+                  <HolePicker
+                    space={space}
+                    levelId={level.id}
+                    onFloorClick={onFloorClick}
+                  />
+                </group>
               ) : null,
             )}
             <LevelWalls

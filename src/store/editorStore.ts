@@ -35,6 +35,7 @@ import { normalizeEdges, normalizeExhibitorLinks, normalizeOpenings } from '@/da
 import { createId } from '@/utils/id';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
 import { pointInPolygon, polygonCentroid } from '@/utils/geometry';
+import { applyLevelTransform, levelPivot, normalizeAngle } from '@/utils/levelTransform';
 import {
   defaultLevelId,
   getLevel,
@@ -154,6 +155,38 @@ interface EditorState {
   updateLevel: (id: string, patch: Partial<Level>, options?: PatchOptions) => void;
   deleteLevel: (id: string) => void;
   duplicateLevel: (id: string) => string | null;
+  /**
+   * Mueve y gira un nivel completo con todo lo que está apoyado en él (espacios,
+   * huecos, muros libres, escaleras, objetos, expositores y puntos de rotación).
+   * Existe para reacomodar un piso sobre otro de una vez, sin ir elemento a
+   * elemento.
+   */
+  transformLevel: (
+    id: string,
+    transform: { delta?: Vec2; angle?: number; pivot?: Vec2 },
+    options?: PatchOptions,
+  ) => void;
+  /**
+   * Previsualización en vivo de un arrastre del gizmo: recalcula el proyecto a
+   * partir de la instantánea tomada al empezar, así que el piso sigue al cursor
+   * sin acumular deriva. No registra historial; lo hace `commitHistory`.
+   */
+  previewLevelTransform: (
+    id: string,
+    base: Project,
+    transform: { delta?: Vec2; angle?: number; pivot?: Vec2 },
+  ) => void;
+  /** Centro de giro natural del nivel (su centroide en planta). */
+  levelPivotOf: (id: string) => Vec2 | null;
+  /**
+   * Nivel seleccionado para moverlo/girarlo entero con el gizmo 3D.
+   * `null` = gizmo apagado.
+   */
+  levelGizmoId: string | null;
+  levelGizmoMode: 'translate' | 'rotate';
+  setLevelGizmo: (levelId: string | null, mode?: 'translate' | 'rotate') => void;
+  setLevelGizmoMode: (mode: 'translate' | 'rotate') => void;
+
   addSpace: (vertices: Vec2[], name?: string) => string | null;
   updateSpace: (id: string, patch: Partial<Space>, options?: PatchOptions) => void;
   deleteSpace: (id: string) => void;
@@ -169,6 +202,8 @@ interface EditorState {
   resizeHole: (id: string, width: number, depth: number, options?: PatchOptions) => void;
   /** Desplaza un vértice del hueco (polígono libre o rectángulo). */
   setHoleVertex: (id: string, index: number, point: Vec2, options?: PatchOptions) => void;
+  /** Renombra un corte de suelo. */
+  renameHole: (id: string, name: string, options?: PatchOptions) => void;
   addStair: (position: Vec2) => string | null;
   updateStair: (id: string, patch: Partial<Stair>, options?: PatchOptions) => void;
   moveStair: (id: string, position: Vec2, options?: PatchOptions) => void;
@@ -345,6 +380,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   environmentPreview: null,
   environmentGizmo: false,
   environmentGizmoMode: 'translate',
+  levelGizmoId: null,
+  levelGizmoMode: 'translate',
   measureMode: false,
   measurePending: null,
   measurements: [],
@@ -606,6 +643,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       activeLevelId: level.id,
       activeSpaceId: space?.id ?? null,
       selection: null,
+      // El gizmo pertenece a un piso concreto: al cambiar de nivel se apaga.
+      levelGizmoId: get().levelGizmoId === level.id ? level.id : null,
       planDrawMode: (space?.vertices.length ?? 0) >= 3 ? 'partition' : 'outline',
     });
   },
@@ -849,6 +888,16 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
         }
       }
     }, { coalesceKey: `hole-vertex:${id}:${index}`, ...options }),
+
+  renameHole: (id, name, options = {}) =>
+    get().patchProject((draft) => {
+      for (const level of draft.levels) {
+        for (const space of level.spaces) {
+          const hole = space.holes.find((entry) => entry.id === id);
+          if (hole) hole.name = name;
+        }
+      }
+    }, { coalesceKey: `hole-name:${id}`, ...options }),
 
   deleteHole: (id) => {
     get().patchProject((draft) => {
@@ -1607,6 +1656,55 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
   setEnvironmentGizmo: (enabled) => set({ environmentGizmo: enabled }),
   setEnvironmentGizmoMode: (mode) => set({ environmentGizmoMode: mode }),
+
+  levelPivotOf: (id) => {
+    const project = get().project;
+    const level = project?.levels.find((entry) => entry.id === id);
+    return level ? levelPivot(level) : null;
+  },
+
+  setLevelGizmo: (levelId, mode) =>
+    set((state) => ({
+      levelGizmoId: levelId,
+      levelGizmoMode: mode ?? state.levelGizmoMode,
+    })),
+  setLevelGizmoMode: (mode) => set({ levelGizmoMode: mode }),
+
+  transformLevel: (id, transform, options = {}) => {
+    get().patchProject((draft) => {
+      const level = draft.levels.find((entry) => entry.id === id);
+      if (!level) return;
+      const angle = transform.angle ?? 0;
+      if (!transform.delta && Math.abs(angle) < 1e-9) return;
+      applyLevelTransform(draft, id, {
+        delta: transform.delta ?? { x: 0, z: 0 },
+        angle: normalizeAngle(angle),
+        pivot: transform.pivot ?? levelPivot(level),
+      });
+    }, { coalesceKey: `level-transform:${id}`, ...options });
+  },
+
+  previewLevelTransform: (id, base, transform) => {
+    const current = get().project;
+    if (!current) return;
+    const angle = transform.angle ?? 0;
+    if (!transform.delta && Math.abs(angle) < 1e-9) return;
+    // Se parte siempre de la instantánea del inicio del arrastre: así el piso
+    // sigue al cursor en tiempo real y no acumula desfase entre frames.
+    const draft = structuredClone(base);
+    const level = draft.levels.find((entry) => entry.id === id);
+    if (!level) return;
+    applyLevelTransform(draft, id, {
+      delta: transform.delta ?? { x: 0, z: 0 },
+      angle: normalizeAngle(angle),
+      pivot: transform.pivot ?? levelPivot(level),
+    });
+    set({
+      project: draft,
+      dirty: true,
+      saveStatus: get().saveStatus === 'saving' ? 'saving' : 'dirty',
+    });
+  },
 
   toggleMeasureMode: () =>
     set((state) => ({ measureMode: !state.measureMode, measurePending: null, measureHover: null })),

@@ -9,9 +9,11 @@ import {
   ImagePlus,
   Lightbulb,
   MapPin,
+  Move,
   Orbit,
   PanelTop,
   RotateCcw,
+  RotateCw,
   Sparkles,
   Trash2,
   Users,
@@ -1797,8 +1799,13 @@ function LevelInspector({ project, level }: { project: Project; level: Level }) 
   const deleteLevel = useEditorStore((state) => state.deleteLevel);
   const duplicateLevel = useEditorStore((state) => state.duplicateLevel);
   const setSelection = useEditorStore((state) => state.setSelection);
+  const setLevelGizmo = useEditorStore((state) => state.setLevelGizmo);
+  const levelGizmoId = useEditorStore((state) => state.levelGizmoId);
+  const levelGizmoMode = useEditorStore((state) => state.levelGizmoMode);
+  const setView = useEditorStore((state) => state.setView);
   const toast = useUiStore((state) => state.toast);
   const area = level.spaces.reduce((total, space) => total + polygonArea(space.vertices), 0);
+  const gizmoActive = levelGizmoId === level.id;
 
   return (
     <Section title="Nivel">
@@ -1826,6 +1833,37 @@ function LevelInspector({ project, level }: { project: Project; level: Level }) 
         onChange={(visible) => updateLevel(level.id, { visible })}
         label="Visible en 3D"
       />
+      <div className="panel-title">
+        <span><Move size={12} /> Piso completo</span>
+      </div>
+      <p className="panel-note">
+        Mueve o gira el nivel con todo lo que tiene encima para colocarlo sobre otro piso.
+        Se hace con el gizmo de la vista 3D.
+      </p>
+      <div className="inline-actions">
+        <Button
+          size="sm"
+          variant={gizmoActive && levelGizmoMode === 'translate' ? 'primary' : 'outline'}
+          icon={<Move size={13} />}
+          onClick={() => {
+            setView('3d');
+            setLevelGizmo(gizmoActive && levelGizmoMode === 'translate' ? null : level.id, 'translate');
+          }}
+        >
+          Mover
+        </Button>
+        <Button
+          size="sm"
+          variant={gizmoActive && levelGizmoMode === 'rotate' ? 'primary' : 'outline'}
+          icon={<RotateCw size={13} />}
+          onClick={() => {
+            setView('3d');
+            setLevelGizmo(gizmoActive && levelGizmoMode === 'rotate' ? null : level.id, 'rotate');
+          }}
+        >
+          Girar
+        </Button>
+      </div>
       <div className="inline-actions">
         <Button
           size="sm"
@@ -1921,14 +1959,19 @@ function HoleInspector({
   hole: SpaceHole;
   spaceId?: string;
 }) {
-  const updateSpace = useEditorStore((state) => state.updateSpace);
+  const renameHole = useEditorStore((state) => state.renameHole);
   const deleteHole = useEditorStore((state) => state.deleteHole);
   const resizeHole = useEditorStore((state) => state.resizeHole);
   const setHoleCenter = useEditorStore((state) => state.setHoleCenter);
   const setSelection = useEditorStore((state) => state.setSelection);
   const activeLevelId = useEditorStore((state) => state.activeLevelId);
-  const level = getLevel(project, activeLevelId);
-  const space = level?.spaces.find((entry) => entry.holes.some((item) => item.id === hole.id))
+  // El corte puede estar en cualquier nivel (la pestaña «Cortes» los lista
+  // todos), así que se busca en el proyecto entero y no solo en el activo.
+  const owner = project.levels
+    .flatMap((entry) => entry.spaces.map((item) => ({ level: entry, space: item })))
+    .find(({ space }) => space.holes.some((item) => item.id === hole.id));
+  const level = owner?.level ?? getLevel(project, activeLevelId);
+  const space = owner?.space
     ?? level?.spaces.find((entry) => entry.id === spaceId);
   const bounds = polygonBounds(hole.vertices);
 
@@ -1988,14 +2031,7 @@ function HoleInspector({
       <Field label="Nombre">
         <TextInput
           value={hole.name}
-          onChange={(event) => {
-            if (!space) return;
-            updateSpace(space.id, {
-              holes: space.holes.map((item) =>
-                item.id === hole.id ? { ...item, name: event.target.value } : item,
-              ),
-            });
-          }}
+          onChange={(event) => renameHole(hole.id, event.target.value)}
         />
       </Field>
       <p className="panel-note">

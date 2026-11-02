@@ -11,6 +11,7 @@ import { SceneObjects } from './SceneObjects';
 import { ExhibitorMarkers } from './ExhibitorMarkers';
 import { RotationPointMarkers } from './RotationPointMarkers';
 import { SceneSplat } from './SceneSplat';
+import { LevelGizmo } from './LevelGizmo';
 import { MeasurementLayer } from './MeasurementLayer';
 import { MeasurementTool } from './MeasurementTool';
 import { MeasurementGizmo } from './MeasurementGizmo';
@@ -525,6 +526,8 @@ function EditorSceneContents({
   const environmentPreview = useEditorStore((state) => state.environmentPreview);
   const environmentGizmo = useEditorStore((state) => state.environmentGizmo);
   const environmentGizmoMode = useEditorStore((state) => state.environmentGizmoMode);
+  const levelGizmoMode = useEditorStore((state) => state.levelGizmoMode);
+  const levelGizmoId = useEditorStore((state) => state.levelGizmoId);
   const setEnvironment = useEditorStore((state) => state.setEnvironment);
   const addObject = useEditorStore((state) => state.addObject);
   const addExhibitor = useEditorStore((state) => state.addExhibitor);
@@ -536,6 +539,9 @@ function EditorSceneContents({
   const setActiveSpace = useEditorStore((state) => state.setActiveSpace);
   const toast = useUiStore((state) => state.toast);
   const shadowBounds = useMemo(() => projectBounds(project), [project]);
+  const gizmoLevel = levelGizmoId
+    ? project.levels.find((level) => level.id === levelGizmoId) ?? null
+    : null;
 
   // La vista previa local (blob) tiene prioridad sobre la URL guardada.
   const sceneEnvironment = environmentPreview
@@ -699,6 +705,9 @@ function EditorSceneContents({
         onWallClick={handleWallClick}
         onOpeningClick={(id) => setSelection({ type: 'opening', id })}
       />
+      {gizmoLevel ? (
+        <LevelGizmo project={project} level={gizmoLevel} mode={levelGizmoMode} />
+      ) : null}
       <SceneSplat
         environment={sceneEnvironment}
         editable

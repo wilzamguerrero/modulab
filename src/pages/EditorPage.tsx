@@ -57,6 +57,7 @@ import { LevelsPanel } from '@/components/editor/LevelsPanel';
 import { CatalogPanel } from '@/components/editor/CatalogPanel';
 import { ExhibitorsPanel } from '@/components/editor/ExhibitorsPanel';
 import { LightsPanel } from '@/components/editor/LightsPanel';
+import { HolesPanel } from '@/components/editor/HolesPanel';
 import { EnvironmentPanel } from '@/components/editor/EnvironmentPanel';
 import { Inspector } from '@/components/editor/Inspector';
 import { StairQuickEditor } from '@/components/editor/StairQuickEditor';
@@ -69,7 +70,7 @@ import { edgeLength, formatArea, formatMeters, polygonArea, validatePolygon } fr
 import { getLevel, getSpace, levelBounds, sortedLevels } from '@/utils/levels';
 import { formatRelativeDate } from '@/utils/format';
 
-type SidebarTab = 'plan' | 'levels' | 'catalog' | 'exhibitors' | 'lights' | 'environment';
+type SidebarTab = 'plan' | 'levels' | 'catalog' | 'exhibitors' | 'lights' | 'holes' | 'environment';
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string; icon: ReactNode }> = [
   { id: 'plan', label: 'Planta', icon: <DraftingCompass size={16} /> },
@@ -77,6 +78,7 @@ const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string; icon: ReactNode }> = 
   { id: 'catalog', label: 'Catálogo', icon: <Boxes size={16} /> },
   { id: 'exhibitors', label: 'Expositores', icon: <Users size={16} /> },
   { id: 'lights', label: 'Luces', icon: <Lightbulb size={16} /> },
+  { id: 'holes', label: 'Cortes', icon: <Scissors size={16} /> },
   { id: 'environment', label: 'Entorno', icon: <Globe2 size={16} /> },
 ];
 
@@ -660,6 +662,7 @@ export function EditorPage() {
               <ExhibitorsPanel project={project} notionConfigured={Boolean(notionStatus?.configured)} />
             ) : null}
             {activeTab === 'lights' ? <LightsPanel project={project} /> : null}
+            {activeTab === 'holes' ? <HolesPanel project={project} /> : null}
             {activeTab === 'environment' ? <EnvironmentPanel project={project} /> : null}
           </div>
         </aside>

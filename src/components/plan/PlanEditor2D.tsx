@@ -45,6 +45,7 @@ import {
   wallLength,
 } from '@/utils/walls';
 import { Button } from '@/components/ui';
+import { clipFloorPieces } from '@/utils/floorOutline';
 import {
   exhibitorColor,
   exhibitorPaintAmount,
@@ -70,8 +71,21 @@ type DragState =
   | { type: 'rotationPoint'; id: string; offset: Vec2 }
   | { type: 'stair'; id: string; offset: Vec2 }
   | { type: 'holeRect'; start: Vec2 }
-  | { type: 'hole'; id: string; offset: Vec2 }
+  | {
+      type: 'hole';
+      id: string;
+      /** Punto bajo el cursor al empezar el arrastre (sin snappear). */
+      startPointer: Vec2;
+      /** Centro del hueco al empezar el arrastre. */
+      startCenter: Vec2;
+    }
   | { type: 'holeVertex'; id: string; index: number };
+
+/** Anillo de puntos como sub-trayecto SVG cerrado. */
+function ringToPath(ring: Vec2[]): string {
+  if (ring.length < 3) return '';
+  return `M ${ring.map((point) => `${point.x} ${point.z}`).join(' L ')} Z`;
+}
 
 function fitViewport(vertices: Vec2[]): Viewport {
   if (vertices.length === 0) {
@@ -270,7 +284,7 @@ export function PlanEditor2D() {
   const addSpace = useEditorStore((state) => state.addSpace);
   const addHole = useEditorStore((state) => state.addHole);
   const cutRectHole = useEditorStore((state) => state.cutRectHole);
-  const moveHole = useEditorStore((state) => state.moveHole);
+  const setHoleCenter = useEditorStore((state) => state.setHoleCenter);
   const setHoleVertex = useEditorStore((state) => state.setHoleVertex);
   const addStair = useEditorStore((state) => state.addStair);
   const moveStair = useEditorStore((state) => state.moveStair);
@@ -293,7 +307,6 @@ export function PlanEditor2D() {
   const [hover, setHover] = useState<Vec2 | null>(null);
   const [rectDraft, setRectDraft] = useState<Vec2[] | null>(null);
   const rectRef = useRef<Vec2[] | null>(null);
-  const holeDragStartRef = useRef<Vec2 | null>(null);
   const [wallStart, setWallStart] = useState<Vec2 | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
   const lastScope = useRef(`${activeLevelId ?? ''}:${activeSpaceId ?? ''}`);
@@ -663,14 +676,16 @@ export function PlanEditor2D() {
     }
     if (drag.type === 'hole') {
       movedRef.current = true;
-      const next = snapPointIfNeeded({
-        x: point.x + drag.offset.x,
-        z: point.z + drag.offset.z,
-      });
-      const first = holeDragStartRef.current;
-      if (first) {
-        moveHole(drag.id, { x: next.x - first.x, z: next.z - first.z }, { history: false, touch: false });
-      }
+      // Se recoloca el centro del hueco a partir del punto de partida del
+      // arrastre, no acumulando deltas: así el corte sigue al cursor sin
+      // desfase aunque el snap o el temblor del puntero cambien el delta.
+      // El snap se aplica al centro resultante (no al puntero) para que el
+      // corte quede sobre la retícula como el resto de elementos.
+      const target = {
+        x: drag.startCenter.x + (point.x - drag.startPointer.x),
+        z: drag.startCenter.z + (point.z - drag.startPointer.z),
+      };
+      setHoleCenter(drag.id, snapPointIfNeeded(target), { history: false, touch: false });
       return;
     }
     if (drag.type === 'holeVertex') {
@@ -773,9 +788,15 @@ export function PlanEditor2D() {
     if (tool !== 'select') return;
     event.stopPropagation();
     event.preventDefault();
-    const point = toWorld(event.clientX, event.clientY);
-    holeDragStartRef.current = snapPointIfNeeded(point);
-    beginDrag(event, { type: 'hole', id: holeId, offset: { x: 0, z: 0 } });
+    const hole = activeSpace?.holes.find((entry) => entry.id === holeId);
+    if (!hole || hole.vertices.length < 3) return;
+    const bounds = polygonBounds(hole.vertices);
+    beginDrag(event, {
+      type: 'hole',
+      id: holeId,
+      startPointer: toWorld(event.clientX, event.clientY),
+      startCenter: bounds.center,
+    });
     setSelection({ type: 'hole', id: holeId, spaceId: activeSpace?.id });
   };
 
@@ -923,6 +944,18 @@ export function PlanEditor2D() {
   const selectedInternalWall = selection?.type === 'internalWall' ? selection.id : null;
   const selectedOpening = selection?.type === 'opening' ? selection.id : null;
   const selectedHole = selection?.type === 'hole' ? selection.id : null;
+  /**
+   * Forjado ya restado: los cortes pegados al borde dejan ese lado abierto en
+   * la planta igual que en el 3D, en vez de quedar como una mancha encima.
+   */
+  const floorPieces = useMemo(() => {
+    if (vertices.length < 3) return [];
+    const pieces = clipFloorPieces(
+      vertices,
+      (activeSpace?.holes ?? []).map((hole) => hole.vertices),
+    );
+    return pieces ?? [];
+  }, [vertices, activeSpace?.holes]);
   const selectedExhibitorId = selection?.type === 'exhibitor' ? selection.id : null;
   const openingPaintColor = (opening: WallOpening) => {
     const exhibitor = findExhibitor(project, opening.exhibitorId);
@@ -1057,51 +1090,18 @@ export function PlanEditor2D() {
 
         {vertices.length >= 3 ? (
           <g opacity={dimExisting ? 0.35 : 1}>
-            <polygon
-              points={vertices.map((point) => `${point.x},${point.z}`).join(' ')}
-              fill={activeSpace?.color ?? '#b8ae9d'}
-              fillOpacity={0.22}
-              stroke="rgba(255,255,255,.16)"
-              strokeWidth={Math.max(viewport.width / 1000, 0.006)}
-              strokeLinejoin="round"
-            />
-            {(activeSpace?.holes ?? []).map((hole) =>
-              hole.vertices.length >= 3 ? (
-                <polygon
-                  key={hole.id}
-                  data-hole-id={hole.id}
-                  points={hole.vertices.map((point) => `${point.x},${point.z}`).join(' ')}
-                  fill="rgba(9,12,15,.94)"
-                  stroke={selectedHole === hole.id ? '#ff8a65' : 'rgba(255,138,101,.75)'}
-                  strokeWidth={Math.max(viewport.width / 1100, 0.008)}
-                  strokeDasharray={`${viewport.width / 150} ${viewport.width / 220}`}
-                  style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
-                  onPointerDown={(event) => onHolePointerDown(event, hole.id)}
-                  onClick={(event) => {
-                    if (tool !== 'select') return;
-                    event.stopPropagation();
-                    setSelection({ type: 'hole', id: hole.id, spaceId: activeSpace?.id });
-                  }}
-                />
-              ) : null,
-            )}
-            {selectedHole
-              ? (activeSpace?.holes ?? [])
-                  .find((hole) => hole.id === selectedHole)
-                  ?.vertices.map((vertex, index) => (
-                    <circle
-                      key={`hole-vertex-${selectedHole}-${index}`}
-                      cx={vertex.x}
-                      cy={vertex.z}
-                      r={vertexRadius}
-                      fill="#ff8a65"
-                      stroke="#0e1114"
-                      strokeWidth={Math.max(viewport.width / 1400, 0.006)}
-                      style={{ cursor: 'grab' }}
-                      onPointerDown={(event) => onHoleVertexPointerDown(event, selectedHole, index)}
-                    />
-                  ))
-              : null}
+            {floorPieces.map((piece, pieceIndex) => (
+              <path
+                key={`floor-piece-${pieceIndex}`}
+                d={[piece.outer, ...piece.holes].map(ringToPath).join(' ')}
+                fill={activeSpace?.color ?? '#b8ae9d'}
+                fillOpacity={0.22}
+                fillRule="evenodd"
+                stroke="rgba(255,255,255,.16)"
+                strokeWidth={Math.max(viewport.width / 1000, 0.006)}
+                strokeLinejoin="round"
+              />
+            ))}
             {edges.map((edge, index) => {
               const a = vertices[index];
               const b = vertices[(index + 1) % vertices.length];
@@ -1295,6 +1295,34 @@ export function PlanEditor2D() {
           );
         })}
 
+        {/* Cortes de suelo. Se dibujan por encima del forjado y de los muros y
+            con un área de acierto generosa: el contorno es fino y, si el corte
+            está pegado al borde, antes costaba acertar cuál de los dos se
+            seleccionaba. El área de acierto va antes de las escaleras para no
+            taparlas, porque el corte suele estar justo debajo de ellas. */}
+        {(activeSpace?.holes ?? [])
+          .filter((hole) => hole.vertices.length >= 3)
+          .map((hole) => (
+            <polygon
+              key={`hole-hit-${hole.id}`}
+              points={hole.vertices.map((point) => `${point.x},${point.z}`).join(' ')}
+              fill="none"
+              stroke="none"
+              strokeWidth={hitWidth}
+              data-hole-hit={hole.id}
+              pointerEvents="all"
+              style={{ cursor: tool === 'select' ? 'move' : 'default' }}
+              onPointerDown={(event) => onHolePointerDown(event, hole.id)}
+              onClick={(event) => {
+                if (tool !== 'select') return;
+                event.stopPropagation();
+                setSelection({ type: 'hole', id: hole.id, spaceId: activeSpace?.id });
+              }}
+            >
+              <title>{tool === 'select' ? `${hole.name} · arrastra para mover` : hole.name}</title>
+            </polygon>
+          ))}
+
         {stairs.map((stair) => {
           if (!stair.visible) return null;
           const selected = selection?.type === 'stair' && selection.id === stair.id;
@@ -1377,6 +1405,45 @@ export function PlanEditor2D() {
             </g>
           );
         })}
+
+        {/* Contorno de los cortes. Se pinta por encima del forjado y de las
+            escaleras para que se vea siempre, pero sin capturar eventos: la
+            zona de acierto está más abajo, antes de las escaleras, para que
+            una escalera apoyada sobre el corte siga siendo seleccionable. */}
+        {(activeSpace?.holes ?? [])
+          .filter((hole) => hole.vertices.length >= 3)
+          .map((hole) => {
+            const isSelected = selectedHole === hole.id;
+            return (
+              <polygon
+                key={`hole-outline-${hole.id}`}
+                points={hole.vertices.map((point) => `${point.x},${point.z}`).join(' ')}
+                fill="none"
+                stroke={isSelected ? '#ff8a65' : 'rgba(255,138,101,.8)'}
+                strokeWidth={Math.max(viewport.width / 1100, 0.008)}
+                strokeDasharray={`${viewport.width / 150} ${viewport.width / 220}`}
+                pointerEvents="none"
+              />
+            );
+          })}
+
+        {selectedHole && tool === 'select'
+          ? (activeSpace?.holes ?? [])
+              .find((hole) => hole.id === selectedHole)
+              ?.vertices.map((vertex, index) => (
+                <circle
+                  key={`hole-vertex-${selectedHole}-${index}`}
+                  cx={vertex.x}
+                  cy={vertex.z}
+                  r={vertexRadius}
+                  fill="#ff8a65"
+                  stroke="#0e1114"
+                  strokeWidth={Math.max(viewport.width / 1400, 0.006)}
+                  style={{ cursor: 'grab' }}
+                  onPointerDown={(event) => onHoleVertexPointerDown(event, selectedHole, index)}
+                />
+              ))
+          : null}
 
         {selectedInternalWall && tool === 'select'
           ? (() => {

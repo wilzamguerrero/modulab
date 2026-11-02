@@ -367,7 +367,7 @@ function HoleHandles({
   hole: { id: string; vertices: Vec2[] };
   elevation: number;
 }) {
-  const moveHole = useEditorStore((state) => state.moveHole);
+  const setHoleCenter = useEditorStore((state) => state.setHoleCenter);
   const setHoleVertex = useEditorStore((state) => state.setHoleVertex);
   const project = useEditorStore((state) => state.project);
   const snap = project?.settings.snapToGrid ?? false;
@@ -384,17 +384,27 @@ function HoleHandles({
     maxZ = Math.max(maxZ, vertex.z);
   }
   const center = { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 };
-  const lastCenter = { current: center };
+  // Origen del arrastre: el centro del corte al empezar. Se recoloca respecto a
+  // este punto en vez de acumular deltas, para que no se desfase al moverlo.
+  // El primer punto del plano bajo el cursor se toma como referencia.
+  const dragOrigin = { current: null as { pointer: Vec2; center: Vec2 } | null };
 
   const centerDrag = useHistoryDrag(
     () => {
-      lastCenter.current = center;
+      dragOrigin.current = null;
     },
     (point) => {
-      const next = snap ? snapPoint(point, gridSize) : point;
-      const delta = { x: next.x - lastCenter.current.x, z: next.z - lastCenter.current.z };
-      lastCenter.current = next;
-      moveHole(hole.id, delta, { history: false, touch: false });
+      if (!dragOrigin.current) dragOrigin.current = { pointer: point, center };
+      const origin = dragOrigin.current;
+      const next = {
+        x: origin.center.x + (point.x - origin.pointer.x),
+        z: origin.center.z + (point.z - origin.pointer.z),
+      };
+      setHoleCenter(
+        hole.id,
+        snap ? snapPoint(next, gridSize) : next,
+        { history: false, touch: false },
+      );
     },
     elevation,
   );

@@ -7,7 +7,9 @@ import {
   Eye,
   EyeOff,
   Layers,
+  Move,
   Plus,
+  RotateCw,
   Trash2,
   Triangle,
 } from 'lucide-react';
@@ -24,6 +26,7 @@ import {
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { polygonArea, polygonCentroid, formatArea } from '@/utils/geometry';
+import { levelContents } from '@/utils/levelTransform';
 import { getLevel, getSpace, sortedLevels } from '@/utils/levels';
 
 const STAIR_KIND_LABEL = { straight: 'Recta', l: 'En L', u: 'En U' } as const;
@@ -46,6 +49,9 @@ export function LevelsPanel({ project }: { project: Project }) {
   const setTool = useEditorStore((state) => state.setTool);
   const setPlanDrawMode = useEditorStore((state) => state.setPlanDrawMode);
   const setLevelFloorThickness = useEditorStore((state) => state.setLevelFloorThickness);
+  const levelGizmoId = useEditorStore((state) => state.levelGizmoId);
+  const levelGizmoMode = useEditorStore((state) => state.levelGizmoMode);
+  const setLevelGizmo = useEditorStore((state) => state.setLevelGizmo);
 
   const [confirmLevel, setConfirmLevel] = useState<string | null>(null);
   const [confirmSpace, setConfirmSpace] = useState<string | null>(null);
@@ -60,6 +66,21 @@ export function LevelsPanel({ project }: { project: Project }) {
   const levelExhibitors = confirmLevel
     ? project.exhibitors.filter((exhibitor) => exhibitor.levelId === confirmLevel).length
     : 0;
+
+  const levelContentsSummary = useMemo(() => {
+    if (!activeLevel) return '';
+    const counts = levelContents(project, activeLevel.id);
+    const parts = [
+      `${counts.spaces} espacio(s)`,
+      `${counts.walls} muro(s) libre(s)`,
+      `${counts.holes} corte(s)`,
+      `${counts.stairs} escalera(s)`,
+      `${counts.objects} objeto(s)`,
+      `${counts.exhibitors} expositor(es)`,
+    ];
+    if (counts.rotationPoints) parts.push(`${counts.rotationPoints} punto(s) de rotación`);
+    return `Se moverá con el piso: ${parts.join(' · ')}.`;
+  }, [activeLevel, project]);
 
   const startNewSpace = () => {
     setView('plan');
@@ -196,6 +217,50 @@ export function LevelsPanel({ project }: { project: Project }) {
             <p className="panel-note">
               El suelo es una losa maciza: la cara superior queda a la elevación del nivel y el
               canto cuelga este espesor. Se aplica a todos los espacios del nivel.
+            </p>
+            <div className="panel-title">
+              <span><Move size={12} /> Mover el piso completo</span>
+            </div>
+            <p className="panel-note">
+              Mueve o gira el nivel entero con todo lo que tiene encima (espacios, muros,
+              huecos, escaleras, objetos y expositores). Útil para colocar un piso sobre otro.
+            </p>
+            <div className="inline-actions">
+              <Button
+                size="sm"
+                variant={levelGizmoId === activeLevel.id && levelGizmoMode === 'translate' ? 'primary' : 'outline'}
+                icon={<Move size={13} />}
+                onClick={() => {
+                  setView('3d');
+                  setLevelGizmo(
+                    levelGizmoId === activeLevel.id && levelGizmoMode === 'translate'
+                      ? null
+                      : activeLevel.id,
+                    'translate',
+                  );
+                }}
+              >
+                Mover piso
+              </Button>
+              <Button
+                size="sm"
+                variant={levelGizmoId === activeLevel.id && levelGizmoMode === 'rotate' ? 'primary' : 'outline'}
+                icon={<RotateCw size={13} />}
+                onClick={() => {
+                  setView('3d');
+                  setLevelGizmo(
+                    levelGizmoId === activeLevel.id && levelGizmoMode === 'rotate'
+                      ? null
+                      : activeLevel.id,
+                    'rotate',
+                  );
+                }}
+              >
+                Girar piso
+              </Button>
+            </div>
+            <p className="panel-note">
+              {levelContentsSummary}
             </p>
           </>
         ) : null}
