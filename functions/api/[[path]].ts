@@ -1,7 +1,25 @@
 import type { Env } from '../_shared/env';
 import { json, jsonError } from '../_shared/env';
-import { clearConfig, loadConfig, maskedToken, saveConfig } from '../_shared/config';
+import {
+  clearConfig,
+  clearOAuthMeta,
+  loadConfig,
+  loadOAuthMeta,
+  maskedToken,
+  saveConfig,
+} from '../_shared/config';
 import * as notion from '../_shared/notion';
+import {
+  buildAuthorizeUrl,
+  completeAuthorization,
+  createState,
+  oauthClientId,
+  oauthConfigured,
+  originOf,
+  resolveRedirectUri,
+  searchPages,
+  selectParentPage,
+} from '../_shared/notionOAuth';
 import { deletePublished, getPublishedDocument, publishDocument } from '../_shared/publishing';
 import { scanCatalog } from '../_shared/catalog';
 import { photoKey, sanitizePhotoName } from '../_shared/uploads';
@@ -105,12 +123,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             if (status === 401 || status === 403) configured = false;
           }
         }
+        const oauth = await loadOAuthMeta(env);
         return json({
           configured,
           hasToken: Boolean(config.notionSecret),
           parentPageId: config.parentPageId,
           parentPageTitle,
           maskedToken: maskedToken(config.notionSecret),
+          workspaceName: oauth?.workspaceName,
+          authMode: oauth ? 'oauth' : 'manual',
+          oauthAvailable: oauthConfigured(env),
           error,
         });
       }
@@ -122,6 +144,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           return jsonError(400, 'Indica el token y la página padre de Notion.');
         }
         const config = await saveConfig(env, { notionSecret, parentPageId });
+        // Un token pegado a mano deja de ser una sesión OAuth.
+        if (typeof notionSecret === 'string' && notionSecret.trim()) await clearOAuthMeta(env);
         let configured = Boolean(config.notionSecret && config.parentPageId);
         let parentPageTitle: string | undefined;
         let error: string | undefined;
@@ -151,6 +175,85 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         await clearConfig(env);
         return json({ success: true });
       }
+    }
+
+    // --- Notion OAuth (el client secret nunca sale del servidor) ------------
+    // Notion vuelve a la URI registrada, que aquí es la raíz del sitio. La
+    // página recibe `code`/`state` y los envía a /notion/oauth/exchange.
+    if (path === '/notion/oauth/start' && method === 'GET') {
+      if (!oauthConfigured(env)) {
+        return jsonError(
+          500,
+          'Falta configurar NOTION_CLIENT_ID y NOTION_CLIENT_SECRET en Cloudflare Pages.',
+        );
+      }
+      const redirectUri = resolveRedirectUri(env, originOf(request));
+      const state = await createState(env, redirectUri);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: buildAuthorizeUrl(oauthClientId(env), redirectUri, state),
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+
+    if (path === '/notion/oauth/exchange' && method === 'POST') {
+      const body = await readJson(request);
+      const code = String(body?.code || '').trim();
+      const state = String(body?.state || '').trim();
+      if (!code || !state) {
+        return jsonError(400, 'La autorización llegó incompleta. Vuelve a intentarlo.');
+      }
+      return json(await completeAuthorization(env, code, state));
+    }
+
+    // Callback de servidor: solo aplica si la integración registra esta ruta.
+    if (path === '/notion/oauth/callback' && method === 'GET') {
+      const url = new URL(request.url);
+      const code = String(url.searchParams.get('code') || '').trim();
+      const state = String(url.searchParams.get('state') || '').trim();
+      const oauthError = String(url.searchParams.get('error') || '').trim();
+      const fallback = resolveRedirectUri(env, originOf(request));
+
+      const redirect = (query: string) =>
+        new Response(null, {
+          status: 302,
+          headers: { Location: `${fallback}?${query}`, 'Cache-Control': 'no-store' },
+        });
+
+      if (oauthError) return redirect(`notion=error&reason=${encodeURIComponent(oauthError)}`);
+      if (!code || !state) return redirect('notion=error&reason=state');
+
+      try {
+        const result = await completeAuthorization(env, code, state);
+        return redirect(`notion=connected&workspace=${encodeURIComponent(result.workspaceName || '')}`);
+      } catch (error) {
+        return redirect(`notion=error&reason=${encodeURIComponent((error as Error).message)}`);
+      }
+    }
+
+    if (path === '/notion/oauth/pages' && method === 'GET') {
+      const config = await loadConfig(env);
+      return json({ pages: await searchPages(env, config) });
+    }
+
+    if (path === '/notion/oauth/select' && method === 'POST') {
+      const body = await readJson(request);
+      const pageId = String(body?.pageId || '').trim();
+      if (!pageId) return jsonError(400, 'Falta el ID de la página de Notion.');
+      const parentPageId = await selectParentPage(env, pageId);
+      // La página anterior ya no aplica: se descartan proyectos y personas.
+      notion.invalidateProjectsCache();
+      notion.invalidatePeopleCache();
+      let parentPageTitle: string | undefined;
+      try {
+        const config = await loadConfig(env);
+        parentPageTitle = await notion.verifyParentPage(parentPageId, config);
+      } catch {
+        // El título es informativo; la selección ya quedó guardada.
+      }
+      return json({ success: true, parentPageId, parentPageTitle });
     }
 
     // --- Notion: proyectos --------------------------------------------------

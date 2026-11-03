@@ -138,7 +138,7 @@ export function ExhibitorsPanel({
         </div>
         {!notionConfigured ? (
           <div className="hint-box">
-            <strong>Notion no está conectado.</strong> Configura el token y la página padre para
+            <strong>Notion no está conectado.</strong> Autoriza tu cuenta y elige la página para
             importar personas, fotos, descripciones y líneas como «Stand: A-01».
             <div style={{ marginTop: 8 }}>
               <Button size="sm" variant="secondary" onClick={() => setNotionModalOpen(true)} icon={<Settings2 size={13} />}>

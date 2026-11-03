@@ -757,9 +757,9 @@ El cliente está hecho con React 19, TypeScript, Vite, React Three Fiber, Drei, 
 
 La app no guarda una imagen ni un GLB exportado como sustituto del proyecto. Guarda un JSON versionado con la planta, los muros, los objetos, los materiales, las luces, los expositores y las cámaras. La escena 3D se reconstruye a partir de esos datos.
 
-**Verificado en esta entrega:** TypeScript estricto, 30 pruebas automatizadas, build de producción, flujo de planta en T, catálogo dinámico con un GLB de prueba, publicación y visor público con cámara de expositor. También se comprobó en navegador que orbitar la cámara y después cambiar metadatos o mover un objeto no devuelve la vista a la cámara inicial; el botón de cámara del proyecto sí la restaura de forma explícita.
+**Verificado en esta entrega:** TypeScript estricto en cliente y en las Pages Functions, 107 pruebas automatizadas en 14 archivos, build de producción, flujo de planta en T, catálogo dinámico con un GLB de prueba, publicación y visor público con cámara de expositor. También se comprobó en navegador que orbitar la cámara y después cambiar metadatos o mover un objeto no devuelve la vista a la cámara inicial; el botón de cámara del proyecto sí la restaura de forma explícita.
 
-**Pendiente de validar con material real:** modelos GLB del usuario y la API real de Notion. No se afirma que esos dos puntos funcionen hasta probarlos con los archivos y credenciales definitivos.
+**Pendiente de validar con material real:** modelos GLB del usuario y una autorización OAuth real contra la API de Notion. No se afirma que esos dos puntos funcionen hasta probarlos con los archivos y las credenciales definitivas.
 
 ## 13.2. Requisitos y puesta en marcha
 
@@ -791,16 +791,18 @@ Comandos disponibles:
 Variables de entorno opcionales (ver `.env.example`):
 
 ```env
-NOTION_SECRET=
-NOTION_ID_PAGE=
+NOTION_CLIENT_ID=
+NOTION_CLIENT_SECRET=
+NOTION_REDIRECT_URI=
 PORT=3000
 MODULAB_DATA_DIR=
 ```
 
-- `NOTION_SECRET` y `NOTION_ID_PAGE` permiten configurar Notion sin abrir la interfaz. También se acepta `NOTION_PARENT_PAGE_ID`.
+- `NOTION_CLIENT_ID` y `NOTION_CLIENT_SECRET` son las credenciales de la integración pública de Notion y habilitan la conexión OAuth. Sin ellas, el botón **Conectar Notion** avisa de que falta configurarlas en el servidor.
+- `NOTION_REDIRECT_URI` solo hace falta si la integración registra URIs de retorno distintas de las dos por defecto (`http://localhost:3000/` y `https://modulabd.pages.dev/`). Se separan por comas.
 - `PORT` cambia el puerto del servidor (3000 por defecto).
 - `MODULAB_DATA_DIR` cambia la carpeta de datos del servidor; por defecto es `data/`.
-- La configuración guardada desde la interfaz se escribe en `data/notion-config.json` y tiene prioridad sobre las variables de entorno. Ese archivo está ignorado por Git.
+- El token autorizado se guarda en `data/notion-config.json` y el workspace en `data/notion-oauth.json`. Ambos están ignorados por Git y no se despliegan.
 
 Para producción:
 
@@ -818,9 +820,20 @@ server.ts                 Servidor Express y rutas de API
 server/
   config.ts               Rutas de datos, configuración de Notion y entorno
   notion.ts               Bloques, proyectos, personas e imágenes de Notion
+  notionOAuth.ts          Autorización OAuth 2.0 con Notion (state, canje y páginas)
   catalog.ts              Escaneo recursivo y subida de modelos
   publishing.ts           Publicaciones locales y espejo en Notion
   uploads.ts              Fotografías de expositores
+functions/                Las mismas rutas de API para Cloudflare Pages
+  _shared/
+    config.ts             Configuración y metadatos OAuth en el binding KV
+    notionOAuth.ts        OAuth 2.0 con WebCrypto: firma y verifica el state
+    notion.ts             Bloques, proyectos y personas de Notion
+    catalog.ts            Escaneo del catálogo
+    publishing.ts         Publicaciones
+    uploads.ts            Fotografías de expositores
+    env.ts                Lectura tipada de variables de entorno
+  api/[[path]].ts         Enrutador de la API en Pages Functions
 src/
   components/
     editor/               Paneles del editor e inspector
@@ -971,10 +984,21 @@ Los proyectos locales pertenecen al perfil del navegador. Para moverlos a otro e
 
 ### Configuración
 
-1. Crear una integración en <https://www.notion.so/my-integrations>.
-2. Compartir la página padre con esa integración.
-3. En Modulab, abrir **Conectar** y pegar el token y la URL o el ID de la página padre.
-4. Guardar. El estado se puede comprobar en la misma ventana.
+Modulab se conecta con **OAuth 2.0**. No hay que pegar ningún token en la interfaz: el token lo emite Notion y se queda en el servidor.
+
+1. Crear una integración pública en <https://www.notion.so/my-integrations> y copiar su **client ID** y **client secret**.
+2. Registrar las URIs de retorno en esa integración. Por defecto Modulab usa la **raíz del sitio**, no una ruta propia: `http://localhost:3000/` en desarrollo y `https://modulabd.pages.dev/` en producción. Si se registran otras, indicarlas en `NOTION_REDIRECT_URI` separadas por comas.
+3. Definir `NOTION_CLIENT_ID` y `NOTION_CLIENT_SECRET` en `.env` (Express) o `.dev.vars` (Cloudflare Pages). Esas variables nunca llegan al navegador.
+4. En la pantalla de inicio, pulsar **Conectar Notion** en la cabecera. La app redirige a Notion para autorizar.
+5. Al volver, Modulab canjea el código y abre el selector: elegir la página cuyos proyectos se van a cargar. Guardar. El estado y el nombre del workspace aparecen en el mismo panel.
+
+Detalles del flujo:
+
+- El `state` va firmado con HMAC-SHA256 y caduca a los 10 minutos, así que el flujo funciona igual con o sin binding KV y con varias instancias del Worker.
+- Notion devuelve `code` y `state` a la URI registrada (la raíz). La página los lee de la barra de direcciones, los borra de la URL y los envía a `POST /api/notion/oauth/exchange`; el *client secret* solo se usa en el servidor.
+- Existe además `GET /api/notion/oauth/callback` como respaldo, únicamente por si una integración registra esa ruta en lugar de la raíz.
+- Cambiar de página descarta las cachés de proyectos y de personas, para no mezclar dos workspaces.
+- Si no hay credenciales OAuth, el botón avisa de que faltan `NOTION_CLIENT_ID` y `NOTION_CLIENT_SECRET`. Las variables `NOTION_SECRET`/`NOTION_ID_PAGE` solo se leen cuando no hay OAuth configurado.
 
 La página padre debe contener los proyectos como toggles o páginas hijas. Al guardar un proyecto nuevo en Notion, Modulab crea un toggle con su nombre y, dentro, un bloque de código JSON marcado con `__modulab_project__`. Al volver a guardar, actualiza ese mismo bloque y el título.
 
@@ -1020,8 +1044,8 @@ Las imágenes de Notion se sirven a través de `/api/notion/image/:blockId` porq
 - El bloque JSON admite aproximadamente 190 000 caracteres. Un proyecto con imágenes incrustadas o datos enormes puede superar ese límite.
 - La API de Notion tiene límites de frecuencia; el servidor limita la concurrencia y reintenta errores 429/5xx.
 - No hay sincronización en tiempo real ni resolución de conflictos entre varias personas editando el mismo proyecto.
-- El token de Notion se guarda en texto plano en `data/notion-config.json` (ignorado por Git). Hay que proteger esa carpeta y no publicarla.
-- **No se ha probado contra la API real de Notion en esta entrega** porque no se proporcionaron credenciales. La lógica está implementada, pero debe validarse con una página real antes de confiar en ella para un evento.
+- El token que emite Notion se guarda en el servidor, en `data/notion-config.json` (o en el binding KV de Pages). Está ignorado por Git y no se despliega, pero se guarda sin cifrar: hay que proteger esa carpeta y no publicarla.
+- **El flujo OAuth no se ha probado contra la API real de Notion en esta entrega** porque no se proporcionaron credenciales. La lógica está implementada, pero debe autorizarse una cuenta y elegir una página real antes de confiar en ella para un evento.
 
 ## 13.8. Publicación y visor público
 
@@ -1057,8 +1081,13 @@ El identificador público reduce la probabilidad de acceso casual, pero **no es 
 | GET | `/api/catalog` | Escanea y devuelve los modelos del catálogo. |
 | POST | `/api/catalog/upload` | Sube un `.glb` o `.gltf` (campo `file`). |
 | POST | `/api/uploads/photo` | Sube una fotografía de expositor (campo `file`). |
+| GET | `/api/notion/oauth/start` | Redirige a la página de autorización de Notion (302). |
+| POST | `/api/notion/oauth/exchange` | Canjea el `code` devuelto a la raíz; guarda el token en el servidor. |
+| GET | `/api/notion/oauth/callback` | Respaldo por si la integración registra esta ruta. |
+| GET | `/api/notion/oauth/pages` | Lista las páginas a las que se dio acceso, para elegir la padre. |
+| POST | `/api/notion/oauth/select` | Fija la página padre y descarta las cachés anteriores. |
 | GET | `/api/notion/config` | Estado de la configuración de Notion. |
-| POST | `/api/notion/config` | Guarda token y página padre. |
+| POST | `/api/notion/config` | Guarda token y página padre (vía de compatibilidad). |
 | DELETE | `/api/notion/config` | Borra la configuración guardada. |
 | GET | `/api/notion/projects` | Lista toggles y páginas hijas de la página padre. |
 | POST | `/api/notion/projects` | Crea un proyecto en Notion. |
@@ -1078,18 +1107,27 @@ También se sirven `/catalog/...` y `/uploads/...` como archivos estáticos.
 En la entrega actual:
 
 ```text
-npx tsc --noEmit        OK
-npx vitest run          OK · 5 archivos · 27 pruebas
-npm run build           OK
+npx tsc --noEmit                        OK
+npx tsc -p functions/tsconfig.json      OK
+npx vitest run                          OK · 14 archivos · 107 pruebas
+npm run build                           OK
 ```
 
 Cobertura automatizada:
 
-- Geometría: área, centro, límites, autointersecciones, longitudes, puntos dentro del polígono y snap (8 pruebas).
-- Esquema de proyecto: validación, normalización y expositores manuales (5 pruebas).
-- Cámaras de expositor: colocación interior a 3,5 m, separación de muros, plantas estrechas y marcadores fuera del recinto (11 pruebas).
-- Materiales GLB: restauración de valores originales por instancia (2 pruebas).
+- Geometría del plano: área, centro, límites, autointersecciones, longitudes, puntos dentro del polígono y ajuste a la cuadrícula (8 pruebas).
+- Recorte del forjado y sus casos límite: vértices repetidos, polígonos cóncavos y áreas degeneradas (15 pruebas).
+- Escaleras: huella, contrahuella y recuento de peldaños (13 pruebas).
+- Transformación de niveles: elevación y traslado entre plantas (12 pruebas).
+- Esquema de proyecto: validación, normalización y expositores manuales (13 pruebas).
+- Cámara sugerida de expositor: colocación interior a 3,5 m, separación de muros, plantas estrechas y marcadores fuera del recinto (11 pruebas).
+- Geometría del piso por niveles (11 pruebas).
+- Niveles: orden por elevación, límites, espacio que contiene un punto y ajuste de escaleras (9 pruebas).
+- Muros: trazado y longitud por segmento (5 pruebas).
+- Sobrescrituras de materiales por instancia: restauración de los valores originales del GLB (3 pruebas).
+- Colores de expositores: color por defecto, mezcla, resaltado de la selección y tinte (4 pruebas).
 - Sincronización de Notion: actualización, altas, ausencias y conservación de expositores manuales (1 prueba).
+- Sombras: calidad, mapas y frustum ajustado (2 pruebas).
 
 Verificación manual en navegador:
 
@@ -1106,7 +1144,7 @@ El GLB de prueba y las publicaciones de prueba se eliminaron antes de cerrar la 
 ## 13.11. Limitaciones y trabajo pendiente
 
 - **Modelos reales:** no se han recibido los GLB definitivos. Hay que probar escala, orientación, materiales, texturas y rendimiento con ellos.
-- **Notion real:** falta configurar token y página y probar guardado, lectura, personas, imágenes y borrado contra la API real.
+- **Notion real:** falta autorizar una cuenta con OAuth, elegir la página de proyectos y probar guardado, lectura, personas, imágenes y borrado contra la API real. El flujo está implementado y tipado, pero no ejecutado contra Notion.
 - **GLTF externo:** la subida de un solo archivo no incluye `.bin` ni texturas; para esos casos hay que copiar la carpeta completa a `public/catalog`.
 - **Autenticación:** no existe. Cualquier persona con acceso al servidor puede usar las rutas de escritura. No publicar en internet sin protegerlo.
 - **Multiusuario:** no hay cuentas, bloqueo de edición ni resolución de conflictos. Cada navegador tiene sus proyectos locales.

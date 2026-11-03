@@ -1,5 +1,10 @@
 import type { Exhibitor, Project, Vec2 } from '@/types/project';
-import type { NotionConfigStatus, NotionExhibitorsResponse, NotionPerson } from '@/types/notion';
+import type {
+  NotionConfigStatus,
+  NotionExhibitorsResponse,
+  NotionPagesResponse,
+  NotionPerson,
+} from '@/types/notion';
 import { apiDelete, apiGet, apiPost } from '@/services/api';
 import { defaultExhibitorCamera } from '@/data/defaults';
 import { createId } from '@/utils/id';
@@ -20,6 +25,69 @@ export function saveNotionConfig(input: {
 
 export function clearNotionConfig(): Promise<{ success: boolean }> {
   return apiDelete('/api/notion/config');
+}
+
+/**
+ * Inicia el flujo OAuth. Debe ser una navegación completa (no fetch): el
+ * servidor responde con un 302 a la página de autorización de Notion.
+ */
+export function startNotionOAuth(): void {
+  // El flujo incluye ida y vuelta a Notion: se descarta el `code` que hubiera
+  // quedado en la URL para no reintentar una autorización vieja.
+  const url = new URL(window.location.href);
+  url.searchParams.delete('code');
+  url.searchParams.delete('state');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+  window.location.assign('/api/notion/oauth/start');
+}
+
+/**
+ * Notion devuelve `code` y `state` a la URI registrada (la raíz del sitio).
+ * Se leen aquí porque el callback no pasa por una ruta propia.
+ */
+export interface NotionOAuthReturn {
+  code: string;
+  state: string;
+  error?: string;
+}
+
+export function readNotionOAuthReturn(): NotionOAuthReturn | null {
+  const params = new URLSearchParams(window.location.search);
+  const code = (params.get('code') || '').trim();
+  const state = (params.get('state') || '').trim();
+  const error = (params.get('error') || '').trim();
+  if (!code && !error) return null;
+  return { code, state, error: error || undefined };
+}
+
+/** Limpia `code`, `state` y `error` de la barra de direcciones. */
+export function clearNotionOAuthQuery(): void {
+  const params = new URLSearchParams(window.location.search);
+  for (const key of ['code', 'state', 'error', 'error_description']) params.delete(key);
+  const query = params.toString();
+  window.history.replaceState(
+    {},
+    '',
+    `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
+  );
+}
+
+/** Intercambia el `code` de autorización; el token queda en el servidor. */
+export function exchangeNotionOAuthCode(input: {
+  code: string;
+  state: string;
+}): Promise<{ workspaceName?: string; workspaceId?: string }> {
+  return apiPost('/api/notion/oauth/exchange', input);
+}
+
+export function listNotionPages(): Promise<NotionPagesResponse> {
+  return apiGet<NotionPagesResponse>('/api/notion/oauth/pages');
+}
+
+export function selectNotionPage(
+  pageId: string,
+): Promise<{ success: boolean; parentPageId: string; parentPageTitle?: string }> {
+  return apiPost('/api/notion/oauth/select', { pageId });
 }
 
 export async function fetchNotionPeople(pageId: string): Promise<NotionExhibitorsResponse> {

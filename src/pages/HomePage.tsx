@@ -41,7 +41,13 @@ import {
   loadProjectFromNotion,
   removeProject,
 } from '@/services/projects/projectService';
-import { getNotionStatus } from '@/services/notion/notionService';
+import {
+  clearNotionOAuthQuery,
+  exchangeNotionOAuthCode,
+  getNotionStatus,
+  readNotionOAuthReturn,
+  startNotionOAuth,
+} from '@/services/notion/notionService';
 import { loadCatalog } from '@/services/assets/catalogService';
 import { useUiStore } from '@/store/uiStore';
 import { getTemplate } from '@/data/templates';
@@ -92,13 +98,48 @@ export function HomePage() {
 
   useEffect(() => {
     refreshLocal();
-    getNotionStatus()
-      .then(setNotionStatus)
-      .catch(() => setNotionStatus({ configured: false, hasToken: false, parentPageId: '' }));
     loadCatalog()
       .then((catalog) => setGlbCount(catalog.glbCount))
       .catch(() => setGlbCount(null));
-  }, [refreshLocal]);
+
+    // Notion vuelve a la raíz del sitio con `code`/`state`, porque la URI
+    // registrada en la integración no puede ser una ruta propia. Se leen y se
+    // limpian de la barra de direcciones antes de canjearlos: así una recarga
+    // no reintenta una autorización ya usada.
+    const oauthReturn = readNotionOAuthReturn();
+    if (oauthReturn) clearNotionOAuthQuery();
+
+    const settleNotion = async () => {
+      if (oauthReturn?.error) {
+        toast(`No se pudo conectar con Notion: ${oauthReturn.error}`, 'error');
+      } else if (oauthReturn?.code && oauthReturn.state) {
+        try {
+          const result = await exchangeNotionOAuthCode({
+            code: oauthReturn.code,
+            state: oauthReturn.state,
+          });
+          setNotionStatus(await getNotionStatus());
+          toast(
+            result.workspaceName
+              ? `Notion autorizado en «${result.workspaceName}». Elige la página de proyectos.`
+              : 'Notion autorizado. Elige la página de proyectos.',
+            'success',
+          );
+          setNotionModalOpen(true);
+          return;
+        } catch (error) {
+          toast((error as Error).message || 'No se pudo completar la autorización.', 'error');
+        }
+      }
+      try {
+        setNotionStatus(await getNotionStatus());
+      } catch {
+        setNotionStatus({ configured: false, hasToken: false, parentPageId: '' });
+      }
+    };
+
+    void settleNotion();
+  }, [refreshLocal, toast, setNotionModalOpen]);
 
   useEffect(() => {
     if (tab === 'notion' && notionStatus?.configured) refreshNotion();
@@ -197,10 +238,27 @@ export function HomePage() {
           <Button
             variant={notionStatus?.configured ? 'outline' : 'secondary'}
             size="sm"
-            onClick={() => setNotionModalOpen(true)}
+            onClick={() => {
+              // Sin token y con OAuth disponible: autoriza directamente. Si ya
+              // hay token solo falta elegir la página, así que se abre el modal
+              // en lugar de repetir la autorización.
+              if (
+                notionStatus &&
+                !notionStatus.hasToken &&
+                notionStatus.oauthAvailable !== false
+              ) {
+                startNotionOAuth();
+                return;
+              }
+              setNotionModalOpen(true);
+            }}
             icon={<Cloud size={15} />}
           >
-            {notionStatus?.configured ? 'Notion conectado' : 'Conectar Notion'}
+            {notionStatus?.configured
+              ? 'Notion conectado'
+              : notionStatus?.hasToken
+                ? 'Elegir página de Notion'
+                : 'Conectar Notion'}
           </Button>
           <Button variant="primary" size="sm" onClick={() => setNewOpen(true)} icon={<Plus size={15} />}>
             Nuevo proyecto
@@ -255,34 +313,6 @@ export function HomePage() {
           </div>
         </section>
 
-        {!notionStatus?.configured ? (
-          <div className="notion-banner">
-            <div>
-              <h3><Cloud size={16} /> Guarda tus proyectos y fichas en Notion</h3>
-              <p>
-                Conecta una página padre: Modulab creará un toggle por proyecto y podrá leer las personas
-                desde un toggle list, incluidas sus fotos y descripciones.
-              </p>
-            </div>
-            <Button variant="secondary" onClick={() => setNotionModalOpen(true)} icon={<Settings2 size={15} />}>
-              Configurar Notion
-            </Button>
-          </div>
-        ) : (
-          <div className="notion-banner">
-            <div>
-              <h3><Cloud size={16} /> Notion conectado</h3>
-              <p>
-                Página: <strong>{notionStatus.parentPageTitle || notionStatus.parentPageId}</strong>
-                {notionStatus.error ? ` · ${notionStatus.error}` : ''}
-              </p>
-            </div>
-            <Button variant="ghost" onClick={() => setNotionModalOpen(true)} icon={<Settings2 size={15} />}>
-              Ajustes
-            </Button>
-          </div>
-        )}
-
         <section className="projects-section">
           <div className="section-head">
             <div>
@@ -334,6 +364,7 @@ export function HomePage() {
           ) : (
             <NotionProjects
               configured={Boolean(notionStatus?.configured)}
+              authorized={Boolean(notionStatus?.hasToken)}
               loading={notionLoading}
               error={notionError}
               projects={notionProjects}
@@ -387,6 +418,7 @@ export function HomePage() {
 
 function NotionProjects({
   configured,
+  authorized,
   loading,
   error,
   projects,
@@ -397,6 +429,7 @@ function NotionProjects({
   onConfigure,
 }: {
   configured: boolean;
+  authorized: boolean;
   loading: boolean;
   error: string | null;
   projects: NotionProjectListItem[];
@@ -410,9 +443,17 @@ function NotionProjects({
     return (
       <EmptyState
         icon={<Cloud size={20} />}
-        title="Notion todavía no está conectado"
-        description="Añade el token de una integración y la página padre de proyectos. Modulab podrá listar, abrir y guardar cada espacio como un toggle."
-        action={<Button variant="primary" onClick={onConfigure} icon={<Settings2 size={15} />}>Conectar Notion</Button>}
+        title={authorized ? 'Falta elegir la página de Notion' : 'Notion todavía no está conectado'}
+        description={
+          authorized
+            ? 'La integración ya está autorizada. Elige la página padre: cada toggle o página hija dentro de ella se mostrará como un proyecto.'
+            : 'Autoriza Modulab en tu cuenta de Notion y elige la página de la que saldrán los proyectos. No hay que pegar ningún token.'
+        }
+        action={
+          <Button variant="primary" onClick={onConfigure} icon={<Settings2 size={15} />}>
+            {authorized ? 'Elegir página' : 'Conectar Notion'}
+          </Button>
+        }
       />
     );
   }

@@ -2,6 +2,11 @@ export interface Env {
   NOTION_SECRET?: string;
   NOTION_ID_PAGE?: string;
   NOTION_PARENT_PAGE_ID?: string;
+  /** Credenciales de la integración pública de Notion (solo servidor). */
+  NOTION_CLIENT_ID?: string;
+  NOTION_CLIENT_SECRET?: string;
+  /** URIs de retorno adicionales, separadas por comas. */
+  NOTION_REDIRECT_URI?: string;
   /** Namespace KV opcional (gratis) para configuración, publicaciones y fotos. */
   MODULAB_KV?: KVNamespace;
   /** Binding de assets estáticos que Pages provee automáticamente. */
@@ -11,6 +16,15 @@ export interface Env {
 export interface NotionConfig {
   notionSecret: string;
   parentPageId: string;
+}
+
+/** Metadatos de la autorización OAuth; el token vive en `NotionConfig`. */
+export interface NotionOAuthMeta {
+  workspaceName?: string;
+  workspaceId?: string;
+  botId?: string;
+  ownerType?: string;
+  obtainedAt: string;
 }
 
 export class ApiError extends Error {

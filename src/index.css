@@ -943,31 +943,6 @@ input[type="range"] {
   grid-column: 1 / -1;
 }
 
-.notion-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 16px 18px;
-  border: 1px solid rgba(125, 211, 252, 0.18);
-  border-radius: 12px;
-  background: linear-gradient(90deg, rgba(125, 211, 252, 0.08), rgba(125, 211, 252, 0.015));
-  margin-bottom: 18px;
-}
-
-.notion-banner h3 {
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.notion-banner p {
-  color: var(--muted);
-  font-size: 12px;
-  margin-top: 3px;
-}
-
 .home-footer {
   width: 100%;
   max-width: 1280px;
@@ -2807,6 +2782,63 @@ input[type="range"] {
   color: #ffb0b0;
 }
 
+/* Selector de página padre de Notion (flujo OAuth) */
+.notion-page-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.notion-page-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.notion-page-item:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--panel-2);
+}
+
+.notion-page-item.is-active {
+  border-color: rgba(142, 224, 106, 0.35);
+  background: var(--success-soft);
+}
+
+.notion-page-item:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.notion-page-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notion-page-badge {
+  flex: none;
+  font-size: 10px;
+  color: var(--success);
+  border: 1px solid rgba(142, 224, 106, 0.3);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
 .code {
   font-family: var(--mono);
   font-size: 11px;
@@ -3735,10 +3767,6 @@ input[type="range"] {
   }
   .project-grid {
     grid-template-columns: 1fr;
-  }
-  .notion-banner {
-    flex-direction: column;
-    align-items: flex-start;
   }
   .editor-main {
     grid-template-columns: 1fr;

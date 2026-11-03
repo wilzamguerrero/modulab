@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react';
-import { ExternalLink, KeyRound, Loader2, PlugZap, ShieldCheck, Trash2 } from 'lucide-react';
-import { Button, Field, Modal, TextInput } from '@/components/ui';
+import { useCallback, useEffect, useState } from 'react';
+import { ExternalLink, Loader2, LogIn, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react';
+import { Button, Modal, Spinner } from '@/components/ui';
 import { useUiStore } from '@/store/uiStore';
 import {
   clearNotionConfig,
   getNotionStatus,
-  saveNotionConfig,
+  listNotionPages,
+  selectNotionPage,
+  startNotionOAuth,
 } from '@/services/notion/notionService';
-import type { NotionConfigStatus } from '@/types/notion';
+import type { NotionConfigStatus, NotionPageOption } from '@/types/notion';
 
 export function NotionSettingsModal() {
   const open = useUiStore((state) => state.notionModalOpen);
@@ -15,150 +17,226 @@ export function NotionSettingsModal() {
   const toast = useUiStore((state) => state.toast);
   const [status, setStatus] = useState<NotionConfigStatus | null>(null);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [token, setToken] = useState('');
-  const [parentPageId, setParentPageId] = useState('');
+  const [pages, setPages] = useState<NotionPageOption[] | null>(null);
+  const [loadingPages, setLoadingPages] = useState(false);
+  const [selectingId, setSelectingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
+  const loadStatus = useCallback(async () => {
     setLoading(true);
-    getNotionStatus()
-      .then((next) => {
-        setStatus(next);
-        setParentPageId(next.parentPageId || '');
-        setToken('');
-      })
-      .catch((error) => toast(error.message, 'error'))
-      .finally(() => setLoading(false));
-  }, [open, toast]);
-
-  const save = async () => {
-    if (!parentPageId.trim()) {
-      toast('Indica la página padre de proyectos de Notion.', 'warning');
-      return;
-    }
-    if (!token.trim() && !status?.hasToken) {
-      toast('Indica el token de la integración de Notion.', 'warning');
-      return;
-    }
-    setSaving(true);
     try {
-      const next = await saveNotionConfig({
-        notionSecret: token.trim() || undefined,
-        parentPageId: parentPageId.trim(),
-      });
+      const next = await getNotionStatus();
       setStatus(next);
-      setToken('');
-      if (next.error) {
-        toast(next.error, 'warning');
-      } else {
-        toast('Notion conectado correctamente.', 'success');
+    } catch (error) {
+      toast((error as Error).message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  const loadPages = useCallback(async () => {
+    setLoadingPages(true);
+    try {
+      const response = await listNotionPages();
+      setPages(response.pages);
+      if (response.pages.length === 0) {
+        toast('La integración no tiene acceso a ninguna página todavía.', 'warning');
       }
     } catch (error) {
       toast((error as Error).message, 'error');
     } finally {
-      setSaving(false);
+      setLoadingPages(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    if (!open) return;
+    setPages(null);
+    void loadStatus();
+  }, [open, loadStatus]);
+
+  // Tras autorizar, el servidor ya tiene token pero todavía no hay página
+  // padre: se listan las páginas automáticamente para poder elegir una sin
+  // volver a pasar por el flujo de autorización.
+  useEffect(() => {
+    if (!open || pages !== null) return;
+    if (!status?.hasToken || status.parentPageId) return;
+    void loadPages();
+  }, [open, pages, status?.hasToken, status?.parentPageId, loadPages]);
+
+  const pickPage = async (pageId: string) => {
+    setSelectingId(pageId);
+    try {
+      const result = await selectNotionPage(pageId);
+      const next = await getNotionStatus();
+      setStatus(next);
+      toast(
+        `Proyectos se leerán de «${result.parentPageTitle || 'la página elegida'}».`,
+        'success',
+      );
+      setOpen(false);
+    } catch (error) {
+      toast((error as Error).message, 'error');
+    } finally {
+      setSelectingId(null);
     }
   };
 
   const disconnect = async () => {
-    setSaving(true);
+    setLoading(true);
     try {
       await clearNotionConfig();
       setStatus({ configured: false, hasToken: false, parentPageId: '' });
-      setParentPageId('');
-      setToken('');
-      toast('Configuración de Notion eliminada.', 'success');
+      setPages(null);
+      toast('Notion desconectado.', 'success');
     } catch (error) {
       toast((error as Error).message, 'error');
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   };
+
+  const hasToken = Boolean(status?.hasToken);
+  const connected = Boolean(status?.configured);
+  const needsPage = hasToken && !connected;
+  const oauthAvailable = status?.oauthAvailable ?? true;
 
   return (
     <Modal
       open={open}
       onClose={() => setOpen(false)}
-      title="Conectar Notion"
-      subtitle="Modulab usa Notion como archivo de proyectos y de fichas de expositores."
+      title="Notion"
+      subtitle="Elige con qué página de Notion trabajan tus proyectos y fichas."
       size="lg"
       footer={
         <>
-          {status?.configured ? (
-            <Button variant="ghost" onClick={disconnect} icon={<Trash2 size={15} />} disabled={saving}>
+          {hasToken ? (
+            <Button variant="ghost" onClick={disconnect} icon={<Trash2 size={15} />} disabled={loading}>
               Desconectar
             </Button>
           ) : null}
           <Button variant="ghost" onClick={() => setOpen(false)}>Cerrar</Button>
-          <Button variant="primary" onClick={save} loading={saving} icon={<PlugZap size={16} />}>
-            Guardar conexión
-          </Button>
+          {oauthAvailable ? (
+            <Button
+              variant={hasToken ? 'outline' : 'primary'}
+              onClick={startNotionOAuth}
+              icon={<LogIn size={16} />}
+            >
+              {hasToken ? 'Autorizar otra vez' : 'Conectar con Notion'}
+            </Button>
+          ) : null}
         </>
       }
     >
       {loading ? (
         <div className="settings-status"><Loader2 size={16} className="spin" /> Comprobando conexión…</div>
-      ) : status?.configured ? (
+      ) : connected ? (
         <div className="settings-status is-ok">
           <ShieldCheck size={16} />
           <span>
-            Conectado a <strong>{status.parentPageTitle || status.parentPageId}</strong>
-            {status.maskedToken ? ` · token ${status.maskedToken}` : ''}
+            Conectado{status?.workspaceName ? ` a ${status.workspaceName}` : ''} · página{' '}
+            <strong>{status?.parentPageTitle || status?.parentPageId}</strong>
+          </span>
+        </div>
+      ) : needsPage ? (
+        <div className="settings-status is-ok">
+          <ShieldCheck size={16} />
+          <span>
+            Notion autorizado{status?.workspaceName ? ` en ${status.workspaceName}` : ''}. Ahora elige
+            la página que será la raíz de tus proyectos.
           </span>
         </div>
       ) : (
         <div className="settings-status">
-          <KeyRound size={16} />
-          <span>Todavía no hay una integración de Notion configurada.</span>
+          <LogIn size={16} />
+          <span>Todavía no hay una cuenta de Notion conectada.</span>
         </div>
       )}
 
       {status?.error ? <div className="settings-status is-error">{status.error}</div> : null}
 
-      <ol className="settings-steps">
-        <li>
-          Crea una integración interna en{' '}
-          <a href="https://www.notion.so/my-integrations" target="_blank" rel="noreferrer" className="code">
-            notion.so/my-integrations <ExternalLink size={10} />
-          </a>{' '}
-          y copia su token secreto.
-        </li>
-        <li>
-          Crea una página en Notion que será la <strong>página padre de proyectos</strong>. Dentro,
-          cada proyecto será un bloque <strong>toggle</strong>.
-        </li>
-        <li>
-          Comparte esa página con la integración: menú <strong>··· → Conexiones →</strong> tu integración.
-        </li>
-        <li>
-          Pega el enlace de la página padre aquí. Modulab extrae el ID automáticamente del enlace.
-        </li>
-      </ol>
+      {!oauthAvailable ? (
+        <div className="settings-status is-error">
+          El servidor no tiene configurados <span className="code">NOTION_CLIENT_ID</span> y{' '}
+          <span className="code">NOTION_CLIENT_SECRET</span>. Añádelos como variables de entorno
+          (locales en <span className="code">.env</span>, en producción en Cloudflare Pages).
+        </div>
+      ) : null}
 
-      <Field label="Token de integración" hint={status?.hasToken ? 'Déjalo vacío para conservar el token actual.' : 'Empieza por ntn_ o secret_.'}>
-        <TextInput
-          type="password"
-          autoComplete="off"
-          placeholder={status?.hasToken ? status.maskedToken || 'Token guardado' : 'ntn_…'}
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-        />
-      </Field>
+      {hasToken ? (
+        <>
+          <div className="row-between">
+            <span className="panel-note">Página padre de proyectos</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={loadPages}
+              loading={loadingPages}
+              icon={<RefreshCcw size={14} />}
+            >
+              {pages ? 'Actualizar' : needsPage ? 'Ver páginas' : 'Elegir otra página'}
+            </Button>
+          </div>
 
-      <Field label="Página padre de proyectos" hint="Pega la URL completa de Notion o solo el ID de la página.">
-        <TextInput
-          placeholder="https://www.notion.so/mi-espacio/Proyectos-1234…"
-          value={parentPageId}
-          onChange={(event) => setParentPageId(event.target.value)}
-        />
-      </Field>
+          {pages ? (
+            pages.length === 0 ? (
+              <div className="hint-box">
+                La integración no ve ninguna página. En Notion, abre la página que quieras usar →
+                <strong> ··· → Conexiones →</strong> tu integración, y vuelve a pulsar «Actualizar».
+              </div>
+            ) : (
+              <div className="notion-page-list">
+                {pages.map((page) => (
+                  <button
+                    key={page.id}
+                    type="button"
+                    className={`notion-page-item${page.id === status?.parentPageId ? ' is-active' : ''}`}
+                    onClick={() => pickPage(page.id)}
+                    disabled={Boolean(selectingId)}
+                  >
+                    <span className="notion-page-title">{page.title}</span>
+                    {selectingId === page.id ? (
+                      <Loader2 size={14} className="spin" />
+                    ) : page.id === status?.parentPageId ? (
+                      <span className="notion-page-badge">En uso</span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            )
+          ) : loadingPages ? (
+            <div style={{ padding: 20 }}><Spinner label="Leyendo páginas de Notion…" /></div>
+          ) : (
+            <div className="hint-box">
+              La página que elijas será la raíz: cada <strong>toggle</strong> o página hija dentro de
+              ella se mostrará como un proyecto de Modulab.
+            </div>
+          )}
+        </>
+      ) : (
+        <ol className="settings-steps">
+          <li>Pulsa <strong>Conectar con Notion</strong> y autoriza la integración en Notion.</li>
+          <li>Vuelve aquí: Modulab habrá recibido el permiso sin pedirte ningún token.</li>
+          <li>
+            Pulsa <strong>Elegir otra página</strong> y selecciona la página que será la raíz de tus
+            proyectos.
+          </li>
+        </ol>
+      )}
 
       <div className="hint-box">
         <strong>Para las personas:</strong> dentro de un proyecto puedes crear un toggle llamado
         <strong> «Personas»</strong> y, dentro, un toggle por expositor. Modulab leerá el título, la
         descripción, las imágenes y líneas como <span className="code">Stand: A-01</span> o
-        <span className="code"> Proyecto: …</span>. La sincronización se hace desde el panel de expositores.
+        <span className="code"> Proyecto: …</span>. La sincronización se hace desde el panel de
+        expositores.
+      </div>
+
+      <div className="hint-box">
+        El permiso se guarda en el servidor. Si algún día quieres revocarlo, hazlo también desde{' '}
+        <a href="https://www.notion.so/my-integrations" target="_blank" rel="noreferrer" className="code">
+          notion.so/my-integrations <ExternalLink size={10} />
+        </a>
+        .
       </div>
     </Modal>
   );

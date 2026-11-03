@@ -6,6 +6,19 @@ export interface NotionConfig {
   parentPageId: string;
 }
 
+/**
+ * Metadatos de la última autorización OAuth. El access token NO se guarda
+ * aquí: se escribe en `notion-config.json` como `notionSecret`, de modo que
+ * todo el resto de la API sigue funcionando sin cambios.
+ */
+export interface NotionOAuthMeta {
+  workspaceName?: string;
+  workspaceId?: string;
+  botId?: string;
+  ownerType?: string;
+  obtainedAt: string;
+}
+
 export const ROOT_DIR = process.cwd();
 export const DATA_DIR = process.env.MODULAB_DATA_DIR
   ? path.resolve(process.env.MODULAB_DATA_DIR)
@@ -13,6 +26,7 @@ export const DATA_DIR = process.env.MODULAB_DATA_DIR
 export const PUBLISHED_DIR = path.join(DATA_DIR, 'published');
 export const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 export const CONFIG_FILE = path.join(DATA_DIR, 'notion-config.json');
+export const OAUTH_FILE = path.join(DATA_DIR, 'notion-oauth.json');
 
 export const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 export const DIST_DIR = path.join(ROOT_DIR, 'dist');
@@ -41,15 +55,35 @@ export function cleanNotionId(input: string): string {
   return trimmed;
 }
 
+/**
+ * Con OAuth configurado, la conexión sale de la autorización hecha desde la
+ * interfaz; `NOTION_SECRET`/`NOTION_ID_PAGE` quedan como respaldo solo cuando
+ * no hay credenciales OAuth.
+ */
+function oauthEnabled(): boolean {
+  const clientId = (process.env.NOTION_CLIENT_ID || process.env.NOTION_OAUTH_CLIENT_ID || '').trim();
+  const clientSecret = (
+    process.env.NOTION_CLIENT_SECRET || process.env.NOTION_OAUTH_CLIENT_SECRET || ''
+  ).trim();
+  return Boolean(clientId && clientSecret);
+}
+
 export function loadNotionConfig(): NotionConfig {
-  let notionSecret = process.env.NOTION_SECRET?.trim() || '';
-  let parentPageId = process.env.NOTION_ID_PAGE?.trim() || process.env.NOTION_PARENT_PAGE_ID?.trim() || '';
+  const fromEnv = !oauthEnabled();
+  let notionSecret = fromEnv ? process.env.NOTION_SECRET?.trim() || '' : '';
+  let parentPageId = fromEnv
+    ? process.env.NOTION_ID_PAGE?.trim() || process.env.NOTION_PARENT_PAGE_ID?.trim() || ''
+    : '';
 
   if (fs.existsSync(CONFIG_FILE)) {
     try {
       const saved = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) as Partial<NotionConfig>;
-      if (saved.notionSecret) notionSecret = saved.notionSecret;
-      if (saved.parentPageId) parentPageId = saved.parentPageId;
+      // El archivo manda completo, incluso con la página vacía: al autorizar
+      // otro workspace no se reutiliza la página anterior.
+      if (saved && typeof saved === 'object') {
+        if (saved.notionSecret) notionSecret = saved.notionSecret;
+        parentPageId = typeof saved.parentPageId === 'string' ? saved.parentPageId : '';
+      }
     } catch (error) {
       console.warn('[modulab] No se pudo leer data/notion-config.json:', (error as Error).message);
     }
@@ -58,7 +92,9 @@ export function loadNotionConfig(): NotionConfig {
   return { notionSecret, parentPageId: cleanNotionId(parentPageId) };
 }
 
-export function saveNotionConfig(config: Partial<NotionConfig>): NotionConfig {
+export function saveNotionConfig(
+  config: Partial<NotionConfig> & { clearParentPage?: boolean },
+): NotionConfig {
   ensureDataDirs();
   const current = loadNotionConfig();
   const next: NotionConfig = {
@@ -66,8 +102,9 @@ export function saveNotionConfig(config: Partial<NotionConfig>): NotionConfig {
       typeof config.notionSecret === 'string' && config.notionSecret.trim()
         ? config.notionSecret.trim()
         : current.notionSecret,
-    parentPageId:
-      typeof config.parentPageId === 'string' && config.parentPageId.trim()
+    parentPageId: config.clearParentPage
+      ? ''
+      : typeof config.parentPageId === 'string' && config.parentPageId.trim()
         ? cleanNotionId(config.parentPageId)
         : current.parentPageId,
   };
@@ -75,8 +112,31 @@ export function saveNotionConfig(config: Partial<NotionConfig>): NotionConfig {
   return next;
 }
 
+export function loadOAuthMeta(): NotionOAuthMeta | null {
+  if (!fs.existsSync(OAUTH_FILE)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(OAUTH_FILE, 'utf8')) as Partial<NotionOAuthMeta>;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return { ...parsed, obtainedAt: parsed.obtainedAt || new Date().toISOString() };
+  } catch (error) {
+    console.warn('[modulab] No se pudo leer data/notion-oauth.json:', (error as Error).message);
+    return null;
+  }
+}
+
+export function saveOAuthMeta(meta: NotionOAuthMeta): NotionOAuthMeta {
+  ensureDataDirs();
+  fs.writeFileSync(OAUTH_FILE, JSON.stringify(meta, null, 2), 'utf8');
+  return meta;
+}
+
+export function clearOAuthMeta(): void {
+  if (fs.existsSync(OAUTH_FILE)) fs.unlinkSync(OAUTH_FILE);
+}
+
 export function clearNotionConfig(): void {
   if (fs.existsSync(CONFIG_FILE)) fs.unlinkSync(CONFIG_FILE);
+  clearOAuthMeta();
 }
 
 export function maskedToken(token: string): string {
