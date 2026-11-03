@@ -35,11 +35,13 @@ import { normalizeEdges, normalizeExhibitorLinks, normalizeOpenings } from '@/da
 import { createId } from '@/utils/id';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
 import { pointInPolygon, polygonCentroid } from '@/utils/geometry';
+import { translateAssignedElements } from '@/utils/exhibitorGroup';
 import { applyLevelTransform, levelPivot, normalizeAngle } from '@/utils/levelTransform';
 import {
   defaultLevelId,
   getLevel,
   getSpace,
+  levelBounds,
   levelVertices,
   suggestLevelElevation,
 } from '@/utils/levels';
@@ -55,6 +57,9 @@ export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
 /** Eje al que se puede bloquear el segundo punto de una medida. */
 export type MeasureAxis = 'none' | 'x' | 'y' | 'z';
+
+/** Dónde se coloca la copia de un nivel al duplicarlo. */
+export type LevelDuplicatePlacement = 'same' | 'above' | 'below';
 
 interface PatchOptions {
   history?: boolean;
@@ -154,7 +159,17 @@ interface EditorState {
   addLevel: (direction?: 'above' | 'below') => string | null;
   updateLevel: (id: string, patch: Partial<Level>, options?: PatchOptions) => void;
   deleteLevel: (id: string) => void;
-  duplicateLevel: (id: string) => string | null;
+  /**
+   * Duplica un nivel con todo lo que tiene apoyado (objetos, expositores y
+   * puntos de rotación del piso). `placement` decide dónde queda la copia:
+   * `same` mantiene la misma elevación y la desplaza a un lado para poder
+   * colocarla en otra posición; `above`/`below` la apilan sobre/ bajo el
+   * original. `offset` permite forzar el desplazamiento en planta.
+   */
+  duplicateLevel: (
+    id: string,
+    options?: { placement?: LevelDuplicatePlacement; offset?: Vec2 },
+  ) => string | null;
   /**
    * Mueve y gira un nivel completo con todo lo que está apoyado en él (espacios,
    * huecos, muros libres, escaleras, objetos, expositores y puntos de rotación).
@@ -732,14 +747,19 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     if (next) set({ selection: null, ...validActiveIds(next, get().activeLevelId, get().activeSpaceId) });
   },
 
-  duplicateLevel: (id) => {
+  duplicateLevel: (id, options = {}) => {
     const project = get().project;
     const source = project?.levels.find((level) => level.id === id);
     if (!project || !source) return null;
+    const placement = options.placement ?? 'above';
+    // La copia se apila arriba/abajo (misma posición en planta) o se mantiene
+    // a la misma elevación desplazada a un lado para poder colocarla en otra
+    // posición sin quedar exactamente encima del original.
     const level = structuredClone(source);
     level.id = createId('lvl');
     level.name = `${source.name} (copia)`;
-    level.elevation = suggestLevelElevation(project, 'above');
+    level.elevation =
+      placement === 'same' ? source.elevation : suggestLevelElevation(project, placement);
     const wallIds = new Map<string, string>();
     level.spaces = level.spaces.map((space) => ({
       ...space,
@@ -761,8 +781,63 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       wallId: wallIds.get(opening.wallId) ?? opening.wallId,
     }));
     level.stairs = level.stairs.map((stair) => ({ ...stair, id: createId('stair') }));
+    const gap = 1.5;
+    const offset: Vec2 =
+      placement === 'same'
+        ? options.offset ?? { x: Math.max(levelBounds(source).width + gap, gap), z: 0 }
+        : { x: 0, z: 0 };
     get().patchProject((draft) => {
       draft.levels.push(level);
+      // Los objetos y expositores apoyados en el piso se copian también, con
+      // ids nuevos y conservando sus vínculos entre sí.
+      const objectIds = new Map<string, string>();
+      const clonedObjects: SceneObject[] = [];
+      for (const object of project.objects.filter((entry) => entry.levelId === id)) {
+        const copy = structuredClone(object);
+        copy.id = createId('obj');
+        copy.levelId = level.id;
+        objectIds.set(object.id, copy.id);
+        clonedObjects.push(copy);
+        draft.objects.push(copy);
+      }
+      const exhibitorIds = new Map<string, string>();
+      for (const exhibitor of project.exhibitors.filter((entry) => entry.levelId === id)) {
+        const copy = structuredClone(exhibitor);
+        copy.id = createId('exp');
+        copy.levelId = level.id;
+        copy.name = `${exhibitor.name} (copia)`;
+        copy.relatedObjectIds = exhibitor.relatedObjectIds
+          .map((objectId) => objectIds.get(objectId))
+          .filter((value): value is string => Boolean(value));
+        exhibitorIds.set(exhibitor.id, copy.id);
+        draft.exhibitors.push(copy);
+      }
+      // Los muros y aberturas del piso copiado que pertenecían al expositor
+      // original pasan a pertenecer al expositor copiado.
+      if (exhibitorIds.size) {
+        const remap = (exhibitorId?: string | null) =>
+          exhibitorId && exhibitorIds.has(exhibitorId)
+            ? exhibitorIds.get(exhibitorId)
+            : exhibitorId;
+        for (const space of level.spaces) {
+          for (const edge of space.edges) edge.exhibitorId = remap(edge.exhibitorId);
+        }
+        for (const wall of level.internalWalls) wall.exhibitorId = remap(wall.exhibitorId);
+        for (const opening of level.openings) opening.exhibitorId = remap(opening.exhibitorId);
+        for (const object of clonedObjects) object.exhibitorId = remap(object.exhibitorId);
+      }
+      for (const point of project.rotationPoints.filter((entry) => entry.levelId === id)) {
+        draft.rotationPoints.push({
+          ...structuredClone(point),
+          id: createId('rot'),
+          levelId: level.id,
+        });
+      }
+      // En «mismo nivel» se desplaza la copia entera (forjado, objetos y
+      // expositores) a la nueva posición en planta.
+      if (offset.x !== 0 || offset.z !== 0) {
+        applyLevelTransform(draft, level.id, { delta: offset, angle: 0, pivot: { x: 0, z: 0 } });
+      }
     });
     set({
       activeLevelId: level.id,
@@ -1513,6 +1588,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       cameraPosition: camera.position,
       cameraTarget: camera.target,
       relatedObjectIds: [],
+      moveRelated: false,
       visible: true,
       metadata: {},
       notionMissing: false,
@@ -1528,14 +1604,31 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     get().patchProject((draft) => {
       const index = draft.exhibitors.findIndex((exhibitor) => exhibitor.id === id);
       if (index < 0) return;
-      draft.exhibitors[index] = { ...draft.exhibitors[index], ...patch };
+      const current = draft.exhibitors[index];
+      const next = { ...current, ...patch };
+      draft.exhibitors[index] = next;
+      // Con la opción de grupo activa, escribir una posición nueva en el
+      // inspector arrastra también los elementos asociados.
+      if (patch.position && next.moveRelated) {
+        translateAssignedElements(draft, next, {
+          x: next.position.x - current.position.x,
+          z: next.position.z - current.position.z,
+        });
+      }
     }, { coalesceKey: `exhibitor:${id}`, ...options }),
 
   moveExhibitor: (id, position, options = {}) =>
     get().patchProject((draft) => {
       const exhibitor = draft.exhibitors.find((entry) => entry.id === id);
       if (!exhibitor) return;
+      const delta = {
+        x: position.x - exhibitor.position.x,
+        z: position.z - exhibitor.position.z,
+      };
       exhibitor.position = { ...position };
+      // El expositor también arrastra sus muros, aberturas y objetos asociados
+      // cuando la opción de grupo está activa.
+      if (exhibitor.moveRelated) translateAssignedElements(draft, exhibitor, delta);
     }, options),
 
   deleteExhibitor: (id) => {

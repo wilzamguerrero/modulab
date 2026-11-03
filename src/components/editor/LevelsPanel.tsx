@@ -3,11 +3,14 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Copy,
+  CopyPlus,
   DoorOpen,
   Eye,
   EyeOff,
   Layers,
   Move,
+  MoveDown,
+  MoveUp,
   Plus,
   RotateCw,
   Trash2,
@@ -55,6 +58,8 @@ export function LevelsPanel({ project }: { project: Project }) {
 
   const [confirmLevel, setConfirmLevel] = useState<string | null>(null);
   const [confirmSpace, setConfirmSpace] = useState<string | null>(null);
+  /** Nivel cuyo menú de duplicado está abierto. */
+  const [duplicateMenu, setDuplicateMenu] = useState<string | null>(null);
 
   const levels = useMemo(() => sortedLevels(project), [project]);
   const activeLevel = getLevel(project, activeLevelId);
@@ -81,6 +86,19 @@ export function LevelsPanel({ project }: { project: Project }) {
     if (counts.rotationPoints) parts.push(`${counts.rotationPoints} punto(s) de rotación`);
     return `Se moverá con el piso: ${parts.join(' · ')}.`;
   }, [activeLevel, project]);
+
+  const duplicate = (levelId: string, levelName: string, placement: 'same' | 'above' | 'below') => {
+    const id = duplicateLevel(levelId, { placement });
+    setDuplicateMenu(null);
+    if (!id) return;
+    const where =
+      placement === 'same'
+        ? 'al lado, a la misma elevación'
+        : placement === 'above'
+          ? 'en un nivel superior'
+          : 'en un nivel inferior';
+    toast(`«${levelName}» duplicado ${where}.`, 'success');
+  };
 
   const startNewSpace = () => {
     setView('plan');
@@ -117,6 +135,10 @@ export function LevelsPanel({ project }: { project: Project }) {
               <p>
                 Cambia de nivel con el selector superior o con Alt+↑ / Alt+↓. Usa Alt+← / Alt+→
                 para cambiar de espacio.
+              </p>
+              <p>
+                Al duplicar un nivel eliges dónde va la copia: al lado en la misma elevación
+                (útil para repetir un piso en otra posición) o en un nivel superior o inferior.
               </p>
             </HelpButton>
             <Badge tone="neutral">{project.levels.length}</Badge>
@@ -176,10 +198,9 @@ export function LevelsPanel({ project }: { project: Project }) {
                       label="Duplicar nivel"
                       size="sm"
                       icon={<Copy size={12} />}
-                      onClick={() => {
-                        const id = duplicateLevel(level.id);
-                        if (id) toast(`«${level.name}» duplicado.`, 'success');
-                      }}
+                      onClick={() =>
+                        setDuplicateMenu(duplicateMenu === level.id ? null : level.id)
+                      }
                     />
                     <IconButton
                       label="Eliminar nivel"
@@ -190,6 +211,43 @@ export function LevelsPanel({ project }: { project: Project }) {
                     />
                   </span>
                 </div>
+                {duplicateMenu === level.id ? (
+                  <div className="duplicate-menu">
+                    <p className="duplicate-menu-title">
+                      ¿Dónde colocar la copia de «{level.name}»?
+                    </p>
+                    <div className="duplicate-menu-actions">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        icon={<CopyPlus size={13} />}
+                        onClick={() => duplicate(level.id, level.name, 'same')}
+                      >
+                        Mismo nivel, al lado
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        icon={<MoveUp size={13} />}
+                        onClick={() => duplicate(level.id, level.name, 'above')}
+                      >
+                        Nivel superior
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        icon={<MoveDown size={13} />}
+                        onClick={() => duplicate(level.id, level.name, 'below')}
+                      >
+                        Nivel inferior
+                      </Button>
+                    </div>
+                    <p className="panel-note">
+                      La copia incluye espacios, muros, escaleras y los objetos y expositores del
+                      piso. En «mismo nivel» queda desplazada a un lado para poder reubicarla.
+                    </p>
+                  </div>
+                ) : null}
               </div>
             );
           })}

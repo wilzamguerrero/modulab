@@ -932,6 +932,15 @@ Reglas del catálogo:
 - Cada muro se hunde 2 cm en el piso. Así se cierra la junta entre el muro y la losa y se evita la línea clara que aparecía en la base al proyectar sombras.
 - No hay puertas ni ventanas paramétricas: se representan dejando el segmento abierto o colocando objetos.
 
+### Niveles y duplicados
+
+Un nivel es una planta con su propia elevación, espacios, muros y escaleras. Además de crear niveles superiores o inferiores, se puede **duplicar un nivel completo** con todo lo que tiene apoyado (objetos, expositores y puntos de rotación) y elegir dónde queda la copia:
+
+- **Mismo nivel, al lado:** conserva la elevación y desplaza la copia a un lado para reubicarla, sin quedar exactamente encima del original. Es la vía para repetir un piso y colocarlo en otra posición, más arriba o más abajo con el gizmo de piso.
+- **Nivel superior / inferior:** apila la copia sobre o bajo el original con la separación de un piso.
+
+La copia recibe ids nuevos y los vínculos entre objetos y expositores se reescriben hacia los elementos copiados; el original no se toca. La elevación del nivel activo también se puede escribir a mano en el panel de niveles.
+
 ### Objetos y materiales
 
 - Inserción desde el catálogo o desde formas básicas (cubo, esfera, cilindro, cono).
@@ -966,6 +975,7 @@ Cada expositor guarda nombre, stand, descripción, fotografía, posición, rotac
 - La fotografía puede subirse a `data/uploads` o venir de una imagen de Notion.
 - **Vista sugerida** calcula una cámara dentro de la planta. El algoritmo prioriza 3,5 m de distancia, comprueba que la cámara y el trayecto hasta el expositor estén dentro del polígono, exige separación de los muros y evita habitaciones cóncavas. Si no hay una posición válida, usa una vista elevada por encima de los muros.
 - En el visor público, una cámara guardada que quede fuera del piso, pegada a un muro o demasiado cerca del objetivo se sustituye automáticamente por la vista sugerida.
+- **Mover con sus elementos:** cada expositor tiene una opción para arrastrar consigo los objetos y muros asociados (los que se resaltan con su color). Con la opción activa, mover el marcador en planta o en 3D, o escribir otra X/Z en el inspector, desplaza el grupo completo y se registra como un solo paso de deshacer. Con la opción desactivada, que es el valor por defecto, solo se mueve el marcador y el montaje se queda donde está.
 
 ## 13.6. Persistencia local
 
@@ -1109,7 +1119,7 @@ En la entrega actual:
 ```text
 npx tsc --noEmit                        OK
 npx tsc -p functions/tsconfig.json      OK
-npx vitest run                          OK · 14 archivos · 107 pruebas
+npx vitest run                          OK · 16 archivos · 117 pruebas
 npm run build                           OK
 ```
 
@@ -1128,6 +1138,8 @@ Cobertura automatizada:
 - Colores de expositores: color por defecto, mezcla, resaltado de la selección y tinte (4 pruebas).
 - Sincronización de Notion: actualización, altas, ausencias y conservación de expositores manuales (1 prueba).
 - Sombras: calidad, mapas y frustum ajustado (2 pruebas).
+- Duplicado de niveles: copia al lado, apilada, contenido y vínculos copiados (5 pruebas).
+- Expositor agrupado: traslado de objetos y muros asociados, sin duplicar vértices compartidos (5 pruebas).
 
 Verificación manual en navegador:
 

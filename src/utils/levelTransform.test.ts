@@ -52,6 +52,7 @@ function projectWithLevel() {
     cameraPosition: [4, 2, 4],
     cameraTarget: [0, 1, 0],
     relatedObjectIds: [],
+    moveRelated: false,
     visible: true,
     metadata: {},
     notionMissing: false,

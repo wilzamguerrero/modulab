@@ -2993,6 +2993,38 @@ input[type="range"] {
   border-radius: 6px;
 }
 
+/* Menú en línea para elegir dónde se coloca una copia del nivel. */
+.duplicate-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--bg-soft);
+}
+
+.duplicate-menu-title {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--text-soft);
+}
+
+.duplicate-menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.duplicate-menu-actions .btn {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.duplicate-menu .panel-note {
+  margin: 0;
+}
+
 .plan-zoom {
   position: absolute;
   right: 14px;

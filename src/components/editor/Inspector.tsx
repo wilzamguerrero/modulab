@@ -5,11 +5,14 @@ import {
   BrickWall,
   Camera,
   Copy,
+  CopyPlus,
   DoorOpen,
   ImagePlus,
   Lightbulb,
   MapPin,
   Move,
+  MoveDown,
+  MoveUp,
   Orbit,
   PanelTop,
   RotateCcw,
@@ -899,6 +902,16 @@ function ExhibitorInspector({
             ))}
           </Select>
         </Field>
+        <Switch
+          checked={exhibitor.moveRelated}
+          onChange={(moveRelated) => updateExhibitor(exhibitor.id, { moveRelated })}
+          label="Mover con sus elementos"
+          hint={
+            exhibitor.moveRelated
+              ? 'Activo: el expositor va agrupado con sus objetos y muros asociados.'
+              : 'Inactivo: solo se mueve el marcador, el montaje se queda donde está.'
+          }
+        />
       </Section>
 
       <Section title="Cámara del punto de interés">
@@ -2005,14 +2018,38 @@ function LevelInspector({ project, level }: { project: Project; level: Level }) 
         <Button
           size="sm"
           variant="outline"
-          icon={<Copy size={13} />}
+          icon={<CopyPlus size={13} />}
           onClick={() => {
-            const id = duplicateLevel(level.id);
-            if (id) toast('Nivel duplicado.', 'success');
+            const id = duplicateLevel(level.id, { placement: 'same' });
+            if (id) toast('Nivel duplicado al lado, a la misma elevación.', 'success');
           }}
         >
-          Duplicar
+          Duplicar al lado
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          icon={<MoveUp size={13} />}
+          onClick={() => {
+            const id = duplicateLevel(level.id, { placement: 'above' });
+            if (id) toast('Nivel duplicado en un nivel superior.', 'success');
+          }}
+        >
+          Arriba
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          icon={<MoveDown size={13} />}
+          onClick={() => {
+            const id = duplicateLevel(level.id, { placement: 'below' });
+            if (id) toast('Nivel duplicado en un nivel inferior.', 'success');
+          }}
+        >
+          Abajo
+        </Button>
+      </div>
+      <div className="inline-actions">
         <Button
           size="sm"
           variant="danger"

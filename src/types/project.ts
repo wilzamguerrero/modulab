@@ -221,6 +221,12 @@ export const exhibitorSchema = z.object({
   cameraPosition: vec3Schema.default([4, 2, 4]),
   cameraTarget: vec3Schema.default([0, 1, 0]),
   relatedObjectIds: z.array(z.string()).default([]),
+  /**
+   * Si es true, mover el expositor arrastra sus elementos asociados (objetos y
+   * muros asignados), como si formaran un grupo. Se desactiva cuando solo se
+   * quiere reubicar el punto de interés sin tocar el montaje.
+   */
+  moveRelated: z.boolean().default(false),
   visible: z.boolean().default(true),
   metadata: z.record(z.string(), z.string()).default({}),
   notionMissing: z.boolean().default(false),

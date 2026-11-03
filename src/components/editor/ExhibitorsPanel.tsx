@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   Cloud,
+  Link2,
+  Link2Off,
   RefreshCcw,
   Settings2,
   Trash2,
@@ -38,6 +40,7 @@ export function ExhibitorsPanel({
   const setSelection = useEditorStore((state) => state.setSelection);
   const addExhibitor = useEditorStore((state) => state.addExhibitor);
   const deleteExhibitor = useEditorStore((state) => state.deleteExhibitor);
+  const updateExhibitor = useEditorStore((state) => state.updateExhibitor);
   const removeMissingExhibitors = useEditorStore((state) => state.removeMissingExhibitors);
   const replaceProject = useEditorStore((state) => state.replaceProject);
   const activeLevelId = useEditorStore((state) => state.activeLevelId);
@@ -102,6 +105,10 @@ export function ExhibitorsPanel({
                 En el visor público se puede saltar a su stand y resaltar los muros, aberturas y
                 objetos asociados. Al viajar entre expositores, la cámara puede pasar por los puntos
                 de rotación.
+              </p>
+              <p>
+                El icono de cadena activa «mover con sus elementos»: al arrastrar el marcador se
+                desplazan también los objetos y muros asociados, como si fueran un grupo.
               </p>
             </HelpButton>
             <Badge tone={project.exhibitors.length ? 'accent' : 'neutral'}>{project.exhibitors.length}</Badge>
@@ -231,6 +238,18 @@ export function ExhibitorsPanel({
                   </div>
                 </div>
                 {exhibitor.notionMissing ? <Badge tone="danger">!</Badge> : null}
+                <IconButton
+                  label={
+                    exhibitor.moveRelated
+                      ? 'Se mueve con sus elementos: desactivar'
+                      : 'Mover el expositor con sus elementos'
+                  }
+                  icon={exhibitor.moveRelated ? <Link2 size={13} /> : <Link2Off size={13} />}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    updateExhibitor(exhibitor.id, { moveRelated: !exhibitor.moveRelated });
+                  }}
+                />
                 <IconButton
                   label="Eliminar expositor"
                   icon={<Trash2 size={13} />}

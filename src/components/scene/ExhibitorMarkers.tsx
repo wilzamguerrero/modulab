@@ -110,6 +110,15 @@ function ExhibitorMarker({
             if (group && Math.abs(group.position.y - markerY) > 1e-4) {
               group.position.y = markerY;
             }
+            // Con la opción de grupo activa, los elementos asociados siguen al
+            // marcador en tiempo real durante el arrastre (no solo al soltar).
+            if (group && exhibitor.moveRelated) {
+              moveExhibitor(
+                exhibitor.id,
+                { x: group.position.x, z: group.position.z },
+                { history: false, touch: false },
+              );
+            }
           }}
           onMouseDown={() => {
             beginHistory();
