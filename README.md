@@ -1184,3 +1184,4 @@ Si se despliega solo la carpeta `dist/`, los modelos deben estar en `dist/catalo
 
 No hace falta renombrar los archivos para que aparezcan: el nombre del archivo, sin extensión, es el nombre visible. Solo conviene usar nombres claros y sin caracteres problemáticos.
    
+   
