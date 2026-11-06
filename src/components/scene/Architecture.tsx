@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { TransformControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
@@ -349,7 +349,10 @@ export function StairMesh({ stair }: { stair: Stair }) {
   const boxes = useMemo(() => buildStairBoxes(stair), [stair]);
   if (!stair.visible) return null;
   return (
-    <group>
+    <group
+      position={[stair.position.x, 0, stair.position.z]}
+      rotation={[0, stair.rotation, 0]}
+    >
       {boxes.map((box, index) => (
         <mesh
           key={`${stair.id}-box-${index}`}
@@ -385,6 +388,31 @@ function EditableStair({
   const updateStair = useEditorStore((state) => state.updateStair);
   const controls = useThree((state) => state.controls) as { enabled: boolean } | null;
   const boxes = useMemo(() => buildStairBoxes(stair), [stair]);
+  // Mientras se arrastra con el gizmo, la malla manda sobre el estado. Al
+  // soltar se devuelve el control al store (ver `dragging`).
+  const dragging = useRef(false);
+
+  // La escalera vive dentro del <group> de su nivel y el gizmo puede dejar
+  // desplazamientos residuales en el grupo (o en su padre). Sin este ajuste la
+  // malla se quedaría donde quedó el historial de undo/redo y no donde está la
+  // escalera, así que el grupo sigue siempre a `stair.position`/`rotation`.
+  useLayoutEffect(() => {
+    if (!group || dragging.current) return;
+    const parent = group.parent;
+    if (parent) parent.position.set(0, 0, 0);
+    group.position.set(stair.position.x, 0, stair.position.z);
+    group.rotation.set(0, stair.rotation, 0);
+  }, [
+    group,
+    stair.position.x,
+    stair.position.z,
+    stair.rotation,
+    stair.kind,
+    stair.steps,
+    stair.tread,
+    stair.width,
+    stair.rise,
+  ]);
 
   const finishTransform = () => {
     if (!group) return;
@@ -398,7 +426,13 @@ function EditableStair({
       z = snapValue(z, gridSize);
     }
     const rotation = group.rotation.y;
+    // Se limpia cualquier desplazamiento que hubiera quedado en el grupo del
+    // nivel para que la escalera no herede un offset y aparezca en otro sitio
+    // al volver del modo lectura.
+    if (group.parent) group.parent.position.set(0, 0, 0);
     group.position.set(x, 0, z);
+    group.rotation.set(0, rotation, 0);
+    dragging.current = false;
     moveStair(stair.id, { x, z }, { history: false, touch: false });
     updateStair(stair.id, { rotation }, { history: false, touch: false });
     commitHistory();
@@ -439,6 +473,11 @@ function EditableStair({
             rotation={box.rotation ?? [0, 0, 0]}
             castShadow
             receiveShadow
+            onClick={(event) => {
+              if (!onSelect) return;
+              event.stopPropagation();
+              onSelect(stair.id);
+            }}
           >
             <boxGeometry args={box.size} />
             <meshStandardMaterial
@@ -457,6 +496,7 @@ function EditableStair({
           size={0.8}
           showY={false}
           onMouseDown={() => {
+            dragging.current = true;
             markSceneDragActive();
             beginHistory();
             if (controls) controls.enabled = false;
