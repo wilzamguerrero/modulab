@@ -38,6 +38,42 @@ const DIMENSION_LABEL_STYLE: CSSProperties = {
   fontFamily: 'var(--mono)',
 };
 
+/**
+ * Etiqueta flotante del objeto con su código y/o su nombre. El código es la
+ * referencia corta del modelo (`b1`, el del catálogo) y el nombre es el texto
+ * libre que se edita en el inspector; cada uno se enciende por separado.
+ */
+function ObjectLabel({
+  object,
+  position,
+  selected,
+  ringColor,
+}: {
+  object: SceneObject;
+  position: [number, number, number];
+  selected?: boolean;
+  ringColor?: string;
+}) {
+  const code = (object.code ?? '').trim();
+  const name = (object.name ?? '').trim();
+  const showCode = object.showCode && code.length > 0;
+  const showName = object.showName && name.length > 0;
+  if (!showCode && !showName) return null;
+  return (
+    <Html center position={position} zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
+      <div
+        className={`marker-label${selected ? ' is-selected' : ''}`}
+        style={ringColor ? { borderColor: ringColor } : undefined}
+      >
+        {showCode ? (
+          <strong style={ringColor ? { color: ringColor } : undefined}>{code}</strong>
+        ) : null}
+        {showName ? <span>{name}</span> : null}
+      </div>
+    </Html>
+  );
+}
+
 function disposeCloneMaterials(root: THREE.Object3D) {
   const seen = new Set<THREE.Material>();
   root.traverse((object) => {
@@ -353,6 +389,19 @@ function EditableObjectInstance({
           </div>
         </Html>
       ) : null}
+      <ObjectLabel
+        object={object}
+        selected={selected}
+        ringColor={ringColor}
+        position={[
+          object.transform.position[0],
+          object.transform.position[1] +
+            elevation +
+            (dimensions ? dimensions[1] : Math.abs(object.transform.scale[1])) +
+            (selected && dimensions ? 0.62 : 0.32),
+          object.transform.position[2],
+        ]}
+      />
       {selected && group ? (
         <TransformControls
           ref={gizmoRef}
@@ -386,25 +435,38 @@ function ReadOnlyObjectInstance({
   ringColor?: string;
   onSelect?: (object: SceneObject) => void;
 }) {
+  const height = object.size ? Math.abs(object.size[1] * object.transform.scale[1]) : 1;
   return (
-    <group
-      position={[
-        object.transform.position[0],
-        object.transform.position[1] + elevation,
-        object.transform.position[2],
-      ]}
-      rotation={[0, object.transform.rotationY, 0]}
-      scale={object.transform.scale}
-      visible={object.visible}
-      onClick={(event) => {
-        if (!onSelect) return;
-        event.stopPropagation();
-        onSelect(object);
-      }}
-    >
-      <ObjectModel object={object} tint={tint} />
-      {highlighted ? <SelectionRing object={object} highlighted color={ringColor} /> : null}
-    </group>
+    <>
+      <group
+        position={[
+          object.transform.position[0],
+          object.transform.position[1] + elevation,
+          object.transform.position[2],
+        ]}
+        rotation={[0, object.transform.rotationY, 0]}
+        scale={object.transform.scale}
+        visible={object.visible}
+        onClick={(event) => {
+          if (!onSelect) return;
+          event.stopPropagation();
+          onSelect(object);
+        }}
+      >
+        <ObjectModel object={object} tint={tint} />
+        {highlighted ? <SelectionRing object={object} highlighted color={ringColor} /> : null}
+      </group>
+      <ObjectLabel
+        object={object}
+        selected={highlighted}
+        ringColor={ringColor}
+        position={[
+          object.transform.position[0],
+          object.transform.position[1] + elevation + height + 0.3,
+          object.transform.position[2],
+        ]}
+      />
+    </>
   );
 }
 

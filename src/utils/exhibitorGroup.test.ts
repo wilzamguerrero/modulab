@@ -26,6 +26,9 @@ function projectWithExhibitor() {
   project.objects.push({
     id: 'obj_1',
     name: 'Vitrina',
+    code: '',
+    showCode: true,
+    showName: false,
     source: { type: 'primitive', shape: 'box', name: 'Vitrina' },
     transform: { position: [1, 0, 1], rotationY: 0, scale: [1, 1, 1] },
     overrides: {},
@@ -37,6 +40,9 @@ function projectWithExhibitor() {
   project.objects.push({
     id: 'obj_2',
     name: 'Suelto',
+    code: '',
+    showCode: true,
+    showName: false,
     source: { type: 'primitive', shape: 'box', name: 'Suelto' },
     transform: { position: [-1, 0, -1], rotationY: 0, scale: [1, 1, 1] },
     overrides: {},

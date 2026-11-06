@@ -97,7 +97,9 @@ function migrateProject(source: Record<string, any>): Record<string, any> {
     edges: undefined,
     internalWalls: undefined,
     openings: undefined,
-    objects: (Array.isArray(source.objects) ? source.objects : []).map(assignLevel),
+    objects: (Array.isArray(source.objects) ? source.objects : [])
+      .map(assignLevel)
+      .map((object: any) => ({ code: '', showCode: true, showName: false, ...object })),
     exhibitors: (Array.isArray(source.exhibitors) ? source.exhibitors : []).map(assignLevel),
     rotationPoints: (Array.isArray(source.rotationPoints) ? source.rotationPoints : []).map(
       assignLevel,
@@ -198,6 +200,13 @@ export function parseProject(raw: unknown): Project {
   project.objects = project.objects.map((object) => ({
     ...object,
     levelId: validLevel(object.levelId),
+    // Los proyectos antiguos no tienen código: se rellena con el nombre del
+    // archivo del catálogo (p. ej. `b1.glb` → `b1`) para poder mostrarlo.
+    code:
+      object.code ||
+      (object.source.type === 'glb'
+        ? object.source.file.replace(/\.glb$/i, '')
+        : object.name),
   }));
   project.exhibitors = project.exhibitors.map((exhibitor) => ({
     ...exhibitor,

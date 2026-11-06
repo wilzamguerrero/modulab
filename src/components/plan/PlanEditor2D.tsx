@@ -1619,7 +1619,21 @@ export function PlanEditor2D() {
                   fontSize={textSize * 0.85}
                   pointerEvents="none"
                 >
-                  {object.name.length > 18 ? `${object.name.slice(0, 17)}…` : object.name}
+                  {(() => {
+                    // Misma regla que en 3D: código y/o nombre, cada uno con su
+                    // interruptor del inspector.
+                    const code = (object.code ?? '').trim();
+                    const name = (object.name ?? '').trim();
+                    const text = object.showCode && code
+                      ? object.showName && name
+                        ? `${code} · ${name}`
+                        : code
+                      : object.showName && name
+                        ? name
+                        : '';
+                    if (!text) return null;
+                    return text.length > 18 ? `${text.slice(0, 17)}…` : text;
+                  })()}
                 </text>
               ) : null}
             </g>

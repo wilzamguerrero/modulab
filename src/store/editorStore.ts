@@ -1446,6 +1446,10 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const object: SceneObject = {
       id,
       name: item.name,
+      // El código nace del catálogo (p. ej. `b1`) y es independiente del nombre.
+      code: item.file ? item.file.replace(/\.glb$/i, '') : item.name,
+      showCode: true,
+      showName: false,
       source,
       transform: {
         position: [position.x, 0, position.z],

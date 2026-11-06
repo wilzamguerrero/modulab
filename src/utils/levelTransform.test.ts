@@ -34,6 +34,9 @@ function projectWithLevel() {
   project.objects.push({
     id: 'obj_1',
     name: 'Cubo',
+    code: '',
+    showCode: true,
+    showName: false,
     source: { type: 'primitive', shape: 'box', name: 'Cubo' },
     transform: { position: [1, 0, 1], rotationY: 0.4, scale: [1, 1, 1] },
     overrides: {},
@@ -203,6 +206,9 @@ describe('transformación de un nivel completo', () => {
     project.objects.push({
       id: 'obj_2',
       name: 'Otro cubo',
+      code: '',
+      showCode: true,
+      showName: false,
       source: { type: 'primitive', shape: 'box', name: 'Cubo' },
       transform: { position: [1, 0, 1], rotationY: 0, scale: [1, 1, 1] },
       overrides: {},

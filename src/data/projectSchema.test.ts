@@ -277,6 +277,52 @@ describe('project data', () => {
     expect(parsed.objects[0].levelId).toBe(level.id);
   });
 
+  it('rellena el código del objeto desde el archivo y conserva los interruptores', () => {
+    const project = createProject({ name: 'Códigos' });
+    const levelId = project.levels[0].id;
+    project.objects = [
+      {
+        id: 'obj_glb',
+        name: 'Stand b1',
+        code: '',
+        showCode: false,
+        showName: true,
+        source: { type: 'glb', url: '/catalog/b1.glb', file: 'b1.glb', name: 'b1' },
+        transform: { position: [0, 0, 0], rotationY: 0, scale: [1, 1, 1] },
+        overrides: {},
+        visible: true,
+        levelId,
+        locked: false,
+      },
+    ];
+    const parsed = parseProject(project);
+    // Sin código guardado se usa el nombre del archivo sin extensión.
+    expect(parsed.objects[0].code).toBe('b1');
+    expect(parsed.objects[0].showCode).toBe(false);
+    expect(parsed.objects[0].showName).toBe(true);
+  });
+
+  it('respeta un código escrito a mano', () => {
+    const project = createProject({ name: 'Códigos' });
+    const levelId = project.levels[0].id;
+    project.objects = [
+      {
+        id: 'obj_glb',
+        name: 'Mostrador',
+        code: 'M-07',
+        showCode: true,
+        showName: false,
+        source: { type: 'glb', url: '/catalog/b1.glb', file: 'b1.glb', name: 'b1' },
+        transform: { position: [0, 0, 0], rotationY: 0, scale: [1, 1, 1] },
+        overrides: {},
+        visible: true,
+        levelId,
+        locked: false,
+      },
+    ];
+    expect(parseProject(project).objects[0].code).toBe('M-07');
+  });
+
   it('migra un proyecto con levels vacío y planta raíz (sin perder la planta)', () => {
     const project = createProject({ name: 'Raro' });
     const raw = {
@@ -313,6 +359,9 @@ describe('project data', () => {
       {
         id: 'obj',
         name: 'Obj',
+      code: '',
+      showCode: true,
+      showName: false,
         source: { type: 'primitive', shape: 'box', name: 'Obj' },
         transform: { position: [0, 0, 0], rotationY: 0, scale: [1, 1, 1] },
         overrides: {},

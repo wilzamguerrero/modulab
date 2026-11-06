@@ -47,6 +47,16 @@ export const objectTransformSchema = z.object({
 export const sceneObjectSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
+  /**
+   * Código corto con el que se identifica el objeto en la escena (por ejemplo
+   * el código del stand o el del catálogo: `b1`). Es independiente del nombre y
+   * se puede editar a mano.
+   */
+  code: z.string().default(''),
+  /** Muestra el código junto al objeto en el editor y en el visor. */
+  showCode: z.boolean().default(true),
+  /** Muestra el nombre del objeto junto al objeto. */
+  showName: z.boolean().default(false),
   source: catalogSourceSchema,
   transform: objectTransformSchema,
   overrides: z.record(materialOverrideSchema).default({}),

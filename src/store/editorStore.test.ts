@@ -65,6 +65,9 @@ describe('duplicar un nivel', () => {
     project.objects.push({
       id: 'obj_1',
       name: 'Vitrina',
+      code: '',
+      showCode: true,
+      showName: false,
       source: { type: 'primitive', shape: 'box', name: 'Vitrina' },
       transform: { position: [1, 0, 1], rotationY: 0, scale: [1, 1, 1] },
       overrides: {},
@@ -113,6 +116,9 @@ describe('duplicar un nivel', () => {
     project.objects.push({
       id: 'obj_1',
       name: 'Vitrina',
+      code: '',
+      showCode: true,
+      showName: false,
       source: { type: 'primitive', shape: 'box', name: 'Vitrina' },
       transform: { position: [1, 0, 1], rotationY: 0, scale: [1, 1, 1] },
       overrides: {},

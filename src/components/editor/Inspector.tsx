@@ -513,6 +513,28 @@ function ObjectInspector({
             onChange={(event) => updateObject(object.id, { name: event.target.value }, { coalesceKey: `name:${object.id}` })}
           />
         </Field>
+        <Field
+          label="Código"
+          hint="Referencia corta del objeto (por ejemplo el código del modelo 3D). Es independiente del nombre."
+        >
+          <TextInput
+            value={object.code}
+            placeholder={object.source.type === 'glb' ? object.source.file.replace(/\.glb$/i, '') : 'B1'}
+            onChange={(event) => updateObject(object.id, { code: event.target.value }, { coalesceKey: `code:${object.id}` })}
+          />
+        </Field>
+        <div className="grid-2">
+          <Switch
+            checked={object.showCode}
+            onChange={(showCode) => updateObject(object.id, { showCode })}
+            label="Mostrar código"
+          />
+          <Switch
+            checked={object.showName}
+            onChange={(showName) => updateObject(object.id, { showName })}
+            label="Mostrar nombre"
+          />
+        </div>
         <div className="row-between">
           <Badge tone={object.source.type === 'glb' ? 'info' : 'neutral'}>
             {object.source.type === 'glb' ? 'GLB' : 'Forma básica'}
