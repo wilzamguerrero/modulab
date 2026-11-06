@@ -392,14 +392,12 @@ function EditableStair({
   // soltar se devuelve el control al store (ver `dragging`).
   const dragging = useRef(false);
 
-  // La escalera vive dentro del <group> de su nivel y el gizmo puede dejar
-  // desplazamientos residuales en el grupo (o en su padre). Sin este ajuste la
-  // malla se quedaría donde quedó el historial de undo/redo y no donde está la
-  // escalera, así que el grupo sigue siempre a `stair.position`/`rotation`.
+  // La malla de la escalera debe seguir siempre a `stair.position`/`rotation`
+  // del store (undo/redo, edición en el inspector, etc.). Solo el propio grupo
+  // de la escalera se sincroniza: el grupo del nivel lleva la elevación del
+  // piso en su Y y no se toca aquí.
   useLayoutEffect(() => {
     if (!group || dragging.current) return;
-    const parent = group.parent;
-    if (parent) parent.position.set(0, 0, 0);
     group.position.set(stair.position.x, 0, stair.position.z);
     group.rotation.set(0, stair.rotation, 0);
   }, [
@@ -426,10 +424,6 @@ function EditableStair({
       z = snapValue(z, gridSize);
     }
     const rotation = group.rotation.y;
-    // Se limpia cualquier desplazamiento que hubiera quedado en el grupo del
-    // nivel para que la escalera no herede un offset y aparezca en otro sitio
-    // al volver del modo lectura.
-    if (group.parent) group.parent.position.set(0, 0, 0);
     group.position.set(x, 0, z);
     group.rotation.set(0, rotation, 0);
     dragging.current = false;
@@ -534,6 +528,9 @@ export function Architecture({
       {project.levels.map((level) => {
         if (!level.visible) return null;
         return (
+          // La Y de este grupo ES la elevación del piso: forjado, muros,
+          // aberturas y escaleras cuelgan de aquí. Ningún hijo debe escribir en
+          // `parent.position` (hundiría el nivel entero al suelo).
           <group key={level.id} position={[0, level.elevation, 0]}>
             {level.spaces.map((space) =>
               space.visible ? (

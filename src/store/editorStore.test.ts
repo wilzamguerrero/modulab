@@ -151,6 +151,89 @@ describe('duplicar un nivel', () => {
     const copy = useEditorStore.getState().project!.levels.find((level) => level.id === id)!;
     expect(copy.spaces[0].vertices[0]).toEqual({ x: before.x + 5, z: before.z + 2 });
   });
+
+  it('apila la copia justo encima y empuja los pisos superiores', () => {
+    const base = useEditorStore.getState().project!.levels[0];
+    const secondId = useEditorStore.getState().addLevel('above')!;
+    const beforeSecond = useEditorStore
+      .getState()
+      .project!.levels.find((level) => level.id === secondId)!.elevation;
+
+    const copyId = useEditorStore
+      .getState()
+      .duplicateLevel(base.id, { placement: 'above' })!;
+    const levels = useEditorStore.getState().project!.levels;
+    const copy = levels.find((level) => level.id === copyId)!;
+    const second = levels.find((level) => level.id === secondId)!;
+
+    // La copia queda pegada al original, no al final de la torre.
+    expect(copy.elevation).toBeGreaterThan(base.elevation);
+    expect(copy.elevation - base.elevation).toBeCloseTo(3);
+    // El piso que ocupaba ese hueco sube para dejarle sitio.
+    expect(second.elevation).toBeGreaterThan(beforeSecond);
+    // Sin huecos: elevaciones distintas y en orden.
+    const elevations = levels.map((level) => level.elevation).sort((a, b) => a - b);
+    for (let index = 1; index < elevations.length; index += 1) {
+      expect(elevations[index] - elevations[index - 1]).toBeCloseTo(3);
+    }
+  });
+
+  it('apila la copia justo debajo del original', () => {
+    const base = useEditorStore.getState().project!.levels[0];
+    useEditorStore.getState().addLevel('above');
+    const copyId = useEditorStore
+      .getState()
+      .duplicateLevel(base.id, { placement: 'below' })!;
+    const copy = useEditorStore
+      .getState()
+      .project!.levels.find((level) => level.id === copyId)!;
+    expect(copy.elevation).toBeCloseTo(base.elevation - 3);
+  });
+
+  it('recalcula la altura de las escaleras de la copia al nivel vecino real', () => {
+    const base = useEditorStore.getState().project!.levels[0];
+    useEditorStore.getState().setActiveLevel(base.id);
+    useEditorStore.getState().addStair({ x: 1, z: 1 });
+
+    const copyId = useEditorStore
+      .getState()
+      .duplicateLevel(base.id, { placement: 'above' })!;
+    const project = useEditorStore.getState().project!;
+    const copy = project.levels.find((level) => level.id === copyId)!;
+    expect(copy.stairs).toHaveLength(1);
+    // La copia sube hasta el piso que tiene justo encima.
+    const above = project.levels
+      .filter((level) => level.elevation > copy.elevation + 0.2)
+      .sort((a, b) => a.elevation - b.elevation)[0];
+    const expected = above ? above.elevation - copy.elevation : 2.8;
+    expect(copy.stairs[0].rise).toBeCloseTo(expected);
+  });
+
+  it('no deja la escalera de la copia con la altura del nivel original', () => {
+    const base = useEditorStore.getState().project!.levels[0];
+    useEditorStore.getState().addLevel('above');
+    useEditorStore.getState().setActiveLevel(base.id);
+    useEditorStore.getState().addStair({ x: 1, z: 1 });
+    const originalRise = useEditorStore.getState().project!.levels[0].stairs[0].rise;
+
+    const copyId = useEditorStore
+      .getState()
+      .duplicateLevel(base.id, { placement: 'above' })!;
+    const project = useEditorStore.getState().project!;
+    const copy = project.levels.find((level) => level.id === copyId)!;
+    const above = project.levels
+      .filter((level) => level.elevation > copy.elevation + 0.2)
+      .sort((a, b) => a.elevation - b.elevation)[0];
+
+    if (above) {
+      // Hay piso encima: la escalera mide exactamente ese salto.
+      expect(copy.stairs[0].rise).toBeCloseTo(above.elevation - copy.elevation);
+    } else {
+      // Sin piso encima usa el salto estándar del proyecto.
+      expect(copy.stairs[0].rise).toBeCloseTo(2.8);
+      expect(copy.stairs[0].rise).not.toBeCloseTo(originalRise + 10);
+    }
+  });
 });
 
 describe('mover un expositor agrupado', () => {

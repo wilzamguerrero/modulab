@@ -39,9 +39,13 @@ import { translateAssignedElements } from '@/utils/exhibitorGroup';
 import { applyLevelTransform, levelPivot, normalizeAngle } from '@/utils/levelTransform';
 import {
   defaultLevelId,
+  fitStairToLevels,
+  freeLevelElevation,
   getLevel,
   getSpace,
+  hasNeighbourLevel,
   levelBounds,
+  levelsToMakeRoom,
   levelVertices,
   suggestLevelElevation,
 } from '@/utils/levels';
@@ -758,8 +762,24 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const level = structuredClone(source);
     level.id = createId('lvl');
     level.name = `${source.name} (copia)`;
-    level.elevation =
-      placement === 'same' ? source.elevation : suggestLevelElevation(project, placement);
+    // La copia se apila **respecto del nivel duplicado**: justo encima o justo
+    // debajo de él. Si otro piso ocupa ya ese hueco, se empujan ese y los
+    // siguientes un salto de piso, en vez de lanzar la copia al final de la
+    // torre con un hueco en medio.
+    const gap = 1.5;
+    let pushedIds: string[] = [];
+    if (placement === 'same') {
+      level.elevation = source.elevation;
+    } else {
+      pushedIds = levelsToMakeRoom(project, source, placement);
+      level.elevation = freeLevelElevation(
+        project,
+        source,
+        placement,
+        3,
+        pushedIds,
+      );
+    }
     const wallIds = new Map<string, string>();
     level.spaces = level.spaces.map((space) => ({
       ...space,
@@ -781,13 +801,45 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       wallId: wallIds.get(opening.wallId) ?? opening.wallId,
     }));
     level.stairs = level.stairs.map((stair) => ({ ...stair, id: createId('stair') }));
-    const gap = 1.5;
     const offset: Vec2 =
       placement === 'same'
         ? options.offset ?? { x: Math.max(levelBounds(source).width + gap, gap), z: 0 }
         : { x: 0, z: 0 };
     get().patchProject((draft) => {
+      // Primero se hace sitio: si el hueco inmediatamente encima/debajo del
+      // nivel duplicado estaba ocupado, esos pisos suben/bajan un salto para
+      // dejar el espacio contiguo libre a la copia.
+      if (pushedIds.length) {
+        const delta =
+          placement === 'above'
+            ? Math.max(3, draft.defaultWall.height + 0.2)
+            : -Math.max(3, draft.defaultWall.height + 0.2);
+        for (const levelId of pushedIds) {
+          // Solo cambia la cota: la planta y el contenido del piso no se tocan.
+          const pushed = draft.levels.find((entry) => entry.id === levelId);
+          if (pushed) pushed.elevation = Math.round((pushed.elevation + delta) * 1000) / 1000;
+        }
+      }
       draft.levels.push(level);
+      // Las escaleras se copian con su geometría, pero la altura (`rise`) venía
+      // calculada para los vecinos del nivel original. Se recalcula contra los
+      // niveles que la copia va a tener realmente encima o debajo, para que no
+      // atraviesen forjados ni queden flotando.
+      const refitStairs = (target: Level) => {
+        for (const stair of target.stairs) {
+          stair.rise = hasNeighbourLevel(draft, target, stair.direction)
+            ? fitStairToLevels(draft, target, stair)
+                .rise
+            : Math.max(0.3, draft.defaultWall.height);
+        }
+      };
+      refitStairs(level);
+      // Los pisos empujados cambiaron de vecinos: sus escaleras también se
+      // reajustan para no quedarse con un salto que ya no existe.
+      for (const levelId of pushedIds) {
+        const pushed = draft.levels.find((entry) => entry.id === levelId);
+        if (pushed) refitStairs(pushed);
+      }
       // Los objetos y expositores apoyados en el piso se copian también, con
       // ids nuevos y conservando sus vínculos entre sí.
       const objectIds = new Map<string, string>();

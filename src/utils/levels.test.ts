@@ -4,6 +4,9 @@ import type { Project } from '@/types/project';
 import {
   fitStairToLevels,
   entityLevelId,
+  freeLevelElevation,
+  hasNeighbourLevel,
+  levelsToMakeRoom,
   getLevel,
   getSpace,
   levelAllVertices,
@@ -109,5 +112,67 @@ describe('fitStairToLevels', () => {
     const project = { levels: [base, upper] } as unknown as Project;
     const stair = createStair({ x: 0, z: 0 }, { direction: 'down' });
     expect(fitStairToLevels(project, upper, stair).rise).toBeCloseTo(3.4);
+  });
+});
+
+describe('freeLevelElevation', () => {
+  const buildTower = (elevations: number[]): Project => {
+    const project = createProject({ name: 'Torre' });
+    project.levels = elevations.map((elevation, index) =>
+      createLevel(`N${index}`, elevation),
+    );
+    return project;
+  };
+
+  it('coloca la copia justo encima del nivel duplicado, no al final de la torre', () => {
+    const project = buildTower([0, 3]);
+    const base = project.levels[0];
+    // El hueco de 3 está ocupado, así que el salto sigue hasta el primer libre.
+    expect(freeLevelElevation(project, base, 'above')).toBeCloseTo(6);
+  });
+
+  it('respeta el hueco contiguo cuando está libre', () => {
+    const project = buildTower([0]);
+    expect(freeLevelElevation(project, project.levels[0], 'above')).toBeCloseTo(3);
+  });
+
+  it('baja simétricamente', () => {
+    const project = buildTower([0]);
+    expect(freeLevelElevation(project, project.levels[0], 'below')).toBeCloseTo(-3);
+  });
+
+  it('puede ignorar niveles que se van a mover', () => {
+    const project = buildTower([0, 3]);
+    expect(
+      freeLevelElevation(project, project.levels[0], 'above', 3, [project.levels[1].id]),
+    ).toBeCloseTo(3);
+  });
+});
+
+describe('levelsToMakeRoom', () => {
+  it('no empuja nada si el hueco contiguo está libre', () => {
+    const project = createProject({ name: 'Torre' });
+    expect(levelsToMakeRoom(project, project.levels[0], 'above')).toEqual([]);
+  });
+
+  it('identifica los pisos que hay que subir para dejar sitio', () => {
+    const project = createProject({ name: 'Torre' });
+    const base = project.levels[0];
+    const second = createLevel('Segundo', 3);
+    const third = createLevel('Tercero', 6);
+    project.levels.push(second, third);
+    expect(levelsToMakeRoom(project, base, 'above').sort()).toEqual(
+      [second.id, third.id].sort(),
+    );
+  });
+});
+
+describe('hasNeighbourLevel', () => {
+  it('detecta si hay un piso hacia donde sube o baja la escalera', () => {
+    const project = createProject({ name: 'Torre' });
+    const base = project.levels[0];
+    expect(hasNeighbourLevel(project, base, 'up')).toBe(false);
+    project.levels.push(createLevel('P1', 3));
+    expect(hasNeighbourLevel(project, base, 'up')).toBe(true);
   });
 });

@@ -128,6 +128,62 @@ export function suggestLevelElevation(
     : Math.min(...elevations) - height;
 }
 
+/**
+ * Hueco libre inmediatamente por encima o por debajo de un nivel concreto, no
+ * del proyecto entero. Se usa al duplicar: la copia debe quedar pegada al piso
+ * que se está duplicando (justo encima o justo debajo).
+ */
+export function freeLevelElevation(
+  project: Project,
+  level: Level,
+  direction: 'above' | 'below',
+  gap = 3,
+  /** Niveles que se ignoran al calcular (p. ej. el que se está moviendo). */
+  ignoreLevelIds: string[] = [],
+): number {
+  const height = Math.max(gap, project.defaultWall.height + 0.2);
+  const step = direction === 'above' ? height : -height;
+  const others = project.levels
+    .filter((entry) => entry.id !== level.id && !ignoreLevelIds.includes(entry.id))
+    .map((entry) => entry.elevation);
+  let candidate = level.elevation + step;
+  // "Ocupado" = ya hay un piso en esa cota (10 cm de tolerancia práctica).
+  const isFree = (value: number) =>
+    !others.some((elevation) => Math.abs(elevation - value) < 0.1);
+  let guard = 0;
+  while (!isFree(candidate) && guard < 200) {
+    candidate += step;
+    guard += 1;
+  }
+  return candidate;
+}
+
+/**
+ * Niveles que hay que **desplazar** para hacer sitio a una copia entre el nivel
+ * `anchor` y el siguiente piso en esa dirección. Devuelve vacío cuando el hueco
+ * natural (un salto de piso) ya está libre.
+ */
+export function levelsToMakeRoom(
+  project: Project,
+  anchor: Level,
+  direction: 'above' | 'below',
+  gap = 3,
+): string[] {
+  const height = Math.max(gap, project.defaultWall.height + 0.2);
+  const normal = freeLevelElevation(project, anchor, direction, height);
+  const adjacent = anchor.elevation + (direction === 'above' ? height : -height);
+  if (Math.abs(normal - adjacent) < 0.1) return [];
+  // Hay otro piso justo en el hueco: se empuja todo lo que esté en ese sentido.
+  return project.levels
+    .filter((entry) =>
+      entry.id !== anchor.id &&
+      (direction === 'above'
+        ? entry.elevation >= adjacent - 0.1
+        : entry.elevation <= adjacent + 0.1),
+    )
+    .map((entry) => entry.id);
+}
+
 export function objectsForLevel(project: Project, levelId: string | null | undefined): SceneObject[] {
   const fallback = defaultLevelId(project);
   return project.objects.filter((object) => (object.levelId ?? fallback) === levelId);
@@ -140,6 +196,22 @@ export function entityLevelId(
 ): string | null {
   const valid = project.levels.some((level) => level.id === entity.levelId);
   return valid ? entity.levelId ?? null : defaultLevelId(project);
+}
+
+/**
+ * ¿Hay algún otro nivel en el sentido al que va la escalera? Sirve para saber
+ * si `fitStairToLevels` tiene un destino real o si hay que usar el salto por
+ * defecto del proyecto.
+ */
+export function hasNeighbourLevel(
+  project: Project,
+  level: Level,
+  direction: Stair['direction'],
+): boolean {
+  const floor = level.elevation;
+  return direction === 'down'
+    ? project.levels.some((entry) => entry.id !== level.id && entry.elevation < floor - 0.2)
+    : project.levels.some((entry) => entry.id !== level.id && entry.elevation > floor + 0.2);
 }
 
 /**
