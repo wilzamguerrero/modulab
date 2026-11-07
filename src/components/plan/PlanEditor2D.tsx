@@ -1968,8 +1968,11 @@ export function PlanEditor2D({
               <circle r={radius * 0.3} fill={color} />
               {/* Hacia dónde mira la cámara: una sola flecha sencilla, la misma
                   que en 3D. Va pegada al marcador, en el borde del círculo. */}
+              {/* En SVG el ángulo crece con el eje Z hacia abajo, así que el
+                  rumbo 0° (cámara detrás, mirando a +Z) se dibuja hacia
+                  abajo: rotate(-90°) lleva la punta local (+X) a +Z. */}
               <g
-                transform={`rotate(${(exhibitor.rotation * 180) / Math.PI})`}
+                transform={`rotate(${(exhibitor.rotation * 180) / Math.PI - 90})`}
                 opacity={exhibitor.rotationCustom ? 1 : 0.6}
                 pointerEvents="none"
               >

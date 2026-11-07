@@ -56,6 +56,7 @@ import { useEditorStore } from '@/store/editorStore';
 import { useModelInfoStore } from '@/store/modelInfoStore';
 import { useUiStore } from '@/store/uiStore';
 import { cameraForVertices, defaultExhibitorCamera } from '@/data/defaults';
+import { headingCameraFor } from '@/utils/exhibitorCamera';
 import { SHADOW_QUALITY_OPTIONS } from '@/data/shadows';
 import { notionPhotoUrl } from '@/services/notion/notionService';
 import { uploadExhibitorPhoto } from '@/services/assets/catalogService';
@@ -911,12 +912,18 @@ function ExhibitorInspector({
         <Field label="Cámara mira hacia">
           <NumberInput
             value={((exhibitor.rotation * 180) / Math.PI + 360) % 360}
-            onChange={(degrees) =>
+            onChange={(degrees) => {
+              const rotation = (degrees * Math.PI) / 180;
+              // La cámara de la ficha se recalcula con el rumbo para que el
+              // inspector y la llegada del visor no muestren cuadros distintos.
+              const camera = headingCameraFor({ ...exhibitor, rotation }, project);
               updateExhibitor(exhibitor.id, {
-                rotation: (degrees * Math.PI) / 180,
+                rotation,
                 rotationCustom: true,
-              })
-            }
+                cameraPosition: camera.position,
+                cameraTarget: camera.target,
+              });
+            }}
             step={5}
             suffix="°"
           />
@@ -968,7 +975,13 @@ function ExhibitorInspector({
                   camera.position[0] - exhibitor.position.x,
                   camera.position[2] - exhibitor.position.z,
                 );
-                updateExhibitor(exhibitor.id, { rotation, rotationCustom: true });
+                const arrival = headingCameraFor({ ...exhibitor, rotation }, project);
+                updateExhibitor(exhibitor.id, {
+                  rotation,
+                  rotationCustom: true,
+                  cameraPosition: arrival.position,
+                  cameraTarget: arrival.target,
+                });
                 toast('Rumbo de cámara fijado desde el editor.', 'success');
               }}
             >

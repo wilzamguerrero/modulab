@@ -21,13 +21,8 @@ import { Badge, IconButton, Spinner } from '@/components/ui';
 import { PublicScene, type ViewerCameraCommand } from '@/components/viewer/PublicScene';
 import { fetchPublished } from '@/services/publishing/publishService';
 import { notionPhotoUrl } from '@/services/notion/notionService';
-import {
-  defaultExhibitorCamera,
-  exhibitorCameraFromHeading,
-  isExhibitorCameraUsable,
-} from '@/data/defaults';
-import { pointInPolygon } from '@/utils/geometry';
-import { entityLevelId, getLevel, levelVertices } from '@/utils/levels';
+import { focusCameraFor } from '@/utils/exhibitorCamera';
+import { entityLevelId } from '@/utils/levels';
 import { exhibitorColor } from '@/utils/exhibitorColors';
 
 function initials(name: string): string {
@@ -38,107 +33,6 @@ function initials(name: string): string {
     .slice(0, 2);
   if (words.length === 0) return 'EX';
   return words.map((word) => word[0]?.toUpperCase() ?? '').join('');
-}
-
-function finiteVector(vector: unknown): vector is [number, number, number] {
-  return (
-    Array.isArray(vector) &&
-    vector.length === 3 &&
-    vector.every((value) => typeof value === 'number' && Number.isFinite(value))
-  );
-}
-
-// Cámara del esquema cuando el expositor no tiene una personalizada. Si todos
-// los expositores guardan este valor, el visor enfocaría siempre el mismo punto
-// y la cámara no cambiaría al pasar de uno a otro.
-const SCHEMA_DEFAULT_CAMERA_POSITION: [number, number, number] = [4, 2, 4];
-const SCHEMA_DEFAULT_CAMERA_TARGET: [number, number, number] = [0, 1, 0];
-
-function isSchemaDefaultCamera(
-  position: [number, number, number],
-  target: [number, number, number],
-): boolean {
-  return (
-    position[0] === SCHEMA_DEFAULT_CAMERA_POSITION[0] &&
-    position[1] === SCHEMA_DEFAULT_CAMERA_POSITION[1] &&
-    position[2] === SCHEMA_DEFAULT_CAMERA_POSITION[2] &&
-    target[0] === SCHEMA_DEFAULT_CAMERA_TARGET[0] &&
-    target[1] === SCHEMA_DEFAULT_CAMERA_TARGET[1] &&
-    target[2] === SCHEMA_DEFAULT_CAMERA_TARGET[2]
-  );
-}
-
-function sameVec(a: [number, number, number], b: [number, number, number]): boolean {
-  return Math.abs(a[0] - b[0]) < 1e-3 && Math.abs(a[1] - b[1]) < 1e-3 && Math.abs(a[2] - b[2]) < 1e-3;
-}
-
-/**
- * Detecta cámaras duplicadas entre fichas. Si varias comparten exactamente la
- * misma cámara (dato heredado o copiado) no sirven para viajar a cada stand:
- * en ese caso el visor recalcula una vista desde la posición del expositor.
- */
-function sharesCameraWithOther(exhibitor: Exhibitor, project: Project): boolean {
-  return project.exhibitors.some(
-    (other) =>
-      other.id !== exhibitor.id &&
-      sameVec(other.cameraPosition, exhibitor.cameraPosition) &&
-      sameVec(other.cameraTarget, exhibitor.cameraTarget),
-  );
-}
-
-/**
- * Usa la cámara configurada por el editor, pero sustituye vistas imposibles
- * (vectores inválidos, cámara bajo el piso o cámara pegada al objetivo) y la
- * cámara genérica del esquema por una vista derivada de la posición real.
- */
-export function focusCameraFor(
-  exhibitor: Exhibitor,
-  project: Project,
-): { position: [number, number, number]; target: [number, number, number] } {
-  const level = getLevel(project, entityLevelId(project, exhibitor));
-  const vertices = levelVertices(level);
-  const elevation = level?.elevation ?? 0;
-  const position = exhibitor.cameraPosition;
-  const target = exhibitor.cameraTarget;
-  const distance = Math.hypot(
-    position[0] - target[0],
-    position[1] - target[1],
-    position[2] - target[2],
-  );
-  const targetInside =
-    vertices.length < 3 || pointInPolygon({ x: target[0], z: target[2] }, vertices);
-  if (
-    finiteVector(position) &&
-    finiteVector(target) &&
-    !isSchemaDefaultCamera(position, target) &&
-    !sharesCameraWithOther(exhibitor, project) &&
-    position[1] >= elevation + 0.35 &&
-    distance >= 0.8 &&
-    targetInside &&
-    isExhibitorCameraUsable(position, vertices)
-  ) {
-    return { position, target };
-  }
-  if (exhibitor.rotationCustom) {
-    // Rumbo elegido en el editor: la cámara llega desde esa dirección.
-    return exhibitorCameraFromHeading(
-      exhibitor.position,
-      exhibitor.rotation,
-      vertices,
-      elevation,
-    );
-  }
-  return defaultExhibitorCamera(exhibitor.position, vertices, elevation);
-}
-
-function distanceToSegment(point: Vec2, a: Vec2, b: Vec2): number {
-  const dx = b.x - a.x;
-  const dz = b.z - a.z;
-  const lengthSq = dx * dx + dz * dz;
-  if (lengthSq < 1e-6) return Math.hypot(point.x - a.x, point.z - a.z);
-  let t = ((point.x - a.x) * dx + (point.z - a.z) * dz) / lengthSq;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(point.x - (a.x + t * dx), point.z - (a.z + t * dz));
 }
 
 type Vec3Tuple = [number, number, number];
@@ -459,7 +353,28 @@ export function PublicViewerPage() {
   const selectExhibitor = useCallback((exhibitor: Exhibitor) => {
     if (!publicProject) return;
     setSelectedId(exhibitor.id);
-    const camera = focusCameraFor(exhibitor, publicProject);
+    // Si la vista de lectura actual es casi la misma que la de llegada, el
+    // viaje no se notaría: se eleva un poco: el descenso hace visible que el
+    // visor se ha colocado en el expositor.
+    let camera = focusCameraFor(exhibitor, publicProject);
+    if (
+      readerCamera.position &&
+      readerCamera.target &&
+      Math.hypot(
+        readerCamera.position[0] - camera.position[0],
+        readerCamera.position[2] - camera.position[2],
+      ) < 3
+    ) {
+      const dir = { x: Math.sin(exhibitor.rotation), z: Math.cos(exhibitor.rotation) };
+      camera = {
+        position: [
+          camera.position[0] - dir.x * 0.6,
+          camera.position[1] + 6,
+          camera.position[2] - dir.z * 0.6,
+        ],
+        target: camera.target,
+      };
+    }
     // Ruta profesional entre stands: la cámara no corta en línea recta de uno
     // a otro, sino que repasa el recorrido con paradas de giro.
     //   1. levanta hacia un punto de rotación del nivel de origen (el más

@@ -314,6 +314,34 @@ export function defaultExhibitorCamera(
 }
 
 /**
+ * Desplaza el objetivo de la cámara hacia el montaje lateral del expositor.
+ *
+ * `sideOffsets` son las distancias (en metros, con signo) de los objetos
+ * asociados respecto a la línea del rumbo: negativas a un lado, positivas al
+ * otro. Así un expositor con carteles a su derecha recibe un encuadre que los
+ * incluye en vez de dejarlos fuera de plano. Se limita a ±1,6 m para no perder
+ * al propio expositor.
+ */
+function sideFocus(
+  position: Vec2,
+  dir: { x: number; z: number },
+  sideOffsets: number[],
+): Vec2 {
+  if (!sideOffsets.length) return { ...position };
+  const min = Math.min(...sideOffsets);
+  const max = Math.max(...sideOffsets);
+  const center = Math.max(-1.6, Math.min(1.6, (min + max) / 2));
+  // Perpendicular al rumbo (izquierda del expositor = −perpendicular).
+  const left = { x: dir.z, z: -dir.x };
+  const reach = Math.max(Math.abs(min), Math.abs(max));
+  const depth = Math.max(0, reach * 0.6);
+  return {
+    x: position.x + left.x * center + dir.x * depth,
+    z: position.z + left.z * center + dir.z * depth,
+  };
+}
+
+/**
  * Cámara de llegada de un expositor a partir de un rumbo (radianes).
  *
  * `rotation` del expositor es hacia dónde mira la cámara al llegar al stand:
@@ -328,29 +356,68 @@ export function exhibitorCameraFromHeading(
   vertices: Vec2[] = [],
   elevation = 0,
   distance = 3.2,
+  sideOffsets: number[] = [],
 ): { position: Vec3; target: Vec3 } {
-  const target: Vec3 = [position.x, 1.15 + elevation, position.z];
   const eyeHeight = 1.9 + elevation;
+  // Dirección a la que mira el expositor (misma convención que la flecha de la
+  // planta y que el triángulo 3D: 0° = +Z, 90° = +X).
   const dir = { x: Math.sin(rotation), z: Math.cos(rotation) };
+  // Si hay montaje a los lados del expositor (carteles, mostrador), el objetivo
+  // se desplaza hacia ellos para que la ficha no quede recortada.
+  const focus = sideFocus(position, dir, sideOffsets);
+  const target: Vec3 = [focus.x, 1.15 + elevation, focus.z];
+  // La cámara se pone DETRÁS del expositor, al otro lado de su espalda, y
+  // mira en su misma dirección: el objetivo queda sobre el marcador (o sobre
+  // el montaje que lo acompaña). Así el fondo es lo que señala la flecha.
+  const lookTarget: Vec3 = [focus.x, 1.05 + elevation, focus.z];
   const inside = vertices.length < 3 || pointInPolygon(position, vertices);
 
+  const isFree = (candidate: Vec2) =>
+    vertices.length < 3 ||
+    (pointInPolygon(candidate, vertices) &&
+      segmentStaysInside(position, candidate, vertices) &&
+      wallClearance(candidate, vertices) >= 0.4);
+  // Sólo se acepta mirar desde la línea de la flecha (detrás del expositor).
+  // Los laterales se prueban más cerca: sirven de último recurso cuando el
+  // rumbo choca con una pared, nunca de primera opción.
+  const radii = [distance, distance * 0.8, distance * 0.6, distance * 0.45, distance * 0.32];
+  const behind = { x: -dir.x, z: -dir.z };
   if (inside) {
-    for (const radius of [distance, distance * 0.8, distance * 0.6]) {
+    for (const radius of radii) {
       const candidate = {
-        x: position.x + dir.x * radius,
-        z: position.z + dir.z * radius,
+        x: position.x + behind.x * radius,
+        z: position.z + behind.z * radius,
       };
-      if (!pointInPolygon(candidate, vertices)) continue;
-      if (!segmentStaysInside(position, candidate, vertices)) continue;
-      if (wallClearance(candidate, vertices) < 0.4) continue;
-      return { position: [candidate.x, eyeHeight, candidate.z], target };
+      if (!isFree(candidate)) continue;
+      return { position: [candidate.x, eyeHeight, candidate.z], target: lookTarget };
+    }
+    // El rumbo queda pegado a un muro o fuera del recinto: se conserva la
+    // dirección y sólo se gana altura, para no cambiar el cuadro.
+    const lateral = [
+      { x: -dir.z, z: dir.x },
+      { x: dir.z, z: -dir.x },
+    ];
+    if (wallClearance(position, vertices) < 2.5) {
+      return {
+        position: [position.x + behind.x * 1.2, eyeHeight + 1.6, position.z + behind.z * 1.2],
+        target: lookTarget,
+      };
+    }
+    for (const radius of [2.2, 1.6, 1.2]) {
+      for (const eye of lateral) {
+        const candidate = {
+          x: position.x + eye.x * radius,
+          z: position.z + eye.z * radius,
+        };
+        if (!isFree(candidate)) continue;
+        return { position: [candidate.x, eyeHeight, candidate.z], target: lookTarget };
+      }
     }
   }
-
-  // Fuera del recinto o bloqueado: vista elevada desde ese mismo rumbo.
+  // Fuera del recinto o bloqueado: vista elevada detrás del expositor.
   return {
-    position: [position.x + dir.x * 0.02, 4.2 + elevation, position.z + dir.z * 0.02],
-    target: [position.x, 0.8 + elevation, position.z],
+    position: [position.x - dir.x * 0.6, 4.2 + elevation, position.z - dir.z * 0.6],
+    target: lookTarget,
   };
 }
 
