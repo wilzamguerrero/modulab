@@ -3763,10 +3763,15 @@ input[type="range"] {
   flex: 0 0 auto;
 }
 
+/* Misma tipografía y tamaño que el «visor 3D» bajo el logo, para que la
+   cabecera se lea como una sola línea. */
 .viewer-credit {
-  font-size: 10px;
-  color: var(--muted);
-  opacity: 0.7;
+  font-size: 9px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted-2);
   white-space: nowrap;
 }
 

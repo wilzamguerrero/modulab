@@ -105,53 +105,55 @@ function ExhibitorMarker({
           </Html>
         ) : null}
       </group>
-      {/* Cono de dirección de la cámara: apunta hacia donde mira al llegar al
-          stand. Girarlo arrastrando el anillo cambia `rotation`. */}
+      {/* Dirección de la cámara de llegada: una flecha a ras de suelo que
+          sale del expositor hacia donde estará la cámara. El anillo dibuja la
+          zona de llegada, para ver el encuadre completo en planta. */}
       {editor ? (
         <group
           position={[exhibitor.position.x, markerY, exhibitor.position.z]}
           rotation={[0, exhibitor.rotation, 0]}
         >
-          <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0.07, 1.05]}>
-            <coneGeometry args={[selected ? 0.16 : 0.12, selected ? 0.42 : 0.32, 12]} />
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.035, 0.85]}>
+            <planeGeometry args={[selected ? 0.08 : 0.05, selected ? 1.3 : 0.95]} />
             <meshBasicMaterial
               color={color}
               transparent
-              opacity={selected ? 0.95 : 0.6}
+              opacity={exhibitor.rotationCustom ? (selected ? 0.9 : 0.6) : selected ? 0.5 : 0.3}
               depthWrite={false}
             />
           </mesh>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.035, 0.55]}>
-            <planeGeometry args={[selected ? 0.05 : 0.035, selected ? 1.0 : 0.75]} />
-            <meshBasicMaterial color={color} transparent opacity={selected ? 0.75 : 0.35} depthWrite={false} />
+          <mesh rotation={[-Math.PI / 2, 0, Math.PI]} position={[0, 0.04, 1.1]}>
+            <coneGeometry args={[selected ? 0.16 : 0.11, selected ? 0.4 : 0.3, 4]} />
+            <meshBasicMaterial color={color} transparent opacity={selected ? 0.95 : 0.7} depthWrite={false} />
           </mesh>
-          {selected ? (
-            <>
-              {/* Área de la cámara de llegada, para ver de dónde llega la vista. */}
-              <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
-                <ringGeometry args={[3.1, 3.24, 48, 1, 0, 0.9]} />
-                <meshBasicMaterial color={color} transparent opacity={0.18} depthWrite={false} />
-              </mesh>
-              <mesh
-                rotation={[-Math.PI / 2, 0, 0]}
-                position={[0, 0.02, 0]}
-                onPointerOver={(event) => {
-                  event.stopPropagation();
-                  document.body.style.cursor = 'grab';
-                }}
-                onPointerOut={() => {
-                  document.body.style.cursor = 'auto';
-                }}
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  setShowHeadingHandle(true);
-                }}
-              >
-                <ringGeometry args={[0.5, 0.72, 48]} />
-                <meshBasicMaterial color={color} transparent opacity={0.28} depthWrite={false} />
-              </mesh>
-            </>
-          ) : null}
+          {/* Zona de llegada: anillo fino al radio de la cámara (3,2 m). */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
+            <ringGeometry args={[3.16, 3.2, 64, 1, -0.6, 1.2]} />
+            <meshBasicMaterial
+              color={color}
+              transparent
+              opacity={selected ? 0.35 : 0.12}
+              depthWrite={false}
+            />
+          </mesh>
+          <mesh
+            rotation={[-Math.PI / 2, 0, 0]}
+            position={[0, 0.02, 0]}
+            onPointerOver={(event) => {
+              event.stopPropagation();
+              document.body.style.cursor = 'grab';
+            }}
+            onPointerOut={() => {
+              document.body.style.cursor = 'auto';
+            }}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              setShowHeadingHandle(true);
+            }}
+          >
+            <ringGeometry args={[0.34, 0.5, 48]} />
+            <meshBasicMaterial color={color} transparent opacity={selected ? 0.3 : 0.15} depthWrite={false} />
+          </mesh>
         </group>
       ) : null}
       {editor && selected && showHeadingHandle ? (

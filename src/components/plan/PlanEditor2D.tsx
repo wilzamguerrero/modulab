@@ -198,37 +198,6 @@ function MeasureChip({
   );
 }
 
-/**
- * Sectores de cámara: el cono que indica hacia dónde mira al llegar al stand.
- * Se dibuja desde el marcador del expositor, abierto ±fov/2 sobre `rotation`.
- */
-function describeSector(
-  center: Vec2,
-  rotation: number,
-  fovDegrees: number,
-  outer: number,
-): string {
-  const half = ((Math.min(fovDegrees, 120) / 2) * Math.PI) / 180;
-  const start = rotation - half;
-  const end = rotation + half;
-  const points = [`M ${center.x} ${center.z}`];
-  const steps = 16;
-  for (let index = 0; index <= steps; index++) {
-    const angle = start + ((end - start) * index) / steps;
-    points.push(
-      `L ${(center.x + Math.sin(angle) * outer).toFixed(3)} ${(center.z + Math.cos(angle) * outer).toFixed(3)}`,
-    );
-  }
-  points.push('Z');
-  return points.join(' ');
-}
-
-/** ¿Se solapa el sector del expositor con el de la vista de cámara activa? */
-function angleBetween(a: number, b: number, fovDegrees: number): boolean {
-  const diff = Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
-  return diff <= ((Math.min(fovDegrees, 120) / 2) * Math.PI) / 180;
-}
-
 /** Punto medio de un tramo, desplazado en perpendicular para colocar la cota. */
 function segmentLabelPoint(a: Vec2, b: Vec2, offset: number): Vec2 {
   const length = Math.max(distance(a, b), 1e-6);
@@ -501,6 +470,8 @@ export function PlanEditor2D({
   const svgRef = useRef<SVGSVGElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const movedRef = useRef(false);
+  /** Puntero capturado por el arrastre, para soltarlo al terminar. */
+  const pressedPointerRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
   const lastProjectId = useRef(project?.id ?? '');
 
@@ -534,20 +505,6 @@ export function PlanEditor2D({
    */
   const showLive = settings?.showLiveMeasurements ?? true;
   const showGrid = settings?.showGrid ?? true;
-  /**
-   * Rumbo y apertura de la vista de lectura en uso: en planta, los expositores
-   * que caen dentro de ese sector se resaltan. Así se ve de un golpe qué stands
-   * muestra la cámara de entrada publicada.
-   */
-  const activeReaderView =
-    project?.readerViews?.find((view) => view.id === project.activeReaderViewId) ?? null;
-  const viewAngle = activeReaderView
-    ? Math.atan2(
-        activeReaderView.target[0] - activeReaderView.position[0],
-        activeReaderView.target[2] - activeReaderView.position[2],
-      )
-    : 0;
-  const viewFov = activeReaderView?.fov ?? project?.camera.fov ?? 50;
 
   useEffect(() => {
     if (!project) return;
@@ -795,6 +752,7 @@ export function PlanEditor2D({
   const beginDrag = (event: ReactPointerEvent, drag: DragState) => {
     dragRef.current = drag;
     movedRef.current = false;
+    pressedPointerRef.current = event.pointerId;
     svgRef.current?.setPointerCapture(event.pointerId);
   };
 
@@ -949,7 +907,25 @@ export function PlanEditor2D({
     }
   };
 
-  const onPointerUp = () => finishDrag();
+  const onPointerUp = () => {
+    // Un clic sobre un elemento no debe dejar «enganchado» el arrastre: al
+    // mover el ratón después, la pieza no sigue al cursor por accidente. Solo
+    // se cierra el arrastre si el puntero se movió de verdad.
+    if (dragRef.current && !movedRef.current) {
+      dragRef.current = null;
+      if (pressedPointerRef.current != null) {
+        try {
+          svgRef.current?.releasePointerCapture(pressedPointerRef.current);
+        } catch {
+          // El puntero ya se soltó solo; no hay nada que liberar.
+        }
+      }
+      pressedPointerRef.current = null;
+      return;
+    }
+    pressedPointerRef.current = null;
+    finishDrag();
+  };
   const onPointerLeave = () => {
     if (!dragRef.current) setHover(null);
   };
@@ -1932,22 +1908,26 @@ export function PlanEditor2D({
                 strokeDasharray={exhibitor.notionMissing ? `${radius * 0.35} ${radius * 0.25}` : undefined}
               />
               <circle r={radius * 0.3} fill={color} />
-              {/* Rumbo de la cámara de llegada: el cono apunta hacia donde
-                  mira al entrar al stand y se ve el sector que abarca la vista. */}
-              {angleBetween(viewAngle, exhibitor.rotation, viewFov) ? (
+              {/* Cámara de llegada: un cono sólido apunta hacia donde está la
+                  cámara (fuera del stand) y su base ancha es el objetivo. Solo
+                  se dibuja el rumbo; el campo de visión visible es el del
+                  propio cono, como un icono de cámara en un plano. */}
+              <g
+                transform={`rotate(${(exhibitor.rotation * 180) / Math.PI})`}
+                opacity={exhibitor.rotationCustom ? 1 : 0.55}
+              >
                 <path
-                  d={describeSector(exhibitor.position, exhibitor.rotation, viewFov, 3.2)}
-                  fill={hexToRgba(color, selected ? 0.16 : 0.08)}
-                  stroke={hexToRgba(color, selected ? 0.6 : 0.3)}
-                  strokeWidth={Math.max(viewport.width / 1600, 0.005)}
-                  pointerEvents="none"
+                  d={`M 0 ${-radius * 0.22} L 0 ${radius * 0.22} L ${radius * 2.1} ${radius * 0.95} L ${radius * 2.1} ${-radius * 0.95} Z`}
+                  fill={hexToRgba(color, selected ? 0.22 : 0.12)}
+                  stroke={hexToRgba(color, selected ? 0.85 : 0.45)}
+                  strokeWidth={Math.max(viewport.width / 1200, 0.008)}
+                  strokeLinejoin="round"
                 />
-              ) : null}
-              <g transform={`rotate(${(exhibitor.rotation * 180) / Math.PI})`} pointerEvents="none">
                 <path
-                  d={`M ${radius * 1.2} 0 L ${radius * 1.95} ${-radius * 0.42} L ${radius * 1.95} ${radius * 0.42} Z`}
+                  d={`M ${radius * 1.75} ${-radius * 0.16} L ${radius * 2.45} ${-radius * 0.16} L ${radius * 2.45} ${radius * 0.16} L ${radius * 2.1} ${radius * 0.16} L ${radius * 2.1} ${radius * 0.55} L ${radius * 1.75} ${radius * 0.55} Z`}
                   fill={color}
-                  opacity={selected ? 1 : 0.7}
+                  opacity={selected ? 1 : 0.8}
+                  pointerEvents="none"
                 />
               </g>
               {showExhibitorNames ? (
