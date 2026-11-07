@@ -42,8 +42,11 @@ export type EditorViewMode =
   | 'iso';
 
 export interface CameraRequest {
-  mode: EditorViewMode;
+  mode: EditorViewMode | 'custom';
   nonce: number;
+  /** Encuadre exacto para `mode: 'custom'` (vistas de lectura). */
+  position?: [number, number, number];
+  target?: [number, number, number];
 }
 
 /**
@@ -298,6 +301,29 @@ function CameraRig({
     if (controls && controls === syncedControlsRef.current) {
       lastTargetRef.current.copy(controls.target);
     }
+    // La cámara activa se publica en el store para que «Guardar vista de
+    // lectura» pueda capturar exactamente el encuadre que se está viendo.
+    const cam = defaultCamera;
+    if (!cam) return;
+    const fov = cam instanceof THREE.PerspectiveCamera ? cam.fov : project.camera.fov;
+    const previous = useEditorStore.getState().editorCameraView;
+    const position = [cam.position.x, cam.position.y, cam.position.z] as [number, number, number];
+    const target = [lastTargetRef.current.x, lastTargetRef.current.y, lastTargetRef.current.z] as [
+      number,
+      number,
+      number,
+    ];
+    const changed =
+      Math.abs(previous.position[0] - position[0]) > 1e-3 ||
+      Math.abs(previous.position[1] - position[1]) > 1e-3 ||
+      Math.abs(previous.position[2] - position[2]) > 1e-3 ||
+      Math.abs(previous.target[0] - target[0]) > 1e-3 ||
+      Math.abs(previous.target[1] - target[1]) > 1e-3 ||
+      Math.abs(previous.target[2] - target[2]) > 1e-3 ||
+      Math.abs(previous.fov - fov) > 0.01;
+    if (changed) {
+      useEditorStore.getState().setEditorCameraView({ position, target, fov });
+    }
   });
 
   // Intercambia la cámara activa conservando el punto de vista y el objetivo.
@@ -362,6 +388,14 @@ function CameraRig({
     let fitH = showH;
 
     switch (request.mode) {
+      case 'custom': {
+        // Vista de lectura: se aplica tal cual se guardó, sin reencuadrar.
+        target = request.target ?? [...project.camera.target];
+        position = request.position ?? [...project.camera.position];
+        fitW = span;
+        fitH = showH;
+        break;
+      }
       case 'project': {
         // Restaura exactamente la cámara guardada del proyecto.
         target = [...project.camera.target];

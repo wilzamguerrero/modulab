@@ -7,6 +7,7 @@ import { useEditorStore } from '@/store/editorStore';
 import { snapValue } from '@/utils/geometry';
 import { exhibitorColor } from '@/utils/exhibitorColors';
 import { entityLevelId, levelElevationMap } from '@/utils/levels';
+import { normalizeAngle } from '@/utils/levelTransform';
 
 const MARKER_Y = 0.02;
 
@@ -30,6 +31,11 @@ function ExhibitorMarker({
   const beginHistory = useEditorStore((state) => state.beginHistory);
   const commitHistory = useEditorStore((state) => state.commitHistory);
   const moveExhibitor = useEditorStore((state) => state.moveExhibitor);
+  const updateExhibitor = useEditorStore((state) => state.updateExhibitor);
+  // Giro de la cámara: el anillo del marcador actúa como manija del gizmo de
+  // rotación (solo eje Y), que se enciende al pulsarlo.
+  const [showHeadingHandle, setShowHeadingHandle] = useState(false);
+  const [headingRef, setHeadingRef] = useState<THREE.Object3D | null>(null);
   const snap = useEditorStore((state) => state.project?.settings.snapToGrid ?? false);
   const gridSize = useEditorStore((state) => state.project?.settings.gridSize ?? 0.25);
   const controls = useThree((state) => state.controls) as { enabled: boolean } | null;
@@ -99,6 +105,90 @@ function ExhibitorMarker({
           </Html>
         ) : null}
       </group>
+      {/* Cono de dirección de la cámara: apunta hacia donde mira al llegar al
+          stand. Girarlo arrastrando el anillo cambia `rotation`. */}
+      {editor ? (
+        <group
+          position={[exhibitor.position.x, markerY, exhibitor.position.z]}
+          rotation={[0, exhibitor.rotation, 0]}
+        >
+          <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0.07, 1.05]}>
+            <coneGeometry args={[selected ? 0.16 : 0.12, selected ? 0.42 : 0.32, 12]} />
+            <meshBasicMaterial
+              color={color}
+              transparent
+              opacity={selected ? 0.95 : 0.6}
+              depthWrite={false}
+            />
+          </mesh>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.035, 0.55]}>
+            <planeGeometry args={[selected ? 0.05 : 0.035, selected ? 1.0 : 0.75]} />
+            <meshBasicMaterial color={color} transparent opacity={selected ? 0.75 : 0.35} depthWrite={false} />
+          </mesh>
+          {selected ? (
+            <>
+              {/* Área de la cámara de llegada, para ver de dónde llega la vista. */}
+              <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
+                <ringGeometry args={[3.1, 3.24, 48, 1, 0, 0.9]} />
+                <meshBasicMaterial color={color} transparent opacity={0.18} depthWrite={false} />
+              </mesh>
+              <mesh
+                rotation={[-Math.PI / 2, 0, 0]}
+                position={[0, 0.02, 0]}
+                onPointerOver={(event) => {
+                  event.stopPropagation();
+                  document.body.style.cursor = 'grab';
+                }}
+                onPointerOut={() => {
+                  document.body.style.cursor = 'auto';
+                }}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  setShowHeadingHandle(true);
+                }}
+              >
+                <ringGeometry args={[0.5, 0.72, 48]} />
+                <meshBasicMaterial color={color} transparent opacity={0.28} depthWrite={false} />
+              </mesh>
+            </>
+          ) : null}
+        </group>
+      ) : null}
+      {editor && selected && showHeadingHandle ? (
+        <group
+          ref={setHeadingRef}
+          position={[exhibitor.position.x, markerY, exhibitor.position.z]}
+          rotation={[0, exhibitor.rotation, 0]}
+        />
+      ) : null}
+      {editor && selected && showHeadingHandle ? (
+        <TransformControls
+          object={headingRef ?? undefined}
+          mode="rotate"
+          size={0.7}
+          showX={false}
+          showY
+          showZ={false}
+          rotationSnap={Math.PI / 12}
+          onObjectChange={() => {
+            if (!headingRef) return;
+            updateExhibitor(
+              exhibitor.id,
+              { rotation: normalizeAngle(headingRef.rotation.y) },
+              { history: false, touch: false },
+            );
+          }}
+          onMouseDown={() => {
+            beginHistory();
+            if (controls) controls.enabled = false;
+          }}
+          onMouseUp={() => {
+            commitHistory();
+            if (controls) controls.enabled = true;
+            setShowHeadingHandle(false);
+          }}
+        />
+      ) : null}
       {editor && selected && group ? (
         <TransformControls
           object={group}

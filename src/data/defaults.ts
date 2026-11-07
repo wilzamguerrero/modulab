@@ -194,6 +194,7 @@ export function createProject(options: {
     exhibitors: [],
     rotationPoints: [],
     camera,
+    readerViews: [],
     environment: {
       visible: true,
       position: [0, 0, 0],
@@ -309,6 +310,47 @@ export function defaultExhibitorCamera(
   // Último recurso: vista elevada, por encima de los muros, siempre despejada.
   return {
     position: [position.x, 4.2 + elevation, position.z + 0.02],
+    target: [position.x, 0.8 + elevation, position.z],
+  };
+}
+
+/**
+ * Cámara de llegada de un expositor a partir de un rumbo (radianes).
+ *
+ * `rotation` del expositor es hacia dónde mira la cámara al llegar al stand:
+ * 0° = vista frontal desde +Z, 90° = desde +X, etc. Se coloca la cámara en
+ * esa dirección a la distancia pedida, sin atravesar muros; si no cabe, se
+ * eleva por encima de ellos. Es el encuadre que guarda el botón «Fijar desde
+ * la cámara del editor» y el que se dibuja como cono en la planta.
+ */
+export function exhibitorCameraFromHeading(
+  position: Vec2,
+  rotation: number,
+  vertices: Vec2[] = [],
+  elevation = 0,
+  distance = 3.2,
+): { position: Vec3; target: Vec3 } {
+  const target: Vec3 = [position.x, 1.15 + elevation, position.z];
+  const eyeHeight = 1.9 + elevation;
+  const dir = { x: Math.sin(rotation), z: Math.cos(rotation) };
+  const inside = vertices.length < 3 || pointInPolygon(position, vertices);
+
+  if (inside) {
+    for (const radius of [distance, distance * 0.8, distance * 0.6]) {
+      const candidate = {
+        x: position.x + dir.x * radius,
+        z: position.z + dir.z * radius,
+      };
+      if (!pointInPolygon(candidate, vertices)) continue;
+      if (!segmentStaysInside(position, candidate, vertices)) continue;
+      if (wallClearance(candidate, vertices) < 0.4) continue;
+      return { position: [candidate.x, eyeHeight, candidate.z], target };
+    }
+  }
+
+  // Fuera del recinto o bloqueado: vista elevada desde ese mismo rumbo.
+  return {
+    position: [position.x + dir.x * 0.02, 4.2 + elevation, position.z + dir.z * 0.02],
     target: [position.x, 0.8 + elevation, position.z],
   };
 }

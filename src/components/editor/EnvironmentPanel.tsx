@@ -1,11 +1,25 @@
 import { useRef, useState } from 'react';
-import { Globe2, HardDriveUpload, Lightbulb, Ruler, Scissors, Trash2, Upload } from 'lucide-react';
+import {
+  Camera,
+  Check,
+  Globe2,
+  HardDriveUpload,
+  Lightbulb,
+  Pencil,
+  Plus,
+  Ruler,
+  RotateCcw,
+  Scissors,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import type { Project, Vec3 } from '@/types/project';
 import {
   Badge,
   Button,
   Field,
   HelpButton,
+  IconButton,
   Modal,
   NumberInput,
   Select,
@@ -19,7 +33,7 @@ import { HolesPanel } from './HolesPanel';
 import { LightsPanel } from './LightsPanel';
 
 /** Secciones del panel de entorno: el propio splat y los ajustes del espacio. */
-export type EnvironmentSection = 'environment' | 'lights' | 'holes';
+export type EnvironmentSection = 'environment' | 'lights' | 'holes' | 'views';
 
 function Vec3Field({
   value,
@@ -56,10 +70,13 @@ function measurementDistance(a: Vec3, b: Vec3): number {
 export function EnvironmentPanel({
   project,
   section: initialSection = 'environment',
+  onApplyReaderView,
 }: {
   project: Project;
   /** Sección con la que se abre el panel. */
   section?: EnvironmentSection;
+  /** Lleva la cámara del editor a una vista de lectura guardada. */
+  onApplyReaderView?: (view: { position: Vec3; target: Vec3 }) => void;
 }) {
   const [section, setSection] = useState<EnvironmentSection>(initialSection);
   const holeCount = project.levels.reduce(
@@ -104,14 +121,186 @@ export function EnvironmentPanel({
           Cortes
           <span className="tab-count">{holeCount}</span>
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === 'views'}
+          className={section === 'views' ? 'is-active' : ''}
+          onClick={() => setSection('views')}
+        >
+          <Camera size={13} />
+          Vistas
+          <span className="tab-count">{project.readerViews?.length ?? 0}</span>
+        </button>
       </div>
       {section === 'lights' ? (
         <LightsPanel project={project} />
       ) : section === 'holes' ? (
         <HolesPanel project={project} />
+      ) : section === 'views' ? (
+        <section className="panel-section">
+          <ReaderViewsSection project={project} onApply={onApplyReaderView} />
+        </section>
       ) : (
         <EnvironmentSectionPanel project={project} />
       )}
+    </div>
+  );
+}
+
+/**
+ * Vistas de lectura: cámaras guardadas del editor que se pueden elegir como
+ * pantalla de entrada del enlace público. Se captura exactamente lo que se ve
+ * (posición, objetivo y zoom), no una vista reconstruida.
+ */
+function ReaderViewsSection({
+  project,
+  onApply,
+}: {
+  project: Project;
+  onApply?: (view: { position: Vec3; target: Vec3 }) => void;
+}) {
+  const saveReaderView = useEditorStore((state) => state.saveReaderView);
+  const updateReaderViewFromCamera = useEditorStore((state) => state.updateReaderViewFromCamera);
+  const renameReaderView = useEditorStore((state) => state.renameReaderView);
+  const deleteReaderView = useEditorStore((state) => state.deleteReaderView);
+  const setActiveReaderView = useEditorStore((state) => state.setActiveReaderView);
+  const setView = useEditorStore((state) => state.setView);
+  const toast = useUiStore((state) => state.toast);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState('');
+
+  const views = project.readerViews ?? [];
+  const activeId = project.activeReaderViewId ?? null;
+
+  return (
+    <div className="reader-views">
+      <div className="panel-title">
+        <span><Camera size={12} /> Vistas de lectura</span>
+        <span className="panel-title-actions">
+          <HelpButton title="Vistas de lectura">
+            <ul>
+              <li>Coloca la cámara en 3D (órbita, zoom y ángulo) justo como quieres que abra el enlace público.</li>
+              <li><strong>Guardar vista</strong> captura ese encuadre. Puedes guardar varias (entrada, planta alta, pasillo…).</li>
+              <li>Haz clic en una vista para ir a ella; el botón <strong>Activar</strong> decide cuál abre el visor público.</li>
+              <li>Publica de nuevo para que el enlace público use la vista activa.</li>
+            </ul>
+          </HelpButton>
+          <Badge tone={views.length ? 'accent' : 'neutral'}>{views.length}</Badge>
+        </span>
+      </div>
+
+      <div className="inline-actions">
+        <Button
+          size="sm"
+          variant="primary"
+          icon={<Plus size={13} />}
+          onClick={() => {
+            // La captura se hace con la cámara en 3D: si se está en planta se
+            // cambia primero para que el encuadre sea el real.
+            setView('3d');
+            const id = saveReaderView();
+            if (id) toast('Vista de lectura guardada y activada.', 'success');
+          }}
+        >
+          Guardar vista actual
+        </Button>
+      </div>
+
+      {views.length === 0 ? (
+        <p className="panel-note">
+          Todavía no hay vistas guardadas. El enlace público abre con la cámara del proyecto
+          hasta que guardes una.
+        </p>
+      ) : (
+        <div className="reader-view-list">
+          {views.map((view) => {
+            const active = view.id === activeId;
+            return (
+              <div key={view.id} className={`reader-view-item${active ? ' is-active' : ''}`}>
+                <button
+                  type="button"
+                  className="reader-view-main"
+                  onClick={() => {
+                    setView('3d');
+                    onApply?.(view);
+                  }}
+                  title="Ir a esta vista"
+                >
+                  <Camera size={13} />
+                  {renamingId === view.id ? (
+                    <TextInput
+                      value={draftName}
+                      autoFocus
+                      onChange={(event) => setDraftName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          renameReaderView(view.id, draftName.trim() || view.name);
+                          setRenamingId(null);
+                        }
+                        if (event.key === 'Escape') setRenamingId(null);
+                      }}
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  ) : (
+                    <span className="reader-view-name">{view.name}</span>
+                  )}
+                  {active ? <Badge tone="accent">En uso</Badge> : null}
+                </button>
+                <div className="reader-view-actions">
+                  {renamingId === view.id ? (
+                    <IconButton
+                      label="Guardar nombre"
+                      icon={<Check size={12} />}
+                      onClick={() => {
+                        renameReaderView(view.id, draftName.trim() || view.name);
+                        setRenamingId(null);
+                      }}
+                    />
+                  ) : (
+                    <IconButton
+                      label="Renombrar"
+                      icon={<Pencil size={12} />}
+                      onClick={() => {
+                        setDraftName(view.name);
+                        setRenamingId(view.id);
+                      }}
+                    />
+                  )}
+                  <IconButton
+                    label="Actualizar con la cámara actual"
+                    icon={<RotateCcw size={12} />}
+                    onClick={() => {
+                      updateReaderViewFromCamera(view.id);
+                      toast(`«${view.name}» actualizada con la cámara actual.`, 'success');
+                    }}
+                  />
+                  <IconButton
+                    label="Usar en el visor público"
+                    icon={<Camera size={12} />}
+                    onClick={() => {
+                      setActiveReaderView(view.id);
+                      toast(`«${view.name}» será la vista de entrada pública.`, 'success');
+                    }}
+                  />
+                  <IconButton
+                    label="Eliminar vista"
+                    icon={<Trash2 size={12} />}
+                    onClick={() => {
+                      deleteReaderView(view.id);
+                      toast('Vista de lectura eliminada.', 'success');
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="panel-note">
+        El visor público abre en la vista marcada como «En uso». Sin vista activa usa la cámara
+        del proyecto.
+      </p>
     </div>
   );
 }
@@ -458,6 +647,7 @@ function EnvironmentSectionPanel({ project }: { project: Project }) {
           Restablecer
         </Button>
       </section>
+
 
       <section className="panel-section">
         <div className="panel-title">

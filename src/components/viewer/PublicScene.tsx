@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import {
   CameraControls,
@@ -19,8 +20,13 @@ export interface ViewerCameraCommand {
   nonce: number;
   position?: Vec3;
   target?: Vec3;
-  /** Punto de rotación intermedio por el que pasa la cámara antes del destino. */
-  via?: { position: Vec3; target: Vec3 };
+  /**
+   * Paradas de giro antes del destino, en orden. Cada una puede hacer una pausa
+   * (`hold`, ms) al llegar para que el encuadre se lea antes de seguir.
+   */
+  via?: { position: Vec3; target: Vec3; hold?: number }[];
+  /** Campo de visión de la vista de lectura, si la hay. */
+  fov?: number;
 }
 
 function ViewerCamera({
@@ -28,13 +34,14 @@ function ViewerCamera({
   command,
 }: {
   project: Project;
-  command: ViewerCameraCommand;
+  command: ViewerCameraCommand | null;
 }) {
   const controlsRef = useRef<CameraControlsImpl>(null);
 
   useEffect(() => {
     const controls = controlsRef.current;
-    if (!controls) return;
+    if (!controls || !command) return;
+    // `nonce: 0` es la cámara de entrada: se aplica de golpe, sin viaje.
     const animate = command.nonce > 0;
 
     let position: [number, number, number] | undefined;
@@ -69,16 +76,24 @@ function ViewerCamera({
         animate,
       );
 
-    if (command.via && animate) {
+    const stops = command.via ?? [];
+    if (stops.length && animate) {
       let cancelled = false;
-      goTo(command.via.position, command.via.target)
-        .then(() => {
-          if (!cancelled) return goTo(position, target);
-          return undefined;
-        })
-        .catch(() => {
-          if (!cancelled) goTo(position, target);
+      const wait = (ms: number) =>
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, ms);
         });
+      const run = async () => {
+        for (const stop of stops) {
+          if (cancelled) return;
+          await goTo(stop.position, stop.target);
+          if (stop.hold) await wait(stop.hold);
+        }
+        if (!cancelled) await goTo(position, target);
+      };
+      run().catch(() => {
+        if (!cancelled) goTo(position, target);
+      });
       return () => {
         cancelled = true;
       };
@@ -87,6 +102,18 @@ function ViewerCamera({
     goTo(position, target);
     return undefined;
   }, [command, project]);
+
+  // La vista de lectura puede traer su propio campo de visión (zoom).
+  useEffect(() => {
+    const controls = controlsRef.current;
+    const fov = command?.fov;
+    if (!controls || !fov) return;
+    const camera = controls.camera;
+    if (!(camera instanceof THREE.PerspectiveCamera)) return;
+    if (Math.abs(camera.fov - fov) < 0.01) return;
+    camera.fov = fov;
+    camera.updateProjectionMatrix();
+  }, [command]);
 
   return (
     <CameraControls
@@ -114,7 +141,7 @@ export function PublicScene({
 }: {
   project: Project;
   selectedExhibitorId: string | null;
-  cameraCommand: ViewerCameraCommand;
+  cameraCommand: ViewerCameraCommand | null;
   /** El splat se mantiene oculto por defecto en el visor público. */
   showSplat?: boolean;
   /** Etiquetas de código/nombre de los objetos. Ocultas por defecto. */

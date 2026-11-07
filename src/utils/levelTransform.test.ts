@@ -65,6 +65,9 @@ function projectWithLevel() {
     name: 'Pivote',
     position: { x: 3, z: 1 },
     levelId: base.id,
+    cameraPosition: [0, 1.6, 0],
+    cameraTarget: [0, 1.2, 0],
+    heading: 0,
   });
   return { project, level: base };
 }

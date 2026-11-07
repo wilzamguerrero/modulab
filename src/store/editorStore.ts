@@ -354,6 +354,21 @@ interface EditorState {
   environmentPreview: { url: string; format?: 'ply' | 'splat' | 'ksplat' } | null;
   setEnvironmentPreview: (preview: { url: string; format?: 'ply' | 'splat' | 'ksplat' } | null) => void;
 
+  /**
+   * Cámara actual del lienzo 3D (posición, objetivo y campo de visión). La
+   * actualiza la escena en cada frame; es la que capturan las vistas de lectura.
+   */
+  editorCameraView: { position: Vec3; target: Vec3; fov: number };
+  setEditorCameraView: (view: { position: Vec3; target: Vec3; fov: number }) => void;
+  /** Guarda la cámara actual como vista de lectura y la deja activa. */
+  saveReaderView: (name?: string) => string | null;
+  /** Actualiza una vista guardada con la cámara actual (sobrescribe). */
+  updateReaderViewFromCamera: (id: string) => void;
+  renameReaderView: (id: string, name: string) => void;
+  deleteReaderView: (id: string) => void;
+  /** Vista de lectura que abre el visor público. */
+  setActiveReaderView: (id: string | null) => void;
+
   /** Gizmo 3D para alinear el entorno splat. */
   environmentGizmo: boolean;
   environmentGizmoMode: TransformMode;
@@ -412,6 +427,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   notionError: null,
   lastSavedAt: null,
   environmentPreview: null,
+  editorCameraView: { position: [12, 10, 14], target: [0, 1, 0], fov: 50 },
   environmentGizmo: false,
   environmentGizmoMode: 'translate',
   levelGizmoId: null,
@@ -1713,11 +1729,18 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     const project = get().project;
     if (!project) return null;
     const id = createId('rot');
+    // El punto nace con una cámara mirándolo desde atrás y algo elevada: es el
+    // encuadre que verá el visitante al hacer la parada entre dos stands.
+    const level = project.levels.find((entry) => entry.id === get().activeLevelId);
+    const eye = level?.elevation ?? 0;
     const point: RotationPoint = {
       id,
       name: `Punto de rotación ${project.rotationPoints.length + 1}`,
       position: { ...position },
       levelId: get().activeLevelId,
+      cameraPosition: [position.x, eye + 1.65, position.z + 2.6],
+      cameraTarget: [position.x, eye + 1.1, position.z],
+      heading: 0,
     };
     get().patchProject((draft) => {
       draft.rotationPoints.push(point);
@@ -1833,6 +1856,67 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
   setEnvironmentGizmo: (enabled) => set({ environmentGizmo: enabled }),
   setEnvironmentGizmoMode: (mode) => set({ environmentGizmoMode: mode }),
+
+  setEditorCameraView: (view) => set({ editorCameraView: view }),
+
+  saveReaderView: (name) => {
+    const project = get().project;
+    if (!project) return null;
+    const { position, target, fov } = get().editorCameraView;
+    const id = createId('view');
+    const label = (name ?? '').trim() || `Vista ${project.readerViews.length + 1}`;
+    get().patchProject((draft) => {
+      draft.readerViews = [
+        ...(draft.readerViews ?? []),
+        {
+          id,
+          name: label,
+          position: [...position] as Vec3,
+          target: [...target] as Vec3,
+          fov,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+      draft.activeReaderViewId = id;
+    });
+    return id;
+  },
+
+  updateReaderViewFromCamera: (id) => {
+    const { position, target, fov } = get().editorCameraView;
+    get().patchProject((draft) => {
+      draft.readerViews = (draft.readerViews ?? []).map((view) =>
+        view.id === id
+          ? {
+              ...view,
+              position: [...position] as Vec3,
+              target: [...target] as Vec3,
+              fov,
+              createdAt: new Date().toISOString(),
+            }
+          : view,
+      );
+    });
+  },
+
+  renameReaderView: (id, name) =>
+    get().patchProject((draft) => {
+      draft.readerViews = (draft.readerViews ?? []).map((view) =>
+        view.id === id ? { ...view, name } : view,
+      );
+    }, { coalesceKey: `reader-view-name:${id}` }),
+
+  deleteReaderView: (id) =>
+    get().patchProject((draft) => {
+      draft.readerViews = (draft.readerViews ?? []).filter((view) => view.id !== id);
+      if (draft.activeReaderViewId === id) draft.activeReaderViewId = undefined;
+    }),
+
+  setActiveReaderView: (id) =>
+    get().patchProject((draft) => {
+      if (id && !(draft.readerViews ?? []).some((view) => view.id === id)) return;
+      draft.activeReaderViewId = id ?? undefined;
+    }),
 
   levelPivotOf: (id) => {
     const project = get().project;

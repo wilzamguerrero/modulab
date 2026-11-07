@@ -43,7 +43,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import type { EditorTool, EditorView } from '@/types/project';
+import type { EditorTool, EditorView, Vec3 } from '@/types/project';
 import type { NotionConfigStatus as NotionStatus } from '@/types/notion';
 import {
   Badge,
@@ -265,6 +265,17 @@ export function EditorPage() {
       mode === 'front' || mode === 'back' || mode === 'left' || mode === 'right' || mode === 'top';
     setOrthographic(orthoView);
     setCameraRequest((current) => ({ mode, nonce: current.nonce + 1 }));
+  };
+
+  /** Lleva la cámara del editor a una vista de lectura guardada. */
+  const applyReaderView = (view: { position: Vec3; target: Vec3 }) => {
+    setOrthographic(false);
+    setCameraRequest((current) => ({
+      mode: 'custom',
+      nonce: current.nonce + 1,
+      position: [...view.position] as [number, number, number],
+      target: [...view.target] as [number, number, number],
+    }));
   };
 
   useEffect(() => {
@@ -755,7 +766,7 @@ export function EditorPage() {
               <ExhibitorsPanel project={project} notionConfigured={Boolean(notionStatus?.configured)} />
             ) : null}
             {activeTab === 'environment' ? (
-              <EnvironmentPanel project={project} />
+              <EnvironmentPanel project={project} onApplyReaderView={applyReaderView} />
             ) : null}
           </div>
         </aside>

@@ -198,6 +198,37 @@ function MeasureChip({
   );
 }
 
+/**
+ * Sectores de cámara: el cono que indica hacia dónde mira al llegar al stand.
+ * Se dibuja desde el marcador del expositor, abierto ±fov/2 sobre `rotation`.
+ */
+function describeSector(
+  center: Vec2,
+  rotation: number,
+  fovDegrees: number,
+  outer: number,
+): string {
+  const half = ((Math.min(fovDegrees, 120) / 2) * Math.PI) / 180;
+  const start = rotation - half;
+  const end = rotation + half;
+  const points = [`M ${center.x} ${center.z}`];
+  const steps = 16;
+  for (let index = 0; index <= steps; index++) {
+    const angle = start + ((end - start) * index) / steps;
+    points.push(
+      `L ${(center.x + Math.sin(angle) * outer).toFixed(3)} ${(center.z + Math.cos(angle) * outer).toFixed(3)}`,
+    );
+  }
+  points.push('Z');
+  return points.join(' ');
+}
+
+/** ¿Se solapa el sector del expositor con el de la vista de cámara activa? */
+function angleBetween(a: number, b: number, fovDegrees: number): boolean {
+  const diff = Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  return diff <= ((Math.min(fovDegrees, 120) / 2) * Math.PI) / 180;
+}
+
 /** Punto medio de un tramo, desplazado en perpendicular para colocar la cota. */
 function segmentLabelPoint(a: Vec2, b: Vec2, offset: number): Vec2 {
   const length = Math.max(distance(a, b), 1e-6);
@@ -503,6 +534,20 @@ export function PlanEditor2D({
    */
   const showLive = settings?.showLiveMeasurements ?? true;
   const showGrid = settings?.showGrid ?? true;
+  /**
+   * Rumbo y apertura de la vista de lectura en uso: en planta, los expositores
+   * que caen dentro de ese sector se resaltan. Así se ve de un golpe qué stands
+   * muestra la cámara de entrada publicada.
+   */
+  const activeReaderView =
+    project?.readerViews?.find((view) => view.id === project.activeReaderViewId) ?? null;
+  const viewAngle = activeReaderView
+    ? Math.atan2(
+        activeReaderView.target[0] - activeReaderView.position[0],
+        activeReaderView.target[2] - activeReaderView.position[2],
+      )
+    : 0;
+  const viewFov = activeReaderView?.fov ?? project?.camera.fov ?? 50;
 
   useEffect(() => {
     if (!project) return;
@@ -1887,6 +1932,24 @@ export function PlanEditor2D({
                 strokeDasharray={exhibitor.notionMissing ? `${radius * 0.35} ${radius * 0.25}` : undefined}
               />
               <circle r={radius * 0.3} fill={color} />
+              {/* Rumbo de la cámara de llegada: el cono apunta hacia donde
+                  mira al entrar al stand y se ve el sector que abarca la vista. */}
+              {angleBetween(viewAngle, exhibitor.rotation, viewFov) ? (
+                <path
+                  d={describeSector(exhibitor.position, exhibitor.rotation, viewFov, 3.2)}
+                  fill={hexToRgba(color, selected ? 0.16 : 0.08)}
+                  stroke={hexToRgba(color, selected ? 0.6 : 0.3)}
+                  strokeWidth={Math.max(viewport.width / 1600, 0.005)}
+                  pointerEvents="none"
+                />
+              ) : null}
+              <g transform={`rotate(${(exhibitor.rotation * 180) / Math.PI})`} pointerEvents="none">
+                <path
+                  d={`M ${radius * 1.2} 0 L ${radius * 1.95} ${-radius * 0.42} L ${radius * 1.95} ${radius * 0.42} Z`}
+                  fill={color}
+                  opacity={selected ? 1 : 0.7}
+                />
+              </g>
               {showExhibitorNames ? (
                 <text
                   x={0}
@@ -1934,6 +1997,27 @@ export function PlanEditor2D({
                 strokeWidth={Math.max(viewport.width / 900, 0.012)}
               />
               <circle r={radius * 0.32} fill={color} />
+              {/* Flecha de dirección: hacia dónde mira la parada al viajar. */}
+              <g transform={`rotate(${(point.heading * 180) / Math.PI})`}>
+                <path
+                  d={`M ${radius * 0.55} 0 L ${radius * 1.05} ${-radius * 0.34} L ${radius * 1.05} ${radius * 0.34} Z`}
+                  fill={color}
+                  opacity={selected ? 1 : 0.8}
+                  pointerEvents="none"
+                />
+              </g>
+              {selected ? (
+                // Radio de la parada: pulso tenue alrededor del punto.
+                <circle
+                  r={radius * 2.6}
+                  fill="none"
+                  stroke={color}
+                  strokeOpacity={0.28}
+                  strokeWidth={Math.max(viewport.width / 1400, 0.006)}
+                  strokeDasharray={`${radius * 0.5} ${radius * 0.4}`}
+                  pointerEvents="none"
+                />
+              ) : null}
               <text
                 x={0}
                 y={-radius * 2}

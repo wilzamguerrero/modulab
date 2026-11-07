@@ -908,14 +908,45 @@ function ExhibitorInspector({
             />
           </Field>
         </div>
-        <Field label="Orientación">
+        <Field label="Cámara mira hacia">
           <NumberInput
-            value={(exhibitor.rotation * 180) / Math.PI}
+            value={((exhibitor.rotation * 180) / Math.PI + 360) % 360}
             onChange={(degrees) => updateExhibitor(exhibitor.id, { rotation: (degrees * Math.PI) / 180 })}
             step={5}
             suffix="°"
           />
         </Field>
+        <div className="inline-actions">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              // El expositor mira hacia donde está la cámara del editor ahora
+              // mismo: la cámara de llegada queda en esa misma línea.
+              const camera = useEditorStore.getState().editorCameraView;
+              const rotation = Math.atan2(
+                camera.position[0] - exhibitor.position.x,
+                camera.position[2] - exhibitor.position.z,
+              );
+              updateExhibitor(exhibitor.id, { rotation, rotationCustom: true });
+              toast('Rumbo de cámara fijado desde el editor.', 'success');
+            }}
+          >
+            Fijar desde la cámara del editor
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => updateExhibitor(exhibitor.id, { rotationCustom: false })}
+          >
+            Automático
+          </Button>
+        </div>
+        <p className="panel-note">
+          Al llegar al expositor, la cámara se coloca en esa dirección y mira al
+          punto. En planta se ve como un cono; en 3D puedes girarlo arrastrando el
+          anillo del marcador.
+        </p>
         <Field label="Nivel">
           <Select
             value={exhibitor.levelId ?? level?.id ?? ''}
@@ -1081,6 +1112,7 @@ function RotationPointInspector({ project, point }: { project: Project; point: R
   const deleteRotationPoint = useEditorStore((state) => state.deleteRotationPoint);
   const setSelection = useEditorStore((state) => state.setSelection);
   const toast = useUiStore((state) => state.toast);
+  const level = getLevel(project, entityLevelId(project, point));
 
   return (
     <Section
@@ -1139,15 +1171,82 @@ function RotationPointInspector({ project, point }: { project: Project; point: R
           />
         </Field>
       </div>
+      <Field label="Nivel">
+        <Select
+          value={point.levelId ?? project.levels[0]?.id ?? ''}
+          onChange={(event) =>
+            updateRotationPoint(point.id, { levelId: event.target.value || null })
+          }
+        >
+          {project.levels.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.name} · {entry.elevation.toFixed(2)} m
+            </option>
+          ))}
+        </Select>
+      </Field>
       <div className="prop-list">
         <div className="prop-row">
-          <span>Puntos en el proyecto</span>
-          <strong>{project.rotationPoints.length}</strong>
+          <span>Ángulo de parada</span>
+          <strong>{Math.round(((point.heading * 180) / Math.PI + 360) % 360)}°</strong>
+        </div>
+        <div className="prop-row">
+          <span>Altura de cámara</span>
+          <strong>{(point.cameraPosition[1] - (level?.elevation ?? 0)).toFixed(2)} m</strong>
+        </div>
+        <div className="prop-row">
+          <span>Puntos en este nivel</span>
+          <strong>
+            {
+              project.rotationPoints.filter(
+                (entry) => (entry.levelId ?? null) === (point.levelId ?? null),
+              ).length
+            }
+          </strong>
         </div>
       </div>
+      <div className="inline-actions">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            // El ángulo se toma de la cámara del editor: el usuario mira desde
+            // donde quiere que se encuadre la parada y el punto lo recuerda.
+            const camera = useEditorStore.getState().editorCameraView;
+            const heading = Math.atan2(
+              camera.position[2] - point.position.z,
+              camera.position[0] - point.position.x,
+            );
+            const eye = level?.elevation ?? 0;
+            updateRotationPoint(point.id, {
+              heading,
+              cameraPosition: [...camera.position] as [number, number, number],
+              cameraTarget: [point.position.x, eye + 1.1, point.position.z],
+            });
+            toast('Parada guardada desde la cámara actual.', 'success');
+          }}
+        >
+          Fijar desde la cámara del editor
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            const eye = level?.elevation ?? 0;
+            updateRotationPoint(point.id, {
+              heading: 0,
+              cameraPosition: [point.position.x, eye + 1.65, point.position.z + 2.6],
+              cameraTarget: [point.position.x, eye + 1.1, point.position.z],
+            });
+          }}
+        >
+          Reencuadrar
+        </Button>
+      </div>
       <p className="panel-note">
-        Al viajar entre expositores, la cámara pasa primero por el punto de rotación más cercano al
-        trayecto y después va al expositor. Si no hay puntos, la cámara va directa como hasta ahora.
+        Punto intermedio del viaje entre stands. Pertenece a este nivel: al ir a un expositor de
+        otra planta la cámara pasa por un punto del nivel de salida y otro del de llegada. Sin
+        puntos, el viaje es directo.
       </p>
     </Section>
   );

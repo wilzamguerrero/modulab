@@ -70,9 +70,32 @@ function RotationMarker({
           <boxGeometry args={[0.16, 0.16, 0.16]} />
           <meshBasicMaterial color={ROTATION_COLOR} transparent opacity={0.85} depthWrite={false} />
         </mesh>
+        {/* Poste y flecha de dirección: marca hacia dónde mira la parada, que
+            es lo que verá el visitante al pasar por este punto al viajar. */}
         <mesh position={[0, 0.45, 0]}>
           <cylinderGeometry args={[0.01, 0.01, 0.9, 6]} />
           <meshBasicMaterial color={ROTATION_COLOR} transparent opacity={0.45} depthWrite={false} />
+        </mesh>
+        <group rotation={[0, -point.heading, 0]}>
+          <mesh position={[0, 0.06, 0.34]} rotation={[Math.PI / 2, 0, 0]}>
+            <coneGeometry args={[0.09, 0.24, 8]} />
+            <meshBasicMaterial
+              color={ROTATION_COLOR}
+              transparent
+              opacity={selected ? 0.95 : 0.6}
+              depthWrite={false}
+            />
+          </mesh>
+        </group>
+        {/* Arco de giro: el segmento en planta que la cámara repasa. */}
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+          <ringGeometry args={[0.42, 0.46, 32, 1, 0, Math.PI * 0.5]} />
+          <meshBasicMaterial
+            color={ROTATION_COLOR}
+            transparent
+            opacity={selected ? 0.8 : 0.25}
+            depthWrite={false}
+          />
         </mesh>
         {editor ? (
           <Html center position={[0, 1.25, 0]} zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>

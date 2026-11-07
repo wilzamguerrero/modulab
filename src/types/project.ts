@@ -225,7 +225,15 @@ export const exhibitorSchema = z.object({
   notionBlockId: z.string().optional(),
   notionUrl: z.string().optional(),
   position: vec2Schema.default({ x: 0, z: 0 }),
+  /**
+   * Hacia dónde mira la cámara al llegar al stand (radianes). 0° = desde +Z.
+   */
   rotation: z.number().default(0),
+  /**
+   * Si es true, la llegada usa exactamente ese rumbo. Si es false, la cámara
+   * sigue eligiendo el ángulo más despejado (comportamiento histórico).
+   */
+  rotationCustom: z.boolean().optional(),
   /** Nivel en el que se sitúa el expositor. */
   levelId: z.string().nullable().optional(),
   cameraPosition: vec3Schema.default([4, 2, 4]),
@@ -308,6 +316,28 @@ export const rotationPointSchema = z.object({
   name: z.string().default('Punto de rotación'),
   position: vec2Schema.default({ x: 0, z: 0 }),
   levelId: z.string().nullable().optional(),
+  /**
+   * Cámara desde la que se ve el punto al pasar por él. Al viajar, la cámara
+   * llega antes del giro, hace una parada breve y ahora enfoca el punto desde
+   * esta posición: el paso entre stands se lee como un barrido continuo.
+   */
+  cameraPosition: vec3Schema.default([0, 1.6, 0]),
+  cameraTarget: vec3Schema.default([0, 1.2, 0]),
+  /** Ángulo horizontal (radianes) al que mira la cámara desde el punto. */
+  heading: z.number().default(0),
+});
+
+/**
+ * Vista de lectura: cámara guardada en el editor para mostrarla como punto de
+ * partida en el visor público. Se guarda con nombre para poder volver a ella.
+ */
+export const readerViewSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().default('Vista'),
+  position: vec3Schema.default([12, 10, 14]),
+  target: vec3Schema.default([0, 1, 0]),
+  fov: z.number().min(20).max(100).default(50),
+  createdAt: z.string().optional(),
 });
 
 export const projectSchema = z
@@ -328,6 +358,13 @@ export const projectSchema = z
     exhibitors: z.array(exhibitorSchema).default([]),
     rotationPoints: z.array(rotationPointSchema).default([]),
     camera: projectCameraSchema.default({}),
+    /**
+     * Vistas de lectura del editor: cada una es una cámara guardada que se
+     * puede elegir para el visor público.
+     */
+    readerViews: z.array(readerViewSchema).default([]),
+    /** Vista de lectura activa (la que abre el visor público al entrar). */
+    activeReaderViewId: z.string().optional(),
     environment: environmentSchema.default({}),
     notionBlockId: z.string().optional(),
     notionExhibitorsPageId: z.string().optional(),

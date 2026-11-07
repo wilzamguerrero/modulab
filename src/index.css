@@ -1142,8 +1142,13 @@ input[type="range"] {
 }
 
 /* Subpestañas dentro de un panel (p. ej. Luces / Cortes en Entorno). */
+/* Cuatro pestañas (Entorno, Luces, Cortes, Vistas) caben en la barra
+   repartiendo el ancho en partes iguales y dejando que el texto se
+   comprima, en vez de desbordarse hacia el lienzo. */
 .panel-subtabs {
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 2px;
   padding: 3px;
   margin-bottom: 12px;
@@ -1153,12 +1158,12 @@ input[type="range"] {
 }
 
 .panel-subtabs button {
-  flex: 1;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 6px 8px;
+  gap: 4px;
+  padding: 6px 4px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -1166,6 +1171,12 @@ input[type="range"] {
   font-size: 10.5px;
   font-weight: 650;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-subtabs button svg {
+  flex: 0 0 auto;
 }
 
 .panel-subtabs button:hover {
@@ -1329,6 +1340,64 @@ input[type="range"] {
 .measure-list-main strong {
   color: var(--text);
   font-family: var(--mono);
+}
+
+/* Vistas de lectura (panel de entorno → pestaña Vistas). */
+.reader-views {
+  display: grid;
+  gap: 8px;
+}
+
+.reader-view-list {
+  display: grid;
+  gap: 4px;
+}
+
+.reader-view-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.reader-view-item.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.reader-view-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 11px;
+  text-align: left;
+}
+
+.reader-view-main:hover {
+  color: var(--text);
+}
+
+.reader-view-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.reader-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
 }
 
 .measure-list-item.is-active .measure-list-main strong {

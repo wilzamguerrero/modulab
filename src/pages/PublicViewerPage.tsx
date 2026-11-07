@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
-  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Compass,
@@ -22,7 +21,11 @@ import { Badge, IconButton, Spinner } from '@/components/ui';
 import { PublicScene, type ViewerCameraCommand } from '@/components/viewer/PublicScene';
 import { fetchPublished } from '@/services/publishing/publishService';
 import { notionPhotoUrl } from '@/services/notion/notionService';
-import { defaultExhibitorCamera, isExhibitorCameraUsable } from '@/data/defaults';
+import {
+  defaultExhibitorCamera,
+  exhibitorCameraFromHeading,
+  isExhibitorCameraUsable,
+} from '@/data/defaults';
 import { pointInPolygon } from '@/utils/geometry';
 import { entityLevelId, getLevel, levelVertices } from '@/utils/levels';
 import { exhibitorColor } from '@/utils/exhibitorColors';
@@ -116,6 +119,15 @@ export function focusCameraFor(
   ) {
     return { position, target };
   }
+  if (exhibitor.rotationCustom) {
+    // Rumbo elegido en el editor: la cámara llega desde esa dirección.
+    return exhibitorCameraFromHeading(
+      exhibitor.position,
+      exhibitor.rotation,
+      vertices,
+      elevation,
+    );
+  }
   return defaultExhibitorCamera(exhibitor.position, vertices, elevation);
 }
 
@@ -146,6 +158,66 @@ function pickRotationPoint(
     }
   }
   return best;
+}
+
+type Vec3Tuple = [number, number, number];
+
+/**
+ * Paradas de giro del viaje entre dos stands.
+ *
+ * Cada punto de rotación guarda su propia cámara (la que el editor dejó al
+ * seleccionarlo). Así el recorrido no es un corte sino una secuencia de
+ * encuadres: salir del punto del nivel de origen, bajar al del destino y
+ * entrar al stand. Los puntos se eligen por nivel y, dentro de cada nivel, por
+ * cercanía al trayecto, de modo que mover el punto (o tener varios por planta)
+ * cambia el recorrido.
+ */
+function buildTravelWaypoints(
+  project: Project,
+  from: Vec2,
+  fromExhibitor: Exhibitor | null,
+  to: Exhibitor,
+): { position: Vec3Tuple; target: Vec3Tuple; hold?: number }[] {
+  const points = project.rotationPoints;
+  if (!points.length) return [];
+
+  const toLevelId = entityLevelId(project, to) ?? null;
+  const fromLevelId = fromExhibitor ? entityLevelId(project, fromExhibitor) ?? null : null;
+
+  const nearestTo = (levelId: string | null, a: Vec2, b: Vec2) => {
+    const inLevel = points.filter((point) => (entityLevelId(project, point) ?? null) === levelId);
+    return pickRotationPoint(inLevel.length ? inLevel : points, a, b);
+  };
+
+  const exitPoint = nearestTo(fromLevelId, from, to.position);
+  const entryPoint = nearestTo(toLevelId, from, to.position);
+  const stops: { position: Vec3Tuple; target: Vec3Tuple; hold?: number }[] = [];
+
+  const stopFor = (point: RotationPoint) => {
+    const level = getLevel(project, entityLevelId(project, point));
+    const pivot = point.position;
+    // La parada mira hacia la llegada: se ve el stand al que se va a entrar.
+    const towardLanding = {
+      x: pivot.x + Math.cos(point.heading) * 2,
+      z: pivot.z + Math.sin(point.heading) * 2,
+    };
+    const camera = defaultExhibitorCamera(
+      towardLanding,
+      levelVertices(level),
+      level?.elevation ?? 0,
+    );
+    return {
+      position: camera.position,
+      target: camera.target,
+      // Medio segundo de parada para que el giro se lea, sin cortar el ritmo.
+      hold: 650,
+    };
+  };
+
+  if (exitPoint) stops.push(stopFor(exitPoint));
+  if (entryPoint && entryPoint.id !== exitPoint?.id) stops.push(stopFor(entryPoint));
+
+  return stops;
 }
 
 function ViewerSidebar({
@@ -321,10 +393,9 @@ export function PublicViewerPage() {
   // Las cotas llegan apagadas: en la visita pública no hacen falta, pero se
   // pueden encender para consultar el tamaño de los objetos de un expositor.
   const [showMeasurements, setShowMeasurements] = useState(false);
-  const [cameraCommand, setCameraCommand] = useState<ViewerCameraCommand>({
-    mode: 'reset',
-    nonce: 0,
-  });
+  // `null` hasta tener el proyecto: la primera orden es la vista de lectura
+  // elegida en el editor, no la cámara esquema del documento.
+  const [cameraCommand, setCameraCommand] = useState<ViewerCameraCommand | null>(null);
 
   useEffect(() => {
     if (!publicId) {
@@ -369,6 +440,40 @@ export function PublicViewerPage() {
 
   const visibleExhibitors = useMemo(() => publicProject?.exhibitors ?? [], [publicProject]);
 
+  /**
+   * Cámara de entrada: la vista de lectura activa del editor. Es la que se
+   * muestra al abrir el enlace, vuelve con «Inicio» y sirve de origen al
+   * primer viaje entre expositores.
+   */
+  const readerView = useMemo(() => {
+    if (!publicProject) return null;
+    return (
+      publicProject.readerViews.find(
+        (entry) => entry.id === publicProject.activeReaderViewId,
+      ) ?? null
+    );
+  }, [publicProject]);
+
+  const readerCamera = useMemo(() => {
+    if (readerView) {
+      return { position: readerView.position, target: readerView.target, fov: readerView.fov };
+    }
+    return { position: project?.camera.position, target: project?.camera.target, fov: project?.camera.fov };
+  }, [readerView, project]);
+
+  useEffect(() => {
+    if (!readerCamera.position || !readerCamera.target) return;
+    setCameraCommand((current) =>
+      current ?? {
+        mode: 'focus',
+        nonce: 0,
+        position: readerCamera.position,
+        target: readerCamera.target,
+        fov: readerCamera.fov,
+      },
+    );
+  }, [readerCamera]);
+
   const selectedExhibitor = useMemo(
     () => visibleExhibitors.find((exhibitor) => exhibitor.id === selectedId) ?? null,
     [visibleExhibitors, selectedId],
@@ -378,29 +483,33 @@ export function PublicViewerPage() {
     if (!publicProject) return;
     setSelectedId(exhibitor.id);
     const camera = focusCameraFor(exhibitor, publicProject);
-    // Si hay puntos de rotación, la cámara pasa por el más cercano al trayecto
-    // antes de llegar al expositor.
-    const from = selectedExhibitor?.position ?? {
-      x: publicProject.camera.target[0],
-      z: publicProject.camera.target[2],
+    // Ruta profesional entre stands: la cámara no corta en línea recta de uno
+    // a otro, sino que repasa el recorrido con paradas de giro.
+    //   1. levanta hacia un punto de rotación del nivel de origen (el más
+    //      cercano al trayecto) y lo mira desde su propia cámara;
+    //   2. baja al punto más cercano a la llegada en la planta del expositor,
+    //      mirando el nivel de llegada;
+    //   3. finalmente enfoca al expositor.
+    // Si los dos puntos son el mismo (mismo nivel, misma zona) basta con una
+    // parada. Sin puntos, el viaje es directo como antes.
+    const fromPosition = selectedExhibitor?.position ?? {
+      x: readerCamera.position?.[0] ?? 0,
+      z: readerCamera.position?.[2] ?? 0,
     };
-    const pivot = pickRotationPoint(publicProject.rotationPoints, from, exhibitor.position);
-    const pivotLevel = pivot ? getLevel(publicProject, entityLevelId(publicProject, pivot)) : undefined;
-    const via = pivot
-      ? defaultExhibitorCamera(
-          pivot.position,
-          levelVertices(pivotLevel),
-          pivotLevel?.elevation ?? 0,
-        )
-      : undefined;
+    const waypoints = buildTravelWaypoints(
+      publicProject,
+      fromPosition,
+      selectedExhibitor,
+      exhibitor,
+    );
     setCameraCommand((current) => ({
       mode: 'focus',
-      nonce: current.nonce + 1,
+      nonce: (current?.nonce ?? 0) + 1,
       position: camera.position,
       target: camera.target,
-      via,
+      via: waypoints,
     }));
-  }, [publicProject, selectedExhibitor]);
+  }, [publicProject, selectedExhibitor, readerCamera]);
 
   const selectById = useCallback(
     (id: string) => {
@@ -419,11 +528,22 @@ export function PublicViewerPage() {
 
   const resetCamera = () => {
     setSelectedId(null);
-    setCameraCommand((current) => ({ mode: 'reset', nonce: current.nonce + 1 }));
+    // «Inicio» vuelve a la vista de lectura publicada, no a una cámara genérica.
+    if (readerCamera.position && readerCamera.target) {
+      setCameraCommand((current) => ({
+        mode: 'focus',
+        nonce: (current?.nonce ?? 0) + 1,
+        position: readerCamera.position,
+        target: readerCamera.target,
+        fov: readerCamera.fov,
+      }));
+      return;
+    }
+    setCameraCommand((current) => ({ mode: 'reset', nonce: (current?.nonce ?? 0) + 1 }));
   };
 
   const topCamera = () => {
-    setCameraCommand((current) => ({ mode: 'top', nonce: current.nonce + 1 }));
+    setCameraCommand((current) => ({ mode: 'top', nonce: (current?.nonce ?? 0) + 1 }));
   };
 
   if (loading) {
@@ -464,22 +584,14 @@ export function PublicViewerPage() {
             </span>
           </Link>
           <span className="viewer-header-divider" />
+          {/* Solo el nombre: el recuento de expositores ya está en el panel
+              lateral y el evento lo cuenta cada ficha. */}
           <div className="viewer-header-info">
             <h1>{project.name}</h1>
-            <p>
-              {project.event || 'Espacio expositivo'}
-              {' · '}
-              {visibleExhibitors.length} expositor{visibleExhibitors.length === 1 ? '' : 'es'}
-            </p>
           </div>
         </div>
         <div className="viewer-header-actions">
           <span className="viewer-credit">dev by wilzamguerrero</span>
-          <Badge tone="neutral">solo lectura</Badge>
-          <Link to="/" className="btn btn-outline btn-sm" title="Volver a Modulab">
-            <ArrowLeft size={14} />
-            <span>Modulab</span>
-          </Link>
         </div>
       </header>
 
