@@ -6,6 +6,12 @@ import type { Project, RotationPoint } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { snapValue } from '@/utils/geometry';
 import { entityLevelId, levelElevationMap } from '@/utils/levels';
+import {
+  markSceneClickHandled,
+  markScenePress,
+  notifyGizmoPointerDown,
+  shouldHandleElementClick,
+} from './sceneDragGuard';
 
 const MARKER_Y = 0.02;
 const ROTATION_COLOR = '#b48cff';
@@ -54,6 +60,8 @@ function RotationMarker({
         onClick={(event) => {
           if (!onSelect) return;
           event.stopPropagation();
+          if (!shouldHandleElementClick()) return;
+          markSceneClickHandled();
           onSelect(point.id);
         }}
       >
@@ -123,6 +131,8 @@ function RotationMarker({
             }
           }}
           onMouseDown={() => {
+            notifyGizmoPointerDown();
+            markScenePress();
             beginHistory();
             if (controls) controls.enabled = false;
           }}

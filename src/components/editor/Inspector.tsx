@@ -742,6 +742,8 @@ function ExhibitorInspector({
   const setSelection = useEditorStore((state) => state.setSelection);
   const setActiveLevel = useEditorStore((state) => state.setActiveLevel);
   const setActiveSpace = useEditorStore((state) => state.setActiveSpace);
+  const transformMode = useEditorStore((state) => state.transformMode);
+  const setTransformMode = useEditorStore((state) => state.setTransformMode);
   const toast = useUiStore((state) => state.toast);
   const photoRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -911,41 +913,75 @@ function ExhibitorInspector({
         <Field label="Cámara mira hacia">
           <NumberInput
             value={((exhibitor.rotation * 180) / Math.PI + 360) % 360}
-            onChange={(degrees) => updateExhibitor(exhibitor.id, { rotation: (degrees * Math.PI) / 180 })}
+            onChange={(degrees) =>
+              updateExhibitor(exhibitor.id, {
+                rotation: (degrees * Math.PI) / 180,
+                rotationCustom: true,
+              })
+            }
             step={5}
             suffix="°"
           />
         </Field>
-        <div className="inline-actions">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              // El expositor mira hacia donde está la cámara del editor ahora
-              // mismo: la cámara de llegada queda en esa misma línea.
-              const camera = useEditorStore.getState().editorCameraView;
-              const rotation = Math.atan2(
-                camera.position[0] - exhibitor.position.x,
-                camera.position[2] - exhibitor.position.z,
-              );
-              updateExhibitor(exhibitor.id, { rotation, rotationCustom: true });
-              toast('Rumbo de cámara fijado desde el editor.', 'success');
-            }}
-          >
-            Fijar desde la cámara del editor
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => updateExhibitor(exhibitor.id, { rotationCustom: false })}
-          >
-            Automático
-          </Button>
-        </div>
+        <Field label="Ajustar con el manipulador 3D">
+          <div className="inline-actions">
+            <Button
+              size="sm"
+              variant={transformMode === 'translate' ? 'primary' : 'outline'}
+              onClick={() => setTransformMode('translate')}
+            >
+              Mover (G)
+            </Button>
+            <Button
+              size="sm"
+              variant={transformMode === 'rotate' ? 'primary' : 'outline'}
+              onClick={() => setTransformMode('rotate')}
+            >
+              Rotar cámara (R)
+            </Button>
+          </div>
+        </Field>
+        <Field label="Origen del rumbo">
+          <div className="inline-actions">
+            <Button
+              size="sm"
+              variant={exhibitor.rotationCustom ? 'outline' : 'primary'}
+              title="La cámara llega desde la dirección libre del plano."
+              onClick={() => updateExhibitor(exhibitor.id, { rotationCustom: false })}
+            >
+              Automático
+            </Button>
+            <Button
+              size="sm"
+              variant={exhibitor.rotationCustom ? 'primary' : 'outline'}
+              title="Rumbo elegido a mano con el manipulador."
+              onClick={() => updateExhibitor(exhibitor.id, { rotationCustom: true })}
+            >
+              Manual
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                // El expositor mira hacia donde está la cámara del editor ahora
+                // mismo: la cámara de llegada queda en esa misma línea.
+                const camera = useEditorStore.getState().editorCameraView;
+                const rotation = Math.atan2(
+                  camera.position[0] - exhibitor.position.x,
+                  camera.position[2] - exhibitor.position.z,
+                );
+                updateExhibitor(exhibitor.id, { rotation, rotationCustom: true });
+                toast('Rumbo de cámara fijado desde el editor.', 'success');
+              }}
+            >
+              Fijar desde la cámara
+            </Button>
+          </div>
+        </Field>
         <p className="panel-note">
-          Al llegar al expositor, la cámara se coloca en esa dirección y mira al
-          punto. En planta se ve como un cono; en 3D puedes girarlo arrastrando el
-          anillo del marcador.
+          «Automático» deja que el visor calcule desde qué lado llega la cámara
+          sin chocar con muros; «Manual» usa la flecha que pusiste. El ángulo
+          dice desde dónde llega la cámara, no hacia dónde mira.
         </p>
         <Field label="Nivel">
           <Select

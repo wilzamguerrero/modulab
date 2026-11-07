@@ -5,7 +5,7 @@ import { Html, TransformControls } from '@react-three/drei';
 import type { Environment, TransformMode, Vec3 } from '@/types/project';
 import { setSplatInstance } from './splatPicker';
 import { useSplatStatus } from '@/store/splatStatusStore';
-
+import { notifyGizmoPointerDown } from './sceneDragGuard';
 const DEG = 180 / Math.PI;
 
 function SplatStatusOverlay() {
@@ -102,6 +102,7 @@ function EnvironmentGizmo({
       mode={mode}
       size={0.9}
       onMouseDown={() => {
+        notifyGizmoPointerDown();
         if (controls) controls.enabled = false;
       }}
       onMouseUp={commit}

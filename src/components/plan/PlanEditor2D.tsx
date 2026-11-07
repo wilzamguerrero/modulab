@@ -9,7 +9,17 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { Check, Maximize, Minus, Plus, X } from 'lucide-react';
-import type { Project, SceneObject, Space, Stair, Vec2, WallOpening } from '@/types/project';
+type SelectionType = Exclude<Selection, null>['type'];
+
+import type {
+  Project,
+  SceneObject,
+  Selection,
+  Space,
+  Stair,
+  Vec2,
+  WallOpening,
+} from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import {
@@ -473,6 +483,17 @@ export function PlanEditor2D({
   /** Puntero capturado por el arrastre, para soltarlo al terminar. */
   const pressedPointerRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
+  /**
+   * Elemento que se acaba de pulsar en planta. Si el puntero se suelta sobre
+   * otro elemento o sobre el forjado, ese otro elemento no puede pisar la
+   * selección: gana siempre el que recibió la pulsación.
+   */
+  const pressedTargetRef = useRef<{ type: SelectionType; id: string } | null>(null);
+  /**
+   * Elemento pulsado en modo colocación: ahí el clic no selecciona, y el
+   * objeto que cae debajo (expositor, objeto…) sigue el camino de colocar.
+   */
+  const pressedPlacingRef = useRef(false);
   const lastProjectId = useRef(project?.id ?? '');
 
   const activeLevel = project ? getLevel(project, activeLevelId) : undefined;
@@ -757,6 +778,8 @@ export function PlanEditor2D({
   };
 
   const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
+    pressedTargetRef.current = null;
+    pressedPlacingRef.current = false;
     if (event.button === 0 && tool === 'draw' && planDrawMode === 'hole' && !spaceDown) {
       const start = snapToPlanPoint(toWorld(event.clientX, event.clientY));
       rectRef.current = null;
@@ -907,6 +930,19 @@ export function PlanEditor2D({
     }
   };
 
+  /** Marca el elemento pulsado: la selección la aplica ya la pulsación. */
+  const claimTarget = (type: SelectionType, id: string) => {
+    pressedTargetRef.current = { type, id };
+  };
+
+  /** ¿Otro elemento (o el forjado) puede ocupar el clic en curso? */
+  const targetBlocked = (type: SelectionType, id?: string) => {
+    if (pressedPlacingRef.current) return false;
+    const pressed = pressedTargetRef.current;
+    if (!pressed) return false;
+    return !(pressed.type === type && (id === undefined || pressed.id === id));
+  };
+
   const onPointerUp = () => {
     // Un clic sobre un elemento no debe dejar «enganchado» el arrastre: al
     // mover el ratón después, la pieza no sigue al cursor por accidente. Solo
@@ -938,6 +974,9 @@ export function PlanEditor2D({
     const rawPoint = toWorld(event.clientX, event.clientY);
     const point = snapPointIfNeeded(rawPoint);
     const state = useEditorStore.getState();
+
+    // La pulsación ya eligió una pieza: el resto del gesto no cambia la selección.
+    if (pressedTargetRef.current) return;
 
     if (state.tool === 'draw') {
       const drawPoint = snapToPlanPoint(rawPoint);
@@ -976,6 +1015,7 @@ export function PlanEditor2D({
     }
 
     if (state.pendingCatalogItem) {
+      pressedPlacingRef.current = true;
       if (activeLevel && (activeLevel.spaces.some((s) => s.vertices.length >= 3)) && !pointInLevel(activeLevel, point)) {
         toast('Coloca el objeto dentro de un espacio del nivel activo.', 'warning');
         return;
@@ -1109,6 +1149,7 @@ export function PlanEditor2D({
         z: object.transform.position[2] - point.z,
       },
     });
+    claimTarget('object', object.id);
     setSelection({ type: 'object', id: object.id });
   };
 
@@ -1122,6 +1163,7 @@ export function PlanEditor2D({
       id,
       offset: { x: position.x - point.x, z: position.z - point.z },
     });
+    claimTarget('exhibitor', id);
     setSelection({ type: 'exhibitor', id });
   };
 
@@ -1135,6 +1177,7 @@ export function PlanEditor2D({
       id,
       offset: { x: position.x - point.x, z: position.z - point.z },
     });
+    claimTarget('rotationPoint', id);
     setSelection({ type: 'rotationPoint', id });
   };
 
@@ -1148,6 +1191,7 @@ export function PlanEditor2D({
       id: stair.id,
       offset: { x: stair.position.x - point.x, z: stair.position.z - point.z },
     });
+    claimTarget('stair', stair.id);
     setSelection({ type: 'stair', id: stair.id });
   };
 
@@ -1663,6 +1707,7 @@ export function PlanEditor2D({
               onPointerDown={(event) => onStairPointerDown(event, stair)}
               onClick={(event) => {
                 if (tool !== 'select') return;
+                if (targetBlocked('stair', stair.id)) return;
                 event.stopPropagation();
                 setSelection({ type: 'stair', id: stair.id });
               }}
@@ -1908,26 +1953,22 @@ export function PlanEditor2D({
                 strokeDasharray={exhibitor.notionMissing ? `${radius * 0.35} ${radius * 0.25}` : undefined}
               />
               <circle r={radius * 0.3} fill={color} />
-              {/* Cámara de llegada: un cono sólido apunta hacia donde está la
-                  cámara (fuera del stand) y su base ancha es el objetivo. Solo
-                  se dibuja el rumbo; el campo de visión visible es el del
-                  propio cono, como un icono de cámara en un plano. */}
+              {/* Hacia dónde mira la cámara: una sola flecha sencilla, la misma
+                  que en 3D. Va pegada al marcador, en el borde del círculo. */}
               <g
                 transform={`rotate(${(exhibitor.rotation * 180) / Math.PI})`}
-                opacity={exhibitor.rotationCustom ? 1 : 0.55}
+                opacity={exhibitor.rotationCustom ? 1 : 0.6}
+                pointerEvents="none"
               >
+                {/* Flecha de rumbo: base en el centro del marcador y punta un
+                    poco fuera del círculo, hacia donde mira la cámara. */}
                 <path
-                  d={`M 0 ${-radius * 0.22} L 0 ${radius * 0.22} L ${radius * 2.1} ${radius * 0.95} L ${radius * 2.1} ${-radius * 0.95} Z`}
-                  fill={hexToRgba(color, selected ? 0.22 : 0.12)}
-                  stroke={hexToRgba(color, selected ? 0.85 : 0.45)}
-                  strokeWidth={Math.max(viewport.width / 1200, 0.008)}
-                  strokeLinejoin="round"
-                />
-                <path
-                  d={`M ${radius * 1.75} ${-radius * 0.16} L ${radius * 2.45} ${-radius * 0.16} L ${radius * 2.45} ${radius * 0.16} L ${radius * 2.1} ${radius * 0.16} L ${radius * 2.1} ${radius * 0.55} L ${radius * 1.75} ${radius * 0.55} Z`}
+                  d={
+                    selected
+                      ? `M 0 ${-radius * 0.26} L 0 ${radius * 0.26} L ${radius * 2.9} 0 Z`
+                      : `M 0 ${-radius * 0.2} L 0 ${radius * 0.2} L ${radius * 1.9} 0 Z`
+                  }
                   fill={color}
-                  opacity={selected ? 1 : 0.8}
-                  pointerEvents="none"
                 />
               </g>
               {showExhibitorNames ? (

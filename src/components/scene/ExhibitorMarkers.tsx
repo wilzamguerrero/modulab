@@ -3,13 +3,26 @@ import * as THREE from 'three';
 import { Html, TransformControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
 import type { Exhibitor, Project } from '@/types/project';
+import { notifyHandlePointerDown } from './sceneDragGuard';
 import { useEditorStore } from '@/store/editorStore';
 import { snapValue } from '@/utils/geometry';
+import {
+  markSceneClickHandled,
+  markScenePress,
+  notifyGizmoPointerDown,
+  shouldHandleElementClick,
+} from './sceneDragGuard';
 import { exhibitorColor } from '@/utils/exhibitorColors';
 import { entityLevelId, levelElevationMap } from '@/utils/levels';
 import { normalizeAngle } from '@/utils/levelTransform';
 
 const MARKER_Y = 0.02;
+/**
+ * Flecha de rumbo: base en el centro del marcador y punta un poco fuera del
+ * anillo, para que se lea hacia dónde apunta sin confundirse con el círculo.
+ */
+const ARROW_SIZE = 0.2;
+const ARROW_INSET = 0.3;
 
 function ExhibitorMarker({
   exhibitor,
@@ -32,13 +45,18 @@ function ExhibitorMarker({
   const commitHistory = useEditorStore((state) => state.commitHistory);
   const moveExhibitor = useEditorStore((state) => state.moveExhibitor);
   const updateExhibitor = useEditorStore((state) => state.updateExhibitor);
-  // Giro de la cámara: el anillo del marcador actúa como manija del gizmo de
-  // rotación (solo eje Y), que se enciende al pulsarlo.
-  const [showHeadingHandle, setShowHeadingHandle] = useState(false);
+  // Igual que los objetos: el manipulador alterna con la herramienta global
+  // entre mover (G) y rotar (R). En «rotar», el expositor gira el rumbo de su
+  // cámara; la posición no cambia.
+  const transformMode = useEditorStore((state) => state.transformMode);
   const [headingRef, setHeadingRef] = useState<THREE.Object3D | null>(null);
   const snap = useEditorStore((state) => state.project?.settings.snapToGrid ?? false);
   const gridSize = useEditorStore((state) => state.project?.settings.gridSize ?? 0.25);
   const controls = useThree((state) => state.controls) as { enabled: boolean } | null;
+  const headingRotate = transformMode === 'rotate';
+  // El aro de giro va un poco elevado: a ras de suelo su mitad queda enterrada
+  // en la losa y el verde no se ve.
+  const ROTATE_Y = 0.9;
   // El expositor conserva siempre su color asignado; la selección se marca con
   // tamaño, opacidad y un halo, no cambiando el tono a amarillo.
   const color = exhibitorColor(exhibitor);
@@ -65,10 +83,26 @@ function ExhibitorMarker({
         onClick={(event) => {
           if (!onSelect) return;
           event.stopPropagation();
+          if (!shouldHandleElementClick()) return;
+          markSceneClickHandled();
           onSelect(exhibitor.id);
         }}
       >
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
+        <mesh
+          rotation={[-Math.PI / 2, 0, 0]}
+          position={[0, 0.045, 0]}
+          onPointerOver={(event) => {
+            event.stopPropagation();
+            document.body.style.cursor = 'grab';
+          }}
+          onPointerOut={() => {
+            document.body.style.cursor = 'auto';
+          }}
+          onPointerDown={() => {
+            // El círculo del expositor es la propia manija de giro del rumbo.
+            notifyHandlePointerDown(exhibitor.id);
+          }}
+        >
           <ringGeometry args={selected ? [0.34, 0.46, 40] : [0.22, 0.3, 40]} />
           <meshBasicMaterial
             color={color}
@@ -88,6 +122,38 @@ function ExhibitorMarker({
         {selected ? (
           <pointLight color={color} intensity={1} distance={3.4} position={[0, 1.5, 0]} />
         ) : null}
+        {/* Hacia dónde mira la cámara: un triángulo centrado en el marcador
+            que gira con el expositor, siempre dentro del círculo. */}
+        <group
+          position={[0, 0.05, 0]}
+          rotation={[0, exhibitor.rotation, 0]}
+          onPointerOver={(event) => {
+            event.stopPropagation();
+            document.body.style.cursor = 'grab';
+          }}
+          onPointerOut={() => {
+            document.body.style.cursor = 'auto';
+          }}
+          onPointerDown={() => {
+            notifyHandlePointerDown(exhibitor.id);
+          }}
+        >
+          <mesh
+            rotation={[-Math.PI / 2, 0, -Math.PI / 2]}
+            position={[0, 0, selected ? ARROW_INSET + 0.18 : ARROW_INSET]}
+            scale={selected ? 1.35 : 1}
+            renderOrder={12}
+          >
+            <circleGeometry args={[ARROW_SIZE, 3]} />
+            <meshBasicMaterial
+              color={color}
+              transparent
+              opacity={exhibitor.rotationCustom ? (selected ? 1 : 0.9) : selected ? 0.8 : 0.55}
+              depthWrite={false}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        </group>
         {showLabels ? (
           <Html
             center
@@ -105,104 +171,47 @@ function ExhibitorMarker({
           </Html>
         ) : null}
       </group>
-      {/* Dirección de la cámara de llegada: una flecha a ras de suelo que
-          sale del expositor hacia donde estará la cámara. El anillo dibuja la
-          zona de llegada, para ver el encuadre completo en planta. */}
-      {editor ? (
+      {editor && selected ? (
         <group
-          position={[exhibitor.position.x, markerY, exhibitor.position.z]}
-          rotation={[0, exhibitor.rotation, 0]}
-        >
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.035, 0.85]}>
-            <planeGeometry args={[selected ? 0.08 : 0.05, selected ? 1.3 : 0.95]} />
-            <meshBasicMaterial
-              color={color}
-              transparent
-              opacity={exhibitor.rotationCustom ? (selected ? 0.9 : 0.6) : selected ? 0.5 : 0.3}
-              depthWrite={false}
-            />
-          </mesh>
-          <mesh rotation={[-Math.PI / 2, 0, Math.PI]} position={[0, 0.04, 1.1]}>
-            <coneGeometry args={[selected ? 0.16 : 0.11, selected ? 0.4 : 0.3, 4]} />
-            <meshBasicMaterial color={color} transparent opacity={selected ? 0.95 : 0.7} depthWrite={false} />
-          </mesh>
-          {/* Zona de llegada: anillo fino al radio de la cámara (3,2 m). */}
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
-            <ringGeometry args={[3.16, 3.2, 64, 1, -0.6, 1.2]} />
-            <meshBasicMaterial
-              color={color}
-              transparent
-              opacity={selected ? 0.35 : 0.12}
-              depthWrite={false}
-            />
-          </mesh>
-          <mesh
-            rotation={[-Math.PI / 2, 0, 0]}
-            position={[0, 0.02, 0]}
-            onPointerOver={(event) => {
-              event.stopPropagation();
-              document.body.style.cursor = 'grab';
-            }}
-            onPointerOut={() => {
-              document.body.style.cursor = 'auto';
-            }}
-            onPointerDown={(event) => {
-              event.stopPropagation();
-              setShowHeadingHandle(true);
-            }}
-          >
-            <ringGeometry args={[0.34, 0.5, 48]} />
-            <meshBasicMaterial color={color} transparent opacity={selected ? 0.3 : 0.15} depthWrite={false} />
-          </mesh>
-        </group>
-      ) : null}
-      {editor && selected && showHeadingHandle ? (
-        <group
+          key={headingRotate ? 'rotate' : 'translate'}
           ref={setHeadingRef}
-          position={[exhibitor.position.x, markerY, exhibitor.position.z]}
+          position={[exhibitor.position.x, markerY + ROTATE_Y, exhibitor.position.z]}
           rotation={[0, exhibitor.rotation, 0]}
-        />
-      ) : null}
-      {editor && selected && showHeadingHandle ? (
-        <TransformControls
-          object={headingRef ?? undefined}
-          mode="rotate"
-          size={0.7}
-          showX={false}
-          showY
-          showZ={false}
-          rotationSnap={Math.PI / 12}
-          onObjectChange={() => {
-            if (!headingRef) return;
-            updateExhibitor(
-              exhibitor.id,
-              { rotation: normalizeAngle(headingRef.rotation.y) },
-              { history: false, touch: false },
-            );
-          }}
-          onMouseDown={() => {
-            beginHistory();
-            if (controls) controls.enabled = false;
-          }}
-          onMouseUp={() => {
-            commitHistory();
-            if (controls) controls.enabled = true;
-            setShowHeadingHandle(false);
-          }}
         />
       ) : null}
       {editor && selected && group ? (
         <TransformControls
-          object={group}
-          mode="translate"
-          size={0.82}
+          object={headingRotate && headingRef ? headingRef : group}
+          mode={headingRotate ? 'rotate' : 'translate'}
+          size={headingRotate ? 0.55 : 0.82}
+          // Trasladar: solo en planta (X/Z). Rotar: solo el eje vertical (Y),
+          // que es el rumbo de la cámara.
           showX
-          showY={false}
+          showY={headingRotate}
           showZ
           translationSnap={snap ? gridSize : null}
+          rotationSnap={Math.PI / 12}
           onObjectChange={() => {
+            if (headingRotate) {
+              // Rotar: solo cambia hacia dónde mira la cámara del expositor;
+              // la posición no se toca (el helper está elevado solo para
+              // verse, no para mover el marcador).
+              if (headingRef) {
+                updateExhibitor(
+                  exhibitor.id,
+                  { rotation: normalizeAngle(headingRef.rotation.y), rotationCustom: true },
+                  { history: false, touch: false },
+                );
+              }
+              return;
+            }
             if (group && Math.abs(group.position.y - markerY) > 1e-4) {
               group.position.y = markerY;
+            }
+            // El helper del rumbo vive elevado para que el aro se vea; al
+            // mover el expositor ese helper sigue su posición de suelo.
+            if (headingRef) {
+              headingRef.position.set(group.position.x, markerY + ROTATE_Y, group.position.z);
             }
             // Con la opción de grupo activa, los elementos asociados siguen al
             // marcador en tiempo real durante el arrastre (no solo al soltar).
@@ -215,6 +224,8 @@ function ExhibitorMarker({
             }
           }}
           onMouseDown={() => {
+            notifyGizmoPointerDown();
+            markScenePress();
             beginHistory();
             if (controls) controls.enabled = false;
           }}

@@ -5,7 +5,7 @@ import type { InternalWall, Level, Vec2, WallOpening } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { snapPoint, snapValue } from '@/utils/geometry';
 import { getLevel, getSpace } from '@/utils/levels';
-import { markSceneDragActive, markSceneDragEnd } from './sceneDragGuard';
+import { markSceneDragEnd, markScenePress, notifyGizmoPointerDown } from './sceneDragGuard';
 import {
   getOpeningSpans,
   getWallById,
@@ -102,7 +102,8 @@ export function useHistoryDrag(
     elevation,
     onStart: (event) => {
       moved.current = false;
-      markSceneDragActive();
+      notifyGizmoPointerDown();
+      markScenePress();
       beginHistory();
       onStart(event);
     },
@@ -111,9 +112,15 @@ export function useHistoryDrag(
       onMove(point, event);
     },
     onEnd: () => {
-      if (moved.current) commitHistory();
-      else cancelHistory();
-      markSceneDragEnd();
+      if (moved.current) {
+        commitHistory();
+        markSceneDragEnd();
+      } else {
+        // Clic sin mover: se deja pulsado como un clic limpio (no se marca el
+        // candado), para que el clic llegue al piso y al elemento.
+        cancelHistory();
+        markSceneDragEnd(true);
+      }
     },
   });
 }

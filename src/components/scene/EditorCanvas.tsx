@@ -30,7 +30,17 @@ import {
   pointInLevel,
   projectBounds,
 } from '@/utils/levels';
-import { isSceneDragClickBlocked } from './sceneDragGuard';
+import {
+  clearPressedHandle,
+  clickStartedOnGizmo,
+  getPressedHandle,
+  isSceneDragClickBlocked,
+  markSceneClickHandled,
+  notifyScenePointerDown,
+  pickElementAt,
+  setClickCandidates,
+} from './sceneDragGuard';
+import { levelElevationMap } from '@/utils/levels';
 
 export type EditorViewMode =
   | 'project'
@@ -829,19 +839,156 @@ export function EditorCanvas({
     [],
   );
 
+  // Clic determinista: al soltar un clic sin arrastre el lienzo elige el
+  // elemento más cercano bajo el cursor. No depende del orden en que R3F
+  // entrega `onClick` entre el piso y las piezas, que era lo que hacía que a
+  // veces seleccionara y a veces no.
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const pressRef = useRef<{ x: number; y: number } | null>(null);
+  const sceneStateRef = useRef<{ camera: THREE.Camera } | null>(null);
+  /** El clic nació sobre un gizmo: la cámara no debe girar con ese arrastre. */
+  const gizmoPressRef = useRef(false);
+
+  useEffect(() => {
+    if (!active) return;
+    const element = wrapperRef.current;
+    if (!element) return;
+    const onDown = (event: PointerEvent) => {
+      notifyScenePointerDown();
+      gizmoPressRef.current = false;
+      gizmoCheckQueued = false;
+      pressRef.current = { x: event.clientX, y: event.clientY };
+      // Pulsar la flecha de rumbo o el círculo de un expositor lo selecciona;
+      // la herramienta (mover/rotar) la elige el usuario con G/R, como en los
+      // objetos. El gesto no se convierte en arrastre del marcador.
+      const handle = getPressedHandle();
+      if (handle) {
+        pressRef.current = null;
+        clearPressedHandle();
+        useEditorStore.getState().setSelection({ type: 'exhibitor', id: handle });
+      }
+    };
+    const onUp = (event: PointerEvent) => {
+      const press = pressRef.current;
+      pressRef.current = null;
+
+      if (!press || event.button !== 0) return;
+      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 5) return;
+      // Solo cuentan los clics sobre el lienzo 3D (ni HUD ni menús flotantes).
+      const target = event.target as Node | null;
+      if (!target || !element.contains(target) || !(target as Element).closest('canvas')) return;
+      if (clickStartedOnGizmo() || isSceneDragClickBlocked(0)) return;
+      if (gizmoPressRef.current) return;
+      const state = useEditorStore.getState();
+      if (state.tool !== 'select' || state.pendingCatalogItem) return;
+      const canvas = element.querySelector('canvas');
+      if (!canvas || !sceneStateRef.current) return;
+      const id = pickElementAt(event.clientX, event.clientY, canvas, sceneStateRef.current.camera);
+      if (!id) return;
+      markSceneClickHandled();
+      const exhibitor = state.project?.exhibitors.find((entry) => entry.id === id);
+      if (exhibitor) {
+        state.setSelection({ type: 'exhibitor', id });
+        return;
+      }
+      const point = state.project?.rotationPoints.find((entry) => entry.id === id);
+      if (point) {
+        state.setSelection({ type: 'rotationPoint', id });
+        return;
+      }
+      state.setSelection({ type: 'object', id });
+    };
+    // En captura: corre antes que los manejadores de R3F, así la pieza queda
+    // seleccionada aunque después el piso reciba el mismo clic.
+    element.addEventListener('pointerdown', onDown, true);
+    element.addEventListener('pointerup', onUp, true);
+    // `notifyGizmoPointerDown` llega por el burbujeo de este mismo lienzo: se
+    // difiere una microtarea al final del evento para leer si la pulsación
+    // empezó sobre un manipulado y así no robarle el clic a la manija.
+    let gizmoCheckQueued = false;
+    const queueGizmoCheck = () => {
+      if (gizmoCheckQueued) return;
+      gizmoCheckQueued = true;
+      queueMicrotask(() => {
+        gizmoPressRef.current = clickStartedOnGizmo();
+      });
+    };
+    element.addEventListener('pointerdown', queueGizmoCheck);
+    return () => {
+      element.removeEventListener('pointerdown', onDown, true);
+      element.removeEventListener('pointerup', onUp, true);
+      element.removeEventListener('pointerdown', queueGizmoCheck);
+    };
+  }, [active]);
+
+  // Candidatos al clic: marcadores de expositores, puntos de rotación y
+  // objetos visibles, cada uno a la altura del suelo de su nivel.
+  const clickPoints = useMemo(() => {
+    const elevations = levelElevationMap(project);
+    const points: { id: string; point: THREE.Vector3 }[] = [];
+    for (const exhibitor of project.exhibitors) {
+      if (!exhibitor.visible) continue;
+      const y = (elevations[exhibitor.levelId ?? ''] ?? 0) + 0.02;
+      points.push({
+        id: exhibitor.id,
+        point: new THREE.Vector3(exhibitor.position.x, y, exhibitor.position.z),
+      });
+    }
+    for (const point of project.rotationPoints) {
+      const y = (elevations[point.levelId ?? ''] ?? 0) + 0.02;
+      points.push({ id: point.id, point: new THREE.Vector3(point.position.x, y, point.position.z) });
+    }
+    for (const object of project.objects) {
+      if (!object.visible) continue;
+      const y = (elevations[object.levelId ?? ''] ?? 0) + object.transform.position[1];
+      points.push({
+        id: object.id,
+        point: new THREE.Vector3(
+          object.transform.position[0],
+          y,
+          object.transform.position[2],
+        ),
+      });
+    }
+    return points;
+  }, [project.exhibitors, project.objects, project.rotationPoints, project.levels]);
+
+  useEffect(() => {
+    setClickCandidates(active ? clickPoints : null);
+    return () => setClickCandidates(null);
+  }, [active, clickPoints]);
+
   return (
-    <div className="three-canvas" aria-hidden={!active}>
+    <div ref={wrapperRef} className="three-canvas" aria-hidden={!active}>
       <Canvas
         shadows="soft"
         dpr={[1, 2]}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         camera={camera}
         frameloop={active ? 'always' : 'demand'}
-        onPointerMissed={() => {
+        onCreated={(state) => {
+          sceneStateRef.current = { camera: state.camera };
+        }}
+        onPointerMissed={(event) => {
           const state = useEditorStore.getState();
           if (state.pendingCatalogItem) return;
-          state.setSelection(null);
-          // Al hacer clic en el vacío se deselecciona la medida y su gizmo.
+          // El clic sobre el vacío no debe deseleccionar si empezó en un gizmo:
+          // R3F también entrega `onPointerMissed` al soltar un arrastre del gizmo.
+          if (clickStartedOnGizmo() || isSceneDragClickBlocked(0)) return;
+          // Con elementos bajo el cursor, el seleccionador del lienzo decide.
+          const canvas = wrapperRef.current?.querySelector('canvas');
+          if (
+            canvas &&
+            event &&
+            sceneStateRef.current &&
+            pickElementAt(event.clientX, event.clientY, canvas, sceneStateRef.current.camera)
+          ) {
+            return;
+          }
+          // Clic en el vacío: se deselecciona la medida y su gizmo. La
+          // selección no se toca aquí: si fue sobre una pieza, esa pieza queda
+          // seleccionada (aunque esté fuera de la cámara y no haya objeto tras
+          // el cursor); deseleccionar exige pulsar el piso o el vacío.
           state.setActiveMeasurement(null);
         }}
       >

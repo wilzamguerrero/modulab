@@ -7,7 +7,7 @@ import type { Level, Project, Vec2 } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { snapValue } from '@/utils/geometry';
 import { levelPivot } from '@/utils/levelTransform';
-import { markSceneDragActive, markSceneDragEnd } from './sceneDragGuard';
+import { markSceneDragActive, markSceneDragEnd, markScenePress, notifyGizmoPointerDown } from './sceneDragGuard';
 
 /** Etiqueta de la lectura numérica del piso, sobre el propio gizmo. */
 const READOUT_STYLE: CSSProperties = {
@@ -170,6 +170,8 @@ export function LevelGizmo({
           translationSnap={snap ? gridSize : null}
           rotationSnap={snap ? Math.PI / 12 : null}
           onMouseDown={() => {
+            notifyGizmoPointerDown();
+            markScenePress();
             markSceneDragActive();
             beginHistory();
             draggingRef.current = true;

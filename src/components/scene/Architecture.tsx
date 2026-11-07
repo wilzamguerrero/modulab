@@ -5,7 +5,13 @@ import { useThree } from '@react-three/fiber';
 import type { Level, Project, Space, Stair, Vec2 } from '@/types/project';
 import { useEditorStore } from '@/store/editorStore';
 import { snapValue } from '@/utils/geometry';
-import { markSceneDragActive, markSceneDragEnd } from './sceneDragGuard';
+import {
+  elementPickUnder,
+  selectionJustChanged,
+  markSceneDragActive,
+  markSceneDragEnd,
+  notifyGizmoPointerDown,
+} from './sceneDragGuard';
 import {
   getLevelWalls,
   getOpeningSpans,
@@ -77,7 +83,12 @@ export function FloorMesh({
       position={[0, 0, 0]}
       onClick={(event) => {
         if (!onFloorClick) return;
+        // Si el clic cae sobre una pieza (expositor, punto de rotación, objeto),
+        // el piso no hace nada: el seleccionador del lienzo ya eligió la pieza.
+        if (elementPickUnder(event) !== null) return;
         event.stopPropagation();
+        // Si este mismo clic acaba de seleccionar algo, el piso no lo pisa.
+        if (selectionJustChanged(150)) return;
         onFloorClick(
           { x: event.point.x, z: event.point.z },
           { levelId, spaceId: space.id },

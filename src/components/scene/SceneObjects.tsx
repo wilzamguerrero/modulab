@@ -14,7 +14,14 @@ import { useEditorStore } from '@/store/editorStore';
 import { useModelInfoStore } from '@/store/modelInfoStore';
 import { snapValue } from '@/utils/geometry';
 import { entityLevelId, levelElevationMap } from '@/utils/levels';
-import { markSceneDragActive, markSceneDragEnd } from './sceneDragGuard';
+import {
+  markSceneDragActive,
+  markSceneClickHandled,
+  markSceneDragEnd,
+  markScenePress,
+  notifyGizmoPointerDown,
+  shouldHandleElementClick,
+} from './sceneDragGuard';
 import {
   exhibitorColor,
   exhibitorPaintAmount,
@@ -262,7 +269,8 @@ function SelectionRing({
       0.62 +
     0.18;
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]}>
+    <>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]} renderOrder={12}>
       <ringGeometry args={[radius, radius + (highlighted ? 0.09 : 0.055), 48]} />
       <meshBasicMaterial
         color={highlighted ? color : '#d7ff4f'}
@@ -271,6 +279,13 @@ function SelectionRing({
         depthWrite={false}
       />
     </mesh>
+    {/* Aro de agarre invisible: la pieza seleccionada recibe el clic antes que
+        el piso, también al entrar o salir de la escena. */}
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.024, 0]} renderOrder={12}>
+      <ringGeometry args={[0, radius + 0.12, 32]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
+    </mesh>
+    </>
   );
 }
 
@@ -372,6 +387,10 @@ function EditableObjectInstance({
         onClick={(event) => {
           if (!onSelect) return;
           event.stopPropagation();
+          // Siempre selecciona el objeto bajo el cursor, aunque el piso también
+          // reciba el clic (sube su `renderOrder` y gana el más cercano).
+          if (!shouldHandleElementClick()) return;
+          markSceneClickHandled();
           onSelect(object.id);
         }}
       >
@@ -419,7 +438,8 @@ function EditableObjectInstance({
           mode={transformMode}
           size={0.72}
           onMouseDown={() => {
-            markSceneDragActive();
+            notifyGizmoPointerDown();
+            markScenePress();
             beginHistory();
             if (controls) controls.enabled = false;
           }}
