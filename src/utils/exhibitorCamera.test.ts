@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Exhibitor, Project } from '@/types/project';
-import { focusCameraFor, headingCameraFor } from './exhibitorCamera';
+import { focusCameraFor, headingCameraFor, visitorCameraFor } from './exhibitorCamera';
 
 // Recinto de prueba: rectángulo de 16 × 12 m (de -8 a 8 en X, -6 a 6 en Z).
 const VERTICES = [
@@ -96,13 +96,57 @@ describe('headingCameraFor', () => {
     expect(camera.position[2]).toBeCloseTo(0, 5);
   });
 
-  it('sin rumbo usa la cámara guardada si es válida', () => {
+  it('sin rumbo (0°) ignora la cámara guardada y se coloca detrás de la flecha', () => {
     const project = makeProject({
       cameraPosition: [3, 1.9, 2],
       cameraTarget: [1, 1.15, 0],
     });
     const camera = focusCameraFor(project.exhibitors[0], project);
-    expect(camera.position).toEqual([3, 1.9, 2]);
+    // Rumbo 0 = mira hacia +Z: la cámara queda detrás, en Z negativo.
+    expect(camera.position[0]).toBeCloseTo(1, 5);
+    expect(camera.position[2]).toBeCloseTo(-3.2, 5);
+  });
+
+  it('usa la distancia de llegada elegida para abrir o cerrar el plano', () => {
+    const project = makeProject({ rotation: Math.PI / 2, cameraDistance: 5 });
+    const camera = headingCameraFor(project.exhibitors[0], project);
+    expect(camera.position[0]).toBeCloseTo(1 - 5, 5);
+    const closer = makeProject({ rotation: Math.PI / 2, cameraDistance: 2 });
+    expect(headingCameraFor(closer.exhibitors[0], closer).position[0]).toBeCloseTo(1 - 2, 5);
+  });
+
+  it('la flecha manda siempre, aunque la cámara guardada sea válida', () => {
+    const project = makeProject({
+      rotation: Math.PI / 2,
+      rotationCustom: true,
+      cameraPosition: [-2, 1.9, 0],
+      cameraTarget: [1, 1.15, 0],
+    });
+    const camera = visitorCameraFor(project.exhibitors[0], project);
+    expect(camera.position[0]).toBeCloseTo(1 - 3.2, 5);
+    expect(camera.position[2]).toBeCloseTo(0, 5);
+    const closer = makeProject({
+      rotation: Math.PI / 2,
+      rotationCustom: true,
+      cameraDistance: 5,
+      cameraPosition: [4, 2, 4],
+      cameraTarget: [0, 1, 0],
+    });
+    const opened = visitorCameraFor(closer.exhibitors[0], closer);
+    expect(opened.position[0]).toBeCloseTo(1 - 5, 5);
+    expect(opened.position[2]).toBeCloseTo(0, 5);
+  });
+
+  it('con la espalda pegada a un muro se queda detrás y sólo se eleva', () => {
+    // Expositor a 0,2 m del borde trasero (Z = -6), flecha hacia +Z.
+    const project = makeProject({ position: { x: 1, z: -5.8 }, rotation: 0 });
+    const exhibitor = project.exhibitors[0];
+    const camera = headingCameraFor(exhibitor, project);
+    // Nunca al lateral ni al frente: sigue en la línea de la flecha.
+    expect(camera.position[0]).toBeCloseTo(1, 5);
+    expect(camera.position[2]).toBeLessThan(-5.8);
+    expect(camera.position[1]).toBeGreaterThan(1.9);
+    expect(camera.target[2]).toBeGreaterThanOrEqual(-5.8);
   });
 
   it('desplaza el objetivo hacia el montaje lateral del expositor', () => {

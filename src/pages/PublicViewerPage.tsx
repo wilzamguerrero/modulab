@@ -21,7 +21,7 @@ import { Badge, IconButton, Spinner } from '@/components/ui';
 import { PublicScene, type ViewerCameraCommand } from '@/components/viewer/PublicScene';
 import { fetchPublished } from '@/services/publishing/publishService';
 import { notionPhotoUrl } from '@/services/notion/notionService';
-import { focusCameraFor } from '@/utils/exhibitorCamera';
+import { visitorCameraFor } from '@/utils/exhibitorCamera';
 import { entityLevelId } from '@/utils/levels';
 import { exhibitorColor } from '@/utils/exhibitorColors';
 
@@ -77,11 +77,10 @@ function buildTravelWaypoints(
     return null;
   };
 
+  // La vista es un punto de paso del vuelo, no una parada: no lleva pausa.
   const stopFor = (view: ReaderView): TravelStop => ({
     position: view.position,
     target: view.target,
-    // Media pausa en cada vista para que el traslado se lea.
-    hold: 650,
   });
 
   const exitView = fromLevelId ? viewFor(fromLevelId) : null;
@@ -353,28 +352,10 @@ export function PublicViewerPage() {
   const selectExhibitor = useCallback((exhibitor: Exhibitor) => {
     if (!publicProject) return;
     setSelectedId(exhibitor.id);
-    // Si la vista de lectura actual es casi la misma que la de llegada, el
-    // viaje no se notaría: se eleva un poco: el descenso hace visible que el
-    // visor se ha colocado en el expositor.
-    let camera = focusCameraFor(exhibitor, publicProject);
-    if (
-      readerCamera.position &&
-      readerCamera.target &&
-      Math.hypot(
-        readerCamera.position[0] - camera.position[0],
-        readerCamera.position[2] - camera.position[2],
-      ) < 3
-    ) {
-      const dir = { x: Math.sin(exhibitor.rotation), z: Math.cos(exhibitor.rotation) };
-      camera = {
-        position: [
-          camera.position[0] - dir.x * 0.6,
-          camera.position[1] + 6,
-          camera.position[2] - dir.z * 0.6,
-        ],
-        target: camera.target,
-      };
-    }
+    // La llegada es siempre la cámara de la flecha: el viaje parte de donde
+    // esté la cámara (curva continua, ver `ViewerCamera`), sin elevaciones
+    // artificiales ni paradas intermedias.
+    const camera = visitorCameraFor(exhibitor, publicProject);
     // Ruta profesional entre stands: la cámara no corta en línea recta de uno
     // a otro, sino que repasa el recorrido con paradas de giro.
     //   1. levanta hacia un punto de rotación del nivel de origen (el más

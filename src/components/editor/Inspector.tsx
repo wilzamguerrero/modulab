@@ -56,7 +56,7 @@ import { useEditorStore } from '@/store/editorStore';
 import { useModelInfoStore } from '@/store/modelInfoStore';
 import { useUiStore } from '@/store/uiStore';
 import { cameraForVertices, defaultExhibitorCamera } from '@/data/defaults';
-import { headingCameraFor } from '@/utils/exhibitorCamera';
+import { DEFAULT_CAMERA_DISTANCE, headingCameraFor } from '@/utils/exhibitorCamera';
 import { SHADOW_QUALITY_OPTIONS } from '@/data/shadows';
 import { notionPhotoUrl } from '@/services/notion/notionService';
 import { uploadExhibitorPhoto } from '@/services/assets/catalogService';
@@ -928,6 +928,33 @@ function ExhibitorInspector({
             suffix="°"
           />
         </Field>
+        <Field label="Distancia de llegada">
+          <RangeInput
+            label=""
+            value={exhibitor.cameraDistance ?? DEFAULT_CAMERA_DISTANCE}
+            min={1.5}
+            max={10}
+            step={0.1}
+            format={(value) => `${value.toFixed(1)} m`}
+            onChange={(cameraDistance) => {
+              // También se actualiza la ficha para que el inspector y el visor
+              // muestren el mismo plano.
+              const camera = headingCameraFor({ ...exhibitor, cameraDistance }, project);
+              updateExhibitor(exhibitor.id, {
+                cameraDistance,
+                // La distancia se mueve sobre la línea actual de la ficha (la
+                // que el editor ve en el 3D): rumbo fijo y sólo se aleja/acerca.
+                rotation: Math.atan2(
+                  exhibitor.position.x - camera.position[0],
+                  exhibitor.position.z - camera.position[2],
+                ),
+                rotationCustom: true,
+                cameraPosition: camera.position,
+                cameraTarget: camera.target,
+              });
+            }}
+          />
+        </Field>
         <Field label="Ajustar con el manipulador 3D">
           <div className="inline-actions">
             <Button
@@ -992,7 +1019,9 @@ function ExhibitorInspector({
         <p className="panel-note">
           «Automático» deja que el visor calcule desde qué lado llega la cámara
           sin chocar con muros; «Manual» usa la flecha que pusiste. El ángulo
-          dice desde dónde llega la cámara, no hacia dónde mira.
+          dice desde dónde llega la cámara, no hacia dónde mira. «Distancia de
+          llegada» aleja o acerca la cámara al expositor: más metros, plano más
+          abierto.
         </p>
         <Field label="Nivel">
           <Select

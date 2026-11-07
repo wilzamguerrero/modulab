@@ -326,15 +326,21 @@ function sideFocus(
   position: Vec2,
   dir: { x: number; z: number },
   sideOffsets: number[],
+  depthOffsets: number[] = [],
 ): Vec2 {
-  if (!sideOffsets.length) return { ...position };
-  const min = Math.min(...sideOffsets);
-  const max = Math.max(...sideOffsets);
+  if (!sideOffsets.length && !depthOffsets.length) return { ...position };
+  const min = sideOffsets.length ? Math.min(...sideOffsets) : 0;
+  const max = sideOffsets.length ? Math.max(...sideOffsets) : 0;
+  // El expositor pesa más que el montaje: a lo sumo se desplaza 1,6 m y sólo
+  // cuando el montaje está realmente a un lado, no alineado con el rumbo.
   const center = Math.max(-1.6, Math.min(1.6, (min + max) / 2));
   // Perpendicular al rumbo (izquierda del expositor = −perpendicular).
   const left = { x: dir.z, z: -dir.x };
-  const reach = Math.max(Math.abs(min), Math.abs(max));
-  const depth = Math.max(0, reach * 0.6);
+  // Sólo se avanza para incluir montaje DELANTE del expositor (lo que se ve
+  // tras la flecha). Lo que está detrás (carteles, muros del stand) queda
+  // entre la cámara y el expositor y no debe empujar el encuadre al fondo.
+  const ahead = depthOffsets.length ? Math.max(...depthOffsets) : 0;
+  const depth = Math.max(0, Math.min(1.2, ahead * 0.5));
   return {
     x: position.x + left.x * center + dir.x * depth,
     z: position.z + left.z * center + dir.z * depth,
@@ -357,6 +363,7 @@ export function exhibitorCameraFromHeading(
   elevation = 0,
   distance = 3.2,
   sideOffsets: number[] = [],
+  depthOffsets: number[] = [],
 ): { position: Vec3; target: Vec3 } {
   const eyeHeight = 1.9 + elevation;
   // Dirección a la que mira el expositor (misma convención que la flecha de la
@@ -364,7 +371,7 @@ export function exhibitorCameraFromHeading(
   const dir = { x: Math.sin(rotation), z: Math.cos(rotation) };
   // Si hay montaje a los lados del expositor (carteles, mostrador), el objetivo
   // se desplaza hacia ellos para que la ficha no quede recortada.
-  const focus = sideFocus(position, dir, sideOffsets);
+  const focus = sideFocus(position, dir, sideOffsets, depthOffsets);
   const target: Vec3 = [focus.x, 1.15 + elevation, focus.z];
   // La cámara se pone DETRÁS del expositor, al otro lado de su espalda, y
   // mira en su misma dirección: el objetivo queda sobre el marcador (o sobre
@@ -391,28 +398,13 @@ export function exhibitorCameraFromHeading(
       if (!isFree(candidate)) continue;
       return { position: [candidate.x, eyeHeight, candidate.z], target: lookTarget };
     }
-    // El rumbo queda pegado a un muro o fuera del recinto: se conserva la
-    // dirección y sólo se gana altura, para no cambiar el cuadro.
-    const lateral = [
-      { x: -dir.z, z: dir.x },
-      { x: dir.z, z: -dir.x },
-    ];
-    if (wallClearance(position, vertices) < 2.5) {
-      return {
-        position: [position.x + behind.x * 1.2, eyeHeight + 1.6, position.z + behind.z * 1.2],
-        target: lookTarget,
-      };
-    }
-    for (const radius of [2.2, 1.6, 1.2]) {
-      for (const eye of lateral) {
-        const candidate = {
-          x: position.x + eye.x * radius,
-          z: position.z + eye.z * radius,
-        };
-        if (!isFree(candidate)) continue;
-        return { position: [candidate.x, eyeHeight, candidate.z], target: lookTarget };
-      }
-    }
+    // La espalda del expositor queda pegada a un muro (o fuera del recinto):
+    // la cámara sigue DETRÁS de él sobre la línea de la flecha y sólo gana
+    // altura para ver por encima. Nunca se pasa al lateral ni al frente.
+    return {
+      position: [position.x + behind.x * 1.2, eyeHeight + 1.6, position.z + behind.z * 1.2],
+      target: lookTarget,
+    };
   }
   // Fuera del recinto o bloqueado: vista elevada detrás del expositor.
   return {

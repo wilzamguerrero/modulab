@@ -8,16 +8,24 @@ export type ExhibitorCamera = { position: [number, number, number]; target: [num
 export const SCHEMA_DEFAULT_CAMERA_POSITION: [number, number, number] = [4, 2, 4];
 export const SCHEMA_DEFAULT_CAMERA_TARGET: [number, number, number] = [0, 1, 0];
 
-/** Cámara de llegada fijada por el rumbo (la flecha del expositor). */
+/** Distancia por defecto de la cámara detrás del expositor. */
+export const DEFAULT_CAMERA_DISTANCE = 3.2;
+
+/**
+ * Cámara de llegada fijada por el rumbo (la flecha del expositor), a la
+ * distancia que elija el editor en la ficha (`cameraDistance`).
+ */
 export function headingCameraFor(exhibitor: Exhibitor, project: Project): ExhibitorCamera {
   const level = getLevel(project, entityLevelId(project, exhibitor));
+  const assembly = assemblyOffsetsFor(exhibitor, project);
   return exhibitorCameraFromHeading(
     exhibitor.position,
     exhibitor.rotation,
     levelVertices(level),
     level?.elevation ?? 0,
-    3.2,
-    sideOffsetsFor(exhibitor, project),
+    exhibitor.cameraDistance ?? DEFAULT_CAMERA_DISTANCE,
+    assembly.lateral,
+    assembly.ahead,
   );
 }
 
@@ -27,8 +35,18 @@ export function headingCameraFor(exhibitor: Exhibitor, project: Project): Exhibi
  * la usa para no dejar el montaje fuera de plano.
  */
 export function sideOffsetsFor(exhibitor: Exhibitor, project: Project): number[] {
+  return assemblyOffsetsFor(exhibitor, project).lateral;
+}
+
+/** Distancias de los objetos asociados: `lateral` (perpendicular al rumbo) y
+ * `ahead` (en la dirección de la flecha, positivo delante del expositor). */
+export function assemblyOffsetsFor(
+  exhibitor: Exhibitor,
+  project: Project,
+): { lateral: number[]; ahead: number[] } {
   const dir = { x: Math.sin(exhibitor.rotation), z: Math.cos(exhibitor.rotation) };
-  const offsets: number[] = [];
+  const lateral: number[] = [];
+  const ahead: number[] = [];
   for (const object of project.objects) {
     const assigned =
       object.exhibitorId === exhibitor.id ||
@@ -40,9 +58,11 @@ export function sideOffsetsFor(exhibitor: Exhibitor, project: Project): number[]
     // Proyección sobre la perpendicular al rumbo (positiva hacia el lado que
     // apunta `left` = perpendicular izquierda). El encuadre se centra luego
     // entre ambos extremos.
-    offsets.push(dx * dir.z - dz * dir.x);
+    lateral.push(dx * dir.z - dz * dir.x);
+    // Proyección sobre el rumbo: positivo = delante del expositor.
+    ahead.push(dx * dir.x + dz * dir.z);
   }
-  return offsets;
+  return { lateral, ahead };
 }
 
 export function isSchemaDefaultCamera(
@@ -75,20 +95,10 @@ export function sharesCameraWithOther(exhibitor: Exhibitor, project: Project): b
 }
 
 /**
- * Cámara de llegada de un expositor en el visor público.
- *
- * Si el expositor tiene rumbo propio, la cámara se coloca DETRÁS de él a lo
- * largo de su flecha y mira al stand. Sin rumbo se usa la cámara guardada en
- * la ficha, salvo que sea imposible (fuera del recinto, bajo el piso, pegada
- * al objetivo o compartida con otra ficha).
+ * ¿La cámara guardada en la ficha es válida? (dentro del recinto, sobre el
+ * piso, con distancia suficiente y sin compartirla con otra ficha).
  */
-export function focusCameraFor(
-  exhibitor: Exhibitor,
-  project: Project,
-): ExhibitorCamera {
-  if (exhibitor.rotationCustom || Math.abs(exhibitor.rotation) > 1e-3) {
-    return headingCameraFor(exhibitor, project);
-  }
+export function isFichaCameraUsable(exhibitor: Exhibitor, project: Project): boolean {
   const level = getLevel(project, entityLevelId(project, exhibitor));
   const vertices = levelVertices(level);
   const elevation = level?.elevation ?? 0;
@@ -101,7 +111,7 @@ export function focusCameraFor(
   );
   const targetInside =
     vertices.length < 3 || pointInPolygon({ x: target[0], z: target[2] }, vertices);
-  if (
+  return (
     finiteVector(position) &&
     finiteVector(target) &&
     !isSchemaDefaultCamera(position, target) &&
@@ -110,18 +120,37 @@ export function focusCameraFor(
     distance >= 0.8 &&
     targetInside &&
     isExhibitorCameraUsable(position, vertices)
-  ) {
-    return { position, target };
-  }
-  // Sin rumbo ni cámara válida: vista frontal (rumbo 0 = desde +Z).
-  return exhibitorCameraFromHeading(
-    exhibitor.position,
-    0,
-    vertices,
-    elevation,
-    3.2,
-    sideOffsetsFor(exhibitor, project),
   );
+}
+
+/**
+ * Desde dónde llega el visitante al expositor.
+ *
+ * Manda siempre la flecha: la cámara se coloca DETRÁS del expositor sobre la
+ * línea de su rumbo, a la distancia que el editor fijó (`cameraDistance`), y
+ * mira en la dirección de la flecha. Da igual que el rumbo sea 0°, que la ficha
+ * no tenga `rotationCustom` o que la cámara guardada en la ficha sea válida:
+ * la ficha guardada es una foto de un encuadre, no el criterio de llegada.
+ * Usarla cuando parecía «válida» es lo que llevaba a algunos expositores (como
+ * hugo plazas, con flecha a 0°) a mirar al centro del recinto.
+ */
+export function visitorCameraFor(
+  exhibitor: Exhibitor,
+  project: Project,
+): ExhibitorCamera {
+  return headingCameraFor(exhibitor, project);
+}
+
+/**
+ * Cámara de llegada de un expositor en el visor público.
+ *
+ * Misma regla que `visitorCameraFor`: rumbo (flecha) + distancia de llegada.
+ */
+export function focusCameraFor(
+  exhibitor: Exhibitor,
+  project: Project,
+): ExhibitorCamera {
+  return headingCameraFor(exhibitor, project);
 }
 
 function finiteVector(vector: [number, number, number]): boolean {

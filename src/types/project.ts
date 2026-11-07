@@ -234,6 +234,11 @@ export const exhibitorSchema = z.object({
    * sigue eligiendo el ángulo más despejado (comportamiento histórico).
    */
   rotationCustom: z.boolean().optional(),
+  /**
+   * Distancia en metros a la que se coloca la cámara detrás del expositor al
+   * llegar al stand. Más metros = plano más abierto. Por defecto 3,2 m.
+   */
+  cameraDistance: z.number().min(1).max(12).optional(),
   /** Nivel en el que se sitúa el expositor. */
   levelId: z.string().nullable().optional(),
   cameraPosition: vec3Schema.default([4, 2, 4]),

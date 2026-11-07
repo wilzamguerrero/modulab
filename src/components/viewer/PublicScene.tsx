@@ -21,12 +21,50 @@ export interface ViewerCameraCommand {
   position?: Vec3;
   target?: Vec3;
   /**
-   * Paradas de giro antes del destino, en orden. Cada una puede hacer una pausa
-   * (`hold`, ms) al llegar para que el encuadre se lea antes de seguir.
+   * Punto de paso del vuelo (la vista de lectura del nivel). No es una parada:
+   * la cámara lo atraviesa dentro de un mismo movimiento continuo hacia el
+   * destino.
    */
-  via?: { position: Vec3; target: Vec3; hold?: number }[];
+  via?: { position: Vec3; target: Vec3 }[];
   /** Campo de visión de la vista de lectura, si la hay. */
   fov?: number;
+}
+
+/** Duración del vuelo entre stands, en milisegundos. */
+const TRAVEL_DURATION_MS = 2200;
+
+type Point3 = [number, number, number];
+
+/**
+ * Bézier de paso: con `[p0, ...medios, pn]` construye una curva que arranca en
+ * p0, termina en pn y pasa por los puntos intermedios en fracciones regulares
+ * del recorrido. Así el punto de paso se atraviesa sin detener el movimiento.
+ */
+function buildTravelCurve(points: Point3[]): Point3[] {
+  if (points.length <= 2) return points;
+  // Con un único punto intermedio en t = 0,5 la curva de Bézier cuadrática
+  // pasa exactamente por él si se toma como control ponderado.
+  const [start, middle, end] = points;
+  return [start, [2 * middle[0] - (start[0] + end[0]) / 2, 2 * middle[1] - (start[1] + end[1]) / 2, 2 * middle[2] - (start[2] + end[2]) / 2], end];
+}
+
+function sampleCurve(points: Point3[], t: number): Point3 {
+  if (points.length === 0) return [0, 0, 0];
+  if (points.length === 1) return points[0];
+  if (points.length === 2) {
+    return [
+      points[0][0] + (points[1][0] - points[0][0]) * t,
+      points[0][1] + (points[1][1] - points[0][1]) * t,
+      points[0][2] + (points[1][2] - points[0][2]) * t,
+    ];
+  }
+  const [a, b, c] = points;
+  const u = 1 - t;
+  return [
+    u * u * a[0] + 2 * u * t * b[0] + t * t * c[0],
+    u * u * a[1] + 2 * u * t * b[1] + t * t * c[1],
+    u * u * a[2] + 2 * u * t * b[2] + t * t * c[2],
+  ];
 }
 
 function ViewerCamera({
@@ -76,31 +114,57 @@ function ViewerCamera({
         animate,
       );
 
-    const stops = command.via ?? [];
-    if (stops.length && animate) {
-      let cancelled = false;
-      const wait = (ms: number) =>
-        new Promise<void>((resolve) => {
-          window.setTimeout(resolve, ms);
-        });
-      const run = async () => {
-        for (const stop of stops) {
-          if (cancelled) return;
-          await goTo(stop.position, stop.target);
-          if (stop.hold) await wait(stop.hold);
-        }
-        if (!cancelled) await goTo(position, target);
-      };
-      run().catch(() => {
-        if (!cancelled) goTo(position, target);
-      });
-      return () => {
-        cancelled = true;
-      };
+    if (!animate) {
+      goTo(position, target);
+      return undefined;
     }
 
-    goTo(position, target);
-    return undefined;
+    // Un solo vuelo continuo hacia el expositor, con la vista de lectura como
+    // punto de paso (no como parada). La trayectoria es una Bézier que parte
+    // de la cámara actual, pasa por el punto de paso y termina en la llegada;
+    // se recorre con una sola curva de velocidad suave desde el inicio hasta
+    // el final, así no hay frenada ni espera a mitad de camino.
+    const waypoints = (command.via ?? [])
+      .map((stop) => ({ position: stop.position, target: stop.target }))
+      .filter((stop) => stop.position && stop.target)
+      .slice(0, 1);
+    const fromPosition = controls.getPosition(new THREE.Vector3());
+    const fromTarget = controls.getTarget(new THREE.Vector3());
+    const control = buildTravelCurve([
+      [fromPosition.x, fromPosition.y, fromPosition.z],
+      ...waypoints.map((stop) => stop.position),
+      position,
+    ]);
+    const targetControl = buildTravelCurve([
+      [fromTarget.x, fromTarget.y, fromTarget.z],
+      ...waypoints.map((stop) => stop.target),
+      target,
+    ]);
+    const start = performance.now();
+    let frame = 0;
+    let cancelled = false;
+    const step = () => {
+      if (cancelled) return;
+      const t = Math.min(1, (performance.now() - start) / TRAVEL_DURATION_MS);
+      const eased = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+      const nextPosition = sampleCurve(control, eased);
+      const nextTarget = sampleCurve(targetControl, eased);
+      controls.setLookAt(
+        nextPosition[0],
+        nextPosition[1],
+        nextPosition[2],
+        nextTarget[0],
+        nextTarget[1],
+        nextTarget[2],
+        false,
+      );
+      if (t < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
   }, [command, project]);
 
   // La vista de lectura puede traer su propio campo de visión (zoom).
