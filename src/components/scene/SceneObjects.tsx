@@ -296,6 +296,12 @@ function EditableObjectInstance({
   const [group, setGroup] = useState<THREE.Group | null>(null);
   const gizmoRef = useRef<any>(null);
   const transformMode = useEditorStore((state) => state.transformMode);
+  // Las cotas del objeto seleccionado son medidas de trabajo (del editor), así
+  // que las gobierna «Medidas al editar» y no las cotas de presentación del
+  // visor público.
+  const showMeasurements = useEditorStore(
+    (state) => state.project?.settings.showLiveMeasurements ?? true,
+  );
   const beginHistory = useEditorStore((state) => state.beginHistory);
   const commitHistory = useEditorStore((state) => state.commitHistory);
   const updateObjectTransform = useEditorStore((state) => state.updateObjectTransform);
@@ -374,7 +380,7 @@ function EditableObjectInstance({
           <SelectionRing object={object} highlighted={highlighted} color={ringColor} />
         ) : null}
       </group>
-      {selected && dimensions ? (
+      {selected && dimensions && showMeasurements ? (
         <Html
           center
           position={[
@@ -431,6 +437,7 @@ function ReadOnlyObjectInstance({
   tint,
   ringColor,
   showLabels,
+  showMeasurements,
   onSelect,
 }: {
   object: SceneObject;
@@ -439,9 +446,14 @@ function ReadOnlyObjectInstance({
   tint?: ObjectTint;
   ringColor?: string;
   showLabels: boolean;
+  /** Cotas del objeto resaltado en la vista de solo lectura. */
+  showMeasurements?: boolean;
   onSelect?: (object: SceneObject) => void;
 }) {
   const height = object.size ? Math.abs(object.size[1] * object.transform.scale[1]) : 1;
+  const dimensions = object.size
+    ? object.size.map((value, index) => Math.abs(value * object.transform.scale[index]))
+    : null;
   return (
     <>
       <group
@@ -462,6 +474,23 @@ function ReadOnlyObjectInstance({
         <ObjectModel object={object} tint={tint} />
         {highlighted ? <SelectionRing object={object} highlighted color={ringColor} /> : null}
       </group>
+      {highlighted && dimensions && showMeasurements ? (
+        <Html
+          center
+          position={[
+            object.transform.position[0],
+            object.transform.position[1] + elevation + dimensions[1] + 0.24,
+            object.transform.position[2],
+          ]}
+          zIndexRange={[110, 0]}
+          style={{ pointerEvents: 'none' }}
+        >
+          <div style={DIMENSION_LABEL_STYLE}>
+            A {dimensions[0].toFixed(2)} · H {dimensions[1].toFixed(2)} · F{' '}
+            {dimensions[2].toFixed(2)} m
+          </div>
+        </Html>
+      ) : null}
       {showLabels ? (
         <ObjectLabel
           object={object}
@@ -484,6 +513,7 @@ export function SceneObjects({
   selectedObjectId,
   selectedExhibitorId,
   showLabels = true,
+  showMeasurements = false,
   onSelectObject,
   onSelectExhibitor,
 }: {
@@ -493,6 +523,8 @@ export function SceneObjects({
   selectedExhibitorId?: string | null;
   /** Etiquetas de código/nombre de los objetos en la vista de solo lectura. */
   showLabels?: boolean;
+  /** Cotas de los objetos del expositor seleccionado en solo lectura. */
+  showMeasurements?: boolean;
   onSelectObject?: (id: string) => void;
   onSelectExhibitor?: (id: string) => void;
 }) {
@@ -534,6 +566,7 @@ export function SceneObjects({
             tint={tint}
             ringColor={ringColor}
             showLabels={showLabels}
+            showMeasurements={showMeasurements}
             onSelect={(entry) => {
               if (entry.exhibitorId) onSelectExhibitor?.(entry.exhibitorId);
             }}

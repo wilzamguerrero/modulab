@@ -207,6 +207,7 @@ export function createProject(options: {
       showGrid: true,
       autoSaveNotion: true,
       showDimensions: true,
+      showLiveMeasurements: true,
       shadowQuality: 'medium',
       exhibitorColorMode: 'rings',
       exhibitorColorOpacity: 0.35,

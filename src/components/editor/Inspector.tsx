@@ -336,7 +336,13 @@ function ProjectInspector({ project, onPublish }: { project: Project; onPublish:
         <Switch
           checked={project.settings.showDimensions}
           onChange={(showDimensions) => setSettings({ showDimensions })}
-          label="Cotas de muros"
+          label="Cotas y medidas"
+        />
+        <Switch
+          checked={project.settings.showLiveMeasurements}
+          onChange={(showLiveMeasurements) => setSettings({ showLiveMeasurements })}
+          label="Medidas al editar"
+          hint="Largo y ancho mientras dibujas o editas un elemento."
         />
         <Switch
           checked={project.settings.snapToGrid}

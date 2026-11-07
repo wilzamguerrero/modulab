@@ -8,9 +8,12 @@ import {
   Boxes,
   BrickWall,
   Check,
+  ChevronDown,
+  ChevronRight,
   Cloud,
   DoorOpen,
   DraftingCompass,
+  Eye,
   Globe2,
   Hand,
   HelpCircle,
@@ -20,6 +23,7 @@ import {
   Maximize2,
   MousePointer2,
   Move,
+  MoveHorizontal,
   Orbit,
   PanelLeft,
   PanelRight,
@@ -84,13 +88,21 @@ const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string; icon: ReactNode }> = 
 function SceneLabelToggles({
   showObjectLabels,
   showExhibitorNames,
+  showMeasurements,
+  showLiveMeasurements,
   onToggleObjectLabels,
   onToggleExhibitorNames,
+  onToggleMeasurements,
+  onToggleLiveMeasurements,
 }: {
   showObjectLabels: boolean;
   showExhibitorNames: boolean;
+  showMeasurements: boolean;
+  showLiveMeasurements: boolean;
   onToggleObjectLabels: () => void;
   onToggleExhibitorNames: () => void;
+  onToggleMeasurements: () => void;
+  onToggleLiveMeasurements: () => void;
 }) {
   return (
     <>
@@ -121,6 +133,34 @@ function SceneLabelToggles({
       >
         <Users size={12} />
         Nombres
+      </button>
+      <button
+        type="button"
+        className={`view-cube-ortho${showMeasurements ? ' is-active' : ''}`}
+        onClick={onToggleMeasurements}
+        title={
+          showMeasurements
+            ? 'Ocultar las cotas de la planta'
+            : 'Mostrar las cotas de los espacios y muros'
+        }
+        aria-pressed={showMeasurements}
+      >
+        <Ruler size={12} />
+        Cotas
+      </button>
+      <button
+        type="button"
+        className={`view-cube-ortho${showLiveMeasurements ? ' is-active' : ''}`}
+        onClick={onToggleLiveMeasurements}
+        title={
+          showLiveMeasurements
+            ? 'Ocultar el largo y ancho mientras dibujas o editas'
+            : 'Ver el largo y ancho de lo que dibujas o editas'
+        }
+        aria-pressed={showLiveMeasurements}
+      >
+        <MoveHorizontal size={12} />
+        Medidas
       </button>
     </>
   );
@@ -210,6 +250,9 @@ export function EditorPage() {
   // Las etiquetas de código/nombre de los objetos también se pueden apagar
   // para revisar la escena limpia.
   const [showObjectLabels, setShowObjectLabels] = useState(true);
+  // El panel «Vista» de la planta se puede plegar para no tapar el HUD con el
+  // área, los vértices y los muros.
+  const [planViewOpen, setPlanViewOpen] = useState(true);
   const [notionPullOpen, setNotionPullOpen] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [notionStatus, setNotionStatus] = useState<NotionStatus | null>(null);
@@ -898,8 +941,16 @@ export function EditorPage() {
               <SceneLabelToggles
                 showObjectLabels={showObjectLabels}
                 showExhibitorNames={showExhibitorNames}
+                showMeasurements={project.settings.showDimensions}
+                showLiveMeasurements={project.settings.showLiveMeasurements}
                 onToggleObjectLabels={() => setShowObjectLabels((value) => !value)}
                 onToggleExhibitorNames={() => setShowExhibitorNames((value) => !value)}
+                onToggleMeasurements={() =>
+                  setSettings({ showDimensions: !project.settings.showDimensions })
+                }
+                onToggleLiveMeasurements={() =>
+                  setSettings({ showLiveMeasurements: !project.settings.showLiveMeasurements })
+                }
               />
               {project.environment.url || project.environment.blockId || environmentPreview ? (
                 <button
@@ -919,14 +970,44 @@ export function EditorPage() {
               ) : null}
             </div>
           ) : (
-            <div className="view-cube view-cube-plan">
-              <span className="view-cube-title">Vista</span>
-              <SceneLabelToggles
-                showObjectLabels={showObjectLabels}
-                showExhibitorNames={showExhibitorNames}
-                onToggleObjectLabels={() => setShowObjectLabels((value) => !value)}
-                onToggleExhibitorNames={() => setShowExhibitorNames((value) => !value)}
-              />
+            <div className={`view-cube view-cube-plan${planViewOpen ? '' : ' is-collapsed'}`}>
+              <button
+                type="button"
+                className="view-cube-title view-cube-toggle"
+                onClick={() => setPlanViewOpen((value) => !value)}
+                title={planViewOpen ? 'Ocultar las vistas de la planta' : 'Mostrar las vistas de la planta'}
+                aria-expanded={planViewOpen}
+              >
+                <Eye size={11} />
+                Vista
+                {planViewOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              </button>
+              {planViewOpen ? (
+                <>
+                  <SceneLabelToggles
+                    showObjectLabels={showObjectLabels}
+                    showExhibitorNames={showExhibitorNames}
+                    showMeasurements={project.settings.showDimensions}
+                    showLiveMeasurements={project.settings.showLiveMeasurements}
+                    onToggleObjectLabels={() => setShowObjectLabels((value) => !value)}
+                    onToggleExhibitorNames={() => setShowExhibitorNames((value) => !value)}
+                    onToggleMeasurements={() =>
+                      setSettings({ showDimensions: !project.settings.showDimensions })
+                    }
+                    onToggleLiveMeasurements={() =>
+                      setSettings({ showLiveMeasurements: !project.settings.showLiveMeasurements })
+                    }
+                  />
+                  <button
+                    type="button"
+                    className={`view-cube-ortho${project.settings.showGrid ? ' is-active' : ''}`}
+                    onClick={() => setSettings({ showGrid: !project.settings.showGrid })}
+                    title="Mostrar u ocultar la cuadrícula"
+                  >
+                    Cuadrícula
+                  </button>
+                </>
+              ) : null}
             </div>
           )}
 

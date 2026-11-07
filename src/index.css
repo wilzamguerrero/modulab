@@ -1543,13 +1543,18 @@ input[type="range"] {
   margin: 0 3px;
 }
 
+/* El HUD va arriba, debajo de la insignia «Planta 2D», y ocupa el menor ancho
+   posible: abajo chocaba con la barra de dibujo y con el panel de vistas, que
+   lo tapaban justo cuando se miraban las medidas. */
 .plan-hud {
   position: absolute;
   left: 14px;
-  bottom: 14px;
+  top: 40px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
+  max-width: min(560px, calc(100% - 120px));
   padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1794,11 +1799,45 @@ input[type="range"] {
   background: var(--accent-soft);
 }
 
-/* En la planta el panel de etiquetas va abajo a la izquierda para no chocar
-   con el zoom, la ayuda ni las acciones de dibujo. */
+/* En la planta el panel de vistas va abajo a la izquierda y se puede plegar:
+   desplegado ocupaba una columna entera de la planta y tapaba el HUD con el
+   área, los vértices y los muros. */
 .view-cube.view-cube-plan {
   left: 14px;
   right: auto;
+  top: auto;
+  bottom: 14px;
+  width: 168px;
+}
+
+.view-cube.view-cube-plan.is-collapsed {
+  width: auto;
+  padding: 4px;
+}
+
+.view-cube-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  width: 100%;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.view-cube-toggle:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.view-cube-toggle svg:last-child {
+  margin-left: auto;
 }
 
 /* ------------------------------------------------------------------ */
@@ -3136,6 +3175,12 @@ input[type="range"] {
   font-size: 10px;
   white-space: nowrap;
   padding-right: 4px;
+}
+
+.plan-draw-actions > span strong {
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-weight: 500;
 }
 
 .plan-pending {

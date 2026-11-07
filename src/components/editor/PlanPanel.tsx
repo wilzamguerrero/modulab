@@ -472,7 +472,13 @@ export function PlanPanel({ project }: { project: Project }) {
         <Switch
           checked={project.settings.showDimensions}
           onChange={(showDimensions) => setSettings({ showDimensions })}
-          label="Mostrar cotas de muros"
+          label="Mostrar cotas y medidas"
+        />
+        <Switch
+          checked={project.settings.showLiveMeasurements}
+          onChange={(showLiveMeasurements) => setSettings({ showLiveMeasurements })}
+          label="Medidas al dibujar y editar"
+          hint="Muestra el largo o ancho de lo que dibujas y las medidas de lo que seleccionas."
         />
       </section>
 

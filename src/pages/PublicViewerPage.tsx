@@ -11,6 +11,7 @@ import {
   MapPin,
   Maximize2,
   MousePointer2,
+  Ruler,
   Sparkles,
   Tags,
   Users,
@@ -317,6 +318,9 @@ export function PublicViewerPage() {
   const [showLabels, setShowLabels] = useState(false);
   // Botón independiente para ver solo los nombres de los expositores.
   const [showExhibitorNames, setShowExhibitorNames] = useState(false);
+  // Las cotas llegan apagadas: en la visita pública no hacen falta, pero se
+  // pueden encender para consultar el tamaño de los objetos de un expositor.
+  const [showMeasurements, setShowMeasurements] = useState(false);
   const [cameraCommand, setCameraCommand] = useState<ViewerCameraCommand>({
     mode: 'reset',
     nonce: 0,
@@ -494,6 +498,7 @@ export function PublicViewerPage() {
             showSplat={showSplat}
             showObjectLabels={showLabels}
             showExhibitorNames={showExhibitorNames}
+            showMeasurements={showMeasurements}
             onSelectExhibitor={selectById}
             onClearSelection={() => setSelectedId(null)}
           />
@@ -534,6 +539,20 @@ export function PublicViewerPage() {
             >
               <Users size={14} />
               Nombres
+            </button>
+            <button
+              type="button"
+              className={showMeasurements ? 'is-active' : ''}
+              onClick={() => setShowMeasurements((value) => !value)}
+              title={
+                showMeasurements
+                  ? 'Ocultar las cotas de los objetos'
+                  : 'Ver las cotas de los objetos del expositor seleccionado'
+              }
+              aria-pressed={showMeasurements}
+            >
+              <Ruler size={14} />
+              Medidas
             </button>
             {publicProject.environment.url || publicProject.environment.blockId ? (
               <button

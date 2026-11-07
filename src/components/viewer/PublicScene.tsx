@@ -108,6 +108,7 @@ export function PublicScene({
   showSplat = false,
   showObjectLabels = false,
   showExhibitorNames = false,
+  showMeasurements = false,
   onSelectExhibitor,
   onClearSelection,
 }: {
@@ -120,6 +121,8 @@ export function PublicScene({
   showObjectLabels?: boolean;
   /** Nombres flotantes de los expositores sobre sus marcadores. */
   showExhibitorNames?: boolean;
+  /** Cotas A/H/F de los objetos del expositor seleccionado. */
+  showMeasurements?: boolean;
   onSelectExhibitor: (id: string) => void;
   onClearSelection: () => void;
 }) {
@@ -159,6 +162,7 @@ export function PublicScene({
           project={project}
           selectedExhibitorId={selectedExhibitorId}
           showLabels={showObjectLabels}
+          showMeasurements={showMeasurements}
           onSelectExhibitor={onSelectExhibitor}
         />
         <ExhibitorMarkers

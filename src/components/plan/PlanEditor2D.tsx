@@ -118,6 +118,139 @@ function fitViewport(vertices: Vec2[]): Viewport {
   };
 }
 
+/**
+ * Cota provisional de dibujo: línea paralela al tramo con su longitud, para
+ * ver el largo mientras se traza un contorno, una división o un muro libre.
+ */
+function LiveDimension({
+  a,
+  b,
+  textSize,
+  offset,
+  color = '#d7ff4f',
+}: {
+  a: Vec2;
+  b: Vec2;
+  textSize: number;
+  offset?: number;
+  color?: string;
+}) {
+  const length = distance(a, b);
+  if (length < 0.02) return null;
+  const ux = (b.x - a.x) / length;
+  const uz = (b.z - a.z) / length;
+  const nx = -uz;
+  const nz = ux;
+  const gap = offset ?? Math.max(textSize * 1.2, 0.12);
+  const p1 = { x: a.x + nx * gap, z: a.z + nz * gap };
+  const p2 = { x: b.x + nx * gap, z: b.z + nz * gap };
+  const tick = Math.max(textSize * 0.3, 0.035);
+  const stroke = Math.max(textSize * 0.07, 0.008);
+  const mid = { x: (p1.x + p2.x) / 2, z: (p1.z + p2.z) / 2 };
+  return (
+    <g pointerEvents="none">
+      <line x1={a.x} y1={a.z} x2={p1.x} y2={p1.z} stroke={color} strokeOpacity={0.3} strokeWidth={stroke} />
+      <line x1={b.x} y1={b.z} x2={p2.x} y2={p2.z} stroke={color} strokeOpacity={0.3} strokeWidth={stroke} />
+      <line x1={p1.x} y1={p1.z} x2={p2.x} y2={p2.z} stroke={color} strokeWidth={stroke} />
+      <line x1={p1.x - ux * tick} y1={p1.z - uz * tick} x2={p1.x + ux * tick} y2={p1.z + uz * tick} stroke={color} strokeWidth={stroke} />
+      <line x1={p2.x - ux * tick} y1={p2.z - uz * tick} x2={p2.x + ux * tick} y2={p2.z + uz * tick} stroke={color} strokeWidth={stroke} />
+      <MeasureChip
+        x={mid.x + nx * textSize * 0.9}
+        z={mid.z + nz * textSize * 0.9}
+        text={formatMeters(length, 2)}
+        textSize={textSize}
+        color={color}
+      />
+    </g>
+  );
+}
+
+/** Texto de medida con halo oscuro para que se lea sobre cualquier relleno. */
+function MeasureChip({
+  x,
+  z,
+  text,
+  textSize,
+  color = '#d7ff4f',
+}: {
+  x: number;
+  z: number;
+  text: string;
+  textSize: number;
+  color?: string;
+}) {
+  return (
+    <text
+      x={x}
+      y={z}
+      textAnchor="middle"
+      dominantBaseline="middle"
+      fill={color}
+      fontSize={textSize * 0.95}
+      fontFamily="var(--mono)"
+      stroke="rgba(9,12,15,.9)"
+      strokeWidth={textSize * 0.26}
+      style={{ paintOrder: 'stroke' }}
+      pointerEvents="none"
+    >
+      {text}
+    </text>
+  );
+}
+
+/** Punto medio de un tramo, desplazado en perpendicular para colocar la cota. */
+function segmentLabelPoint(a: Vec2, b: Vec2, offset: number): Vec2 {
+  const length = Math.max(distance(a, b), 1e-6);
+  return {
+    x: (a.x + b.x) / 2 - ((b.z - a.z) / length) * offset,
+    z: (a.z + b.z) / 2 + ((b.x - a.x) / length) * offset,
+  };
+}
+
+/**
+ * Cota sobre la planta. Va con fondo oscuro y borde para que se lea encima de
+ * muros, forjados y rejilla: antes solo había un texto suelto y se perdía.
+ */
+function PlanDimension({
+  x,
+  z,
+  text,
+  textSize,
+  emphasis = false,
+}: {
+  x: number;
+  z: number;
+  text: string;
+  textSize: number;
+  emphasis?: boolean;
+}) {
+  const width = text.length * textSize * 0.62 + textSize * 1.15;
+  const height = textSize * 1.6;
+  return (
+    <g transform={`translate(${x} ${z})`} pointerEvents="none">
+      <rect
+        x={-width / 2}
+        y={-height / 2}
+        width={width}
+        height={height}
+        rx={height * 0.32}
+        fill={emphasis ? 'rgba(22, 28, 12, .93)' : 'rgba(9, 12, 15, .84)'}
+        stroke={emphasis ? '#d7ff4f' : 'rgba(255,255,255,.24)'}
+        strokeWidth={Math.max(height * 0.045, 0.004)}
+      />
+      <text
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fill={emphasis ? '#d7ff4f' : 'rgba(255,255,255,.84)'}
+        fontSize={textSize * 0.86}
+        fontFamily="var(--mono)"
+      >
+        {text}
+      </text>
+    </g>
+  );
+}
+
 /** Símbolos de puertas y ventanas sobre un muro de la planta. */
 function OpeningMarks({
   a,
@@ -129,6 +262,7 @@ function OpeningMarks({
   textSize,
   hitWidth,
   paintColorFor,
+  showMeasurements = false,
   onSelect,
 }: {
   a: Vec2;
@@ -140,6 +274,8 @@ function OpeningMarks({
   textSize: number;
   hitWidth: number;
   paintColorFor?: (opening: WallOpening) => string | undefined;
+  /** Muestra ancho × alto de la abertura seleccionada. */
+  showMeasurements?: boolean;
   onSelect?: (id: string) => void;
 }) {
   const length = wallLength(a, b);
@@ -247,6 +383,15 @@ function OpeningMarks({
                 pointerEvents="none"
               />
             ) : null}
+            {selected && showMeasurements ? (
+              <MeasureChip
+                x={center.x + normal.x * textSize * 1.7}
+                z={center.z + normal.z * textSize * 1.7}
+                text={`${formatMeters(span.width, 2)} × ${formatMeters(span.opening.height, 2)}`}
+                textSize={textSize}
+                color={color}
+              />
+            ) : null}
             <line
               x1={p1.x}
               y1={p1.z}
@@ -351,6 +496,12 @@ export function PlanEditor2D({
   const snap = settings?.snapToGrid ?? false;
   const gridSize = settings?.gridSize ?? 0.25;
   const showDimensions = settings?.showDimensions ?? true;
+  /**
+   * Medidas de trabajo: largo y ancho de lo que se está dibujando o editando.
+   * Van aparte de las cotas de presentación para poder verlas sin tener las
+   * cotas encima de toda la planta.
+   */
+  const showLive = settings?.showLiveMeasurements ?? true;
   const showGrid = settings?.showGrid ?? true;
 
   useEffect(() => {
@@ -1069,6 +1220,46 @@ export function PlanEditor2D({
     return mixHexColors(base, exhibitorColor(exhibitor), amount);
   };
   const dimExisting = tool === 'draw' && planDrawMode === 'outline' && draft.length > 0;
+  const rectSize = rectDraft && rectDraft.length >= 3
+    ? {
+        width: Math.abs(rectDraft[2].x - rectDraft[0].x),
+        depth: Math.abs(rectDraft[2].z - rectDraft[0].z),
+        center: {
+          x: (rectDraft[0].x + rectDraft[2].x) / 2,
+          z: (rectDraft[0].z + rectDraft[2].z) / 2,
+        },
+      }
+    : null;
+
+  /**
+   * Resumen del contorno en construcción: largo del tramo actual, área que ya
+   * encierra y perímetro. Se muestra en la barra de acciones mientras se dibuja.
+   */
+  const draftLive = useMemo(() => {
+    if (!draft.length) return null;
+    const last = draft[draft.length - 1];
+    const segment = hover ? distance(last, hover) : 0;
+    const perimeter =
+      draft.reduce(
+        (total, point, index) =>
+          index === 0 ? total : total + distance(draft[index - 1], point),
+        0,
+      ) + (hover ? distance(last, hover) : 0);
+    const area = draft.length >= 3 ? Math.abs(polygonArea(draft)) : 0;
+    return {
+      segment,
+      area,
+      perimeter,
+      color:
+        planDrawMode === 'space'
+          ? '#7dd3fc'
+          : planDrawMode === 'hole'
+            ? '#ff8a65'
+            : planDrawMode === 'partition'
+              ? '#c4b5fd'
+              : undefined,
+    };
+  }, [draft, hover, planDrawMode]);
 
   const objectFootprints = useMemo(
     () =>
@@ -1285,6 +1476,7 @@ export function PlanEditor2D({
                       textSize={textSize}
                       hitWidth={hitWidth}
                       paintColorFor={openingPaintColor}
+                      showMeasurements={showLive}
                       onSelect={tool === 'internalWall' ? undefined : handleOpeningSelect}
                     />
                   ) : null}
@@ -1379,6 +1571,7 @@ export function PlanEditor2D({
                 textSize={textSize}
                 hitWidth={hitWidth}
                 paintColorFor={openingPaintColor}
+                showMeasurements={showLive}
                 onSelect={tool === 'internalWall' ? undefined : handleOpeningSelect}
               />
               {showDimensions ? (
@@ -1617,6 +1810,14 @@ export function PlanEditor2D({
                 stroke={selected ? '#d7ff4f' : paintColor ?? 'rgba(255,255,255,.4)'}
                 strokeWidth={Math.max(viewport.width / 1000, 0.006)}
               />
+              {selected && showLive ? (
+                <MeasureChip
+                  x={0}
+                  z={depth / 2 + textSize * 0.95}
+                  text={`${formatMeters(width, 2)} × ${formatMeters(depth, 2)}`}
+                  textSize={textSize}
+                />
+              ) : null}
               {showObjectLabels &&
               width * (viewport.width / Math.max(svgRef.current?.clientWidth ?? 800, 1)) > 34 ? (
                 <text
@@ -1897,6 +2098,23 @@ export function PlanEditor2D({
                 strokeWidth={Math.max(viewport.width / 700, 0.018)}
               />
             ) : null}
+            {showLive && rectSize ? (
+              <MeasureChip
+                x={rectSize.center.x}
+                z={rectSize.center.z}
+                text={`${formatMeters(rectSize.width, 2)} × ${formatMeters(rectSize.depth, 2)}`}
+                textSize={textSize}
+                color="#ff8a65"
+              />
+            ) : null}
+            {showLive && rectDraft && rectDraft.length >= 3 ? (
+              <>
+                <LiveDimension a={rectDraft[0]} b={rectDraft[1]} textSize={textSize} color="#ff8a65" />
+                <LiveDimension a={rectDraft[1]} b={rectDraft[2]} textSize={textSize} color="#ff8a65" />
+                <LiveDimension a={rectDraft[2]} b={rectDraft[3]} textSize={textSize} color="#ff8a65" />
+                <LiveDimension a={rectDraft[3]} b={rectDraft[0]} textSize={textSize} color="#ff8a65" />
+              </>
+            ) : null}
             {draft.length >= 2 ? (
               <polygon
                 points={draft.map((point) => `${point.x},${point.z}`).join(' ')}
@@ -1922,6 +2140,45 @@ export function PlanEditor2D({
                 stroke="rgba(215,255,79,.6)"
                 strokeWidth={Math.max(viewport.width / 900, 0.012)}
                 strokeDasharray={`${viewport.width / 180} ${viewport.width / 240}`}
+              />
+            ) : null}
+            {showLive && draft.length >= 1 && hover ? (
+              <LiveDimension
+                a={draft[draft.length - 1]}
+                b={hover}
+                textSize={textSize}
+                color={draftLive?.color}
+              />
+            ) : null}
+            {/* Ejes del tramo que se está trazando: Δx / Δz medidos desde el
+                último vértice, cada uno en su cota. */}
+            {showLive && draft.length >= 1 && hover ? (
+              <>
+                <LiveDimension
+                  a={{ x: draft[draft.length - 1].x, z: draft[draft.length - 1].z }}
+                  b={{ x: hover.x, z: draft[draft.length - 1].z }}
+                  textSize={textSize}
+                  color="rgba(215,255,79,.5)"
+                />
+                <LiveDimension
+                  a={{ x: hover.x, z: draft[draft.length - 1].z }}
+                  b={hover}
+                  textSize={textSize}
+                  color="rgba(215,255,79,.5)"
+                />
+              </>
+            ) : null}
+            {/* Cierre hacia el primer vértice: largo y ancho con los que
+                quedaría el contorno al pulsar sobre el punto de origen. */}
+            {showLive &&
+            draft.length >= 3 &&
+            hover &&
+            distance(hover, draft[0]) < viewport.width / 35 ? (
+              <LiveDimension
+                a={hover}
+                b={draft[0]}
+                textSize={textSize}
+                color="rgba(215,255,79,.75)"
               />
             ) : null}
             {draft.length >= 3 && hover && distance(hover, draft[0]) < viewport.width / 35 ? (
@@ -1962,6 +2219,9 @@ export function PlanEditor2D({
                 strokeDasharray={`${viewport.width / 180} ${viewport.width / 240}`}
                 pointerEvents="none"
               />
+            ) : null}
+            {showLive && wallStart && hover ? (
+              <LiveDimension a={wallStart} b={hover} textSize={textSize} />
             ) : null}
             {wallStart ? (
               <circle
@@ -2061,6 +2321,15 @@ export function PlanEditor2D({
       {tool === 'draw' && draft.length > 0 ? (
         <div className="plan-draw-actions">
           <span>
+            {showLive && draftLive && draftLive.segment > 0 ? (
+              <><strong>{formatMeters(draftLive.segment, 2)}</strong> tramo · </>
+            ) : null}
+            {showLive && draftLive && draftLive.area > 0 ? (
+              <><strong>{formatArea(draftLive.area)}</strong> · </>
+            ) : null}
+            {showLive && draftLive && draftLive.perimeter > 0 ? (
+              <><strong>{formatMeters(draftLive.perimeter, 2)}</strong> perímetro · </>
+            ) : null}
             {draft.length} vértice{draft.length === 1 ? '' : 's'} · Enter para{' '}
             {planDrawMode === 'space'
               ? 'crear el espacio'
@@ -2087,7 +2356,12 @@ export function PlanEditor2D({
 
       {tool === 'internalWall' && wallStart ? (
         <div className="plan-draw-actions">
-          <span>Muro libre · sigue haciendo clic para encadenar tramos</span>
+          <span>
+            {showLive && wallStart && hover ? (
+              <><strong>{formatMeters(distance(wallStart, hover), 2)}</strong> · </>
+            ) : null}
+            Muro libre · sigue haciendo clic para encadenar tramos
+          </span>
           <Button
             size="sm"
             variant="ghost"

@@ -285,6 +285,12 @@ export const projectSettingsSchema = z.object({
   showGrid: z.boolean().default(true),
   autoSaveNotion: z.boolean().default(true),
   showDimensions: z.boolean().default(true),
+  /**
+   * Medidas en vivo mientras se dibuja o se edita (largo de tramos, ancho de
+   * muros, medidas de objetos). Asistencia de trabajo, no una cotas de
+   * presentación: el visor público no las muestra.
+   */
+  showLiveMeasurements: z.boolean().default(true),
   shadowQuality: shadowQualitySchema.default('medium'),
   /** Aros, pintura de elementos asociados o ambas cosas. */
   exhibitorColorMode: exhibitorColorModeSchema.default('rings'),
