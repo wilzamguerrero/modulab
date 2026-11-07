@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import {
   Camera,
   Check,
+  Copy,
   Globe2,
   HardDriveUpload,
   Lightbulb,
@@ -165,13 +166,22 @@ function ReaderViewsSection({
   const renameReaderView = useEditorStore((state) => state.renameReaderView);
   const deleteReaderView = useEditorStore((state) => state.deleteReaderView);
   const setActiveReaderView = useEditorStore((state) => state.setActiveReaderView);
+  const setReaderViewLevel = useEditorStore((state) => state.setReaderViewLevel);
+  const duplicateReaderView = useEditorStore((state) => state.duplicateReaderView);
   const setView = useEditorStore((state) => state.setView);
   const toast = useUiStore((state) => state.toast);
+  const levelId = useEditorStore((state) => state.activeLevelId);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
 
   const views = project.readerViews ?? [];
   const activeId = project.activeReaderViewId ?? null;
+  const activeLevel = project.levels.find((level) => level.id === levelId) ?? null;
+  // Qué vistas actúan sobre el nivel en el que estás trabajando: las de ese
+  // nivel y las generales (sin nivel). Se marca en la lista para no tener que
+  // abrir cada selector para saberlo.
+  const isViewForActiveLevel = (view: Project['readerViews'][number]) =>
+    !view.levelId || view.levelId === levelId;
 
   return (
     <div className="reader-views">
@@ -183,12 +193,21 @@ function ReaderViewsSection({
               <li>Coloca la cámara en 3D (órbita, zoom y ángulo) justo como quieres que abra el enlace público.</li>
               <li><strong>Guardar vista</strong> captura ese encuadre. Puedes guardar varias (entrada, planta alta, pasillo…).</li>
               <li>Haz clic en una vista para ir a ella; el botón <strong>Activar</strong> decide cuál abre el visor público.</li>
-              <li>Publica de nuevo para que el enlace público use la vista activa.</li>
+              <li>Asigna un <strong>nivel</strong> a la vista: los expositores de ese nivel pasan por ella unos instantes al viajar entre stands, en lugar de los antiguos puntos de rotación.</li>
+              <li>Publica de nuevo para que el enlace público use las vistas.</li>
             </ul>
           </HelpButton>
           <Badge tone={views.length ? 'accent' : 'neutral'}>{views.length}</Badge>
         </span>
       </div>
+
+      {activeLevel ? (
+        <p className="panel-note reader-view-active-level">
+          <span className="reader-view-active-dot" aria-hidden="true" />
+          Nivel activo: <strong>{activeLevel.name}</strong>. Las vistas con punto verde aplican a
+          este nivel; el resto pertenece a otros niveles.
+        </p>
+      ) : null}
 
       <div className="inline-actions">
         <Button
@@ -199,8 +218,8 @@ function ReaderViewsSection({
             // La captura se hace con la cámara en 3D: si se está en planta se
             // cambia primero para que el encuadre sea el real.
             setView('3d');
-            const id = saveReaderView();
-            if (id) toast('Vista de lectura guardada y activada.', 'success');
+            const id = saveReaderView(undefined, useEditorStore.getState().activeLevelId);
+            if (id) toast('Vista de lectura guardada para el nivel activo.', 'success');
           }}
         >
           Guardar vista actual
@@ -216,8 +235,22 @@ function ReaderViewsSection({
         <div className="reader-view-list">
           {views.map((view) => {
             const active = view.id === activeId;
+            const applies = isViewForActiveLevel(view);
+            const level = view.levelId
+              ? project.levels.find((entry) => entry.id === view.levelId)
+              : null;
             return (
-              <div key={view.id} className={`reader-view-item${active ? ' is-active' : ''}`}>
+              <div key={view.id} className="reader-view-row">
+              <div className={`reader-view-item${active ? ' is-active' : ''}`}>
+                <span
+                  className={`reader-view-applies${applies ? ' is-applying' : ''}`}
+                  title={
+                    applies
+                      ? `Aplica al nivel ${activeLevel?.name ?? 'activo'}`
+                      : `Pertenece a ${level?.name ?? 'otro nivel'}`
+                  }
+                  aria-label={applies ? 'Aplica al nivel activo' : 'Pertenece a otro nivel'}
+                />
                 <button
                   type="button"
                   className="reader-view-main"
@@ -276,6 +309,14 @@ function ReaderViewsSection({
                     }}
                   />
                   <IconButton
+                    label="Duplicar vista (mismo encuadre para otro nivel)"
+                    icon={<Copy size={12} />}
+                    onClick={() => {
+                      const id = duplicateReaderView(view.id);
+                      if (id) toast(`«${view.name}» duplicada.`, 'success');
+                    }}
+                  />
+                  <IconButton
                     label="Usar en el visor público"
                     icon={<Camera size={12} />}
                     onClick={() => {
@@ -293,13 +334,29 @@ function ReaderViewsSection({
                   />
                 </div>
               </div>
+              <label className="reader-view-level">
+                <span>Nivel</span>
+                <Select
+                  value={view.levelId ?? ''}
+                  title="Los expositores de este nivel pasan por esta vista al viajar"
+                  onChange={(event) => setReaderViewLevel(view.id, event.target.value || null)}
+                >
+                  <option value="">Todos los niveles</option>
+                  {project.levels.map((level) => (
+                    <option key={level.id} value={level.id}>
+                      {level.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              </div>
             );
           })}
         </div>
       )}
       <p className="panel-note">
-        El visor público abre en la vista marcada como «En uso». Sin vista activa usa la cámara
-        del proyecto.
+        El visor público abre en la vista «En uso». Al viajar entre expositores, la cámara pasa
+        por la vista del nivel de destino y entra al stand mirando según su flecha de rotación.
       </p>
     </div>
   );

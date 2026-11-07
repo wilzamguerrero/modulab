@@ -83,7 +83,6 @@ export function LevelsPanel({ project }: { project: Project }) {
       `${counts.objects} objeto(s)`,
       `${counts.exhibitors} expositor(es)`,
     ];
-    if (counts.rotationPoints) parts.push(`${counts.rotationPoints} punto(s) de rotación`);
     return `Se moverá con el piso: ${parts.join(' · ')}.`;
   }, [activeLevel, project]);
 

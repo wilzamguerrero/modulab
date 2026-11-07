@@ -192,7 +192,6 @@ export function createProject(options: {
     objects: [],
     lights: createDefaultLights(),
     exhibitors: [],
-    rotationPoints: [],
     camera,
     readerViews: [],
     environment: {

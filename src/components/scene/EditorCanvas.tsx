@@ -9,7 +9,6 @@ import { SceneEnvironment } from './SceneEnvironment';
 import { SceneShadows } from './SceneShadows';
 import { SceneObjects } from './SceneObjects';
 import { ExhibitorMarkers } from './ExhibitorMarkers';
-import { RotationPointMarkers } from './RotationPointMarkers';
 import { SceneSplat } from './SceneSplat';
 import { LevelGizmo } from './LevelGizmo';
 import { MeasurementLayer } from './MeasurementLayer';
@@ -579,7 +578,6 @@ function EditorSceneContents({
   const setEnvironment = useEditorStore((state) => state.setEnvironment);
   const addObject = useEditorStore((state) => state.addObject);
   const addExhibitor = useEditorStore((state) => state.addExhibitor);
-  const addRotationPoint = useEditorStore((state) => state.addRotationPoint);
   const addOpening = useEditorStore((state) => state.addOpening);
   const addStair = useEditorStore((state) => state.addStair);
   const toggleWall = useEditorStore((state) => state.toggleWall);
@@ -634,13 +632,6 @@ function EditorSceneContents({
         ? snapPoint(point, activeProject.settings.gridSize)
         : point;
       addExhibitor(position);
-      return;
-    }
-    if (state.tool === 'rotationPoint') {
-      const position = activeProject.settings.snapToGrid
-        ? snapPoint(point, activeProject.settings.gridSize)
-        : point;
-      addRotationPoint(position);
       return;
     }
     if (state.tool === 'wall') {
@@ -786,13 +777,6 @@ function EditorSceneContents({
         selectedId={selection?.type === 'exhibitor' ? selection.id : null}
         onSelect={(id) => setSelection({ type: 'exhibitor', id })}
       />
-      <RotationPointMarkers
-        points={project.rotationPoints}
-        project={project}
-        editor
-        selectedId={selection?.type === 'rotationPoint' ? selection.id : null}
-        onSelect={(id) => setSelection({ type: 'rotationPoint', id })}
-      />
       <OrbitControls
         makeDefault
         enableDamping
@@ -891,11 +875,6 @@ export function EditorCanvas({
         state.setSelection({ type: 'exhibitor', id });
         return;
       }
-      const point = state.project?.rotationPoints.find((entry) => entry.id === id);
-      if (point) {
-        state.setSelection({ type: 'rotationPoint', id });
-        return;
-      }
       state.setSelection({ type: 'object', id });
     };
     // En captura: corre antes que los manejadores de R3F, así la pieza queda
@@ -934,10 +913,6 @@ export function EditorCanvas({
         point: new THREE.Vector3(exhibitor.position.x, y, exhibitor.position.z),
       });
     }
-    for (const point of project.rotationPoints) {
-      const y = (elevations[point.levelId ?? ''] ?? 0) + 0.02;
-      points.push({ id: point.id, point: new THREE.Vector3(point.position.x, y, point.position.z) });
-    }
     for (const object of project.objects) {
       if (!object.visible) continue;
       const y = (elevations[object.levelId ?? ''] ?? 0) + object.transform.position[1];
@@ -951,7 +926,7 @@ export function EditorCanvas({
       });
     }
     return points;
-  }, [project.exhibitors, project.objects, project.rotationPoints, project.levels]);
+  }, [project.exhibitors, project.objects, project.levels]);
 
   useEffect(() => {
     setClickCandidates(active ? clickPoints : null);

@@ -13,7 +13,6 @@ import {
   Move,
   MoveDown,
   MoveUp,
-  Orbit,
   PanelTop,
   RotateCcw,
   RotateCw,
@@ -29,7 +28,6 @@ import type {
   Level,
   LightConfig,
   Project,
-  RotationPoint,
   SceneObject,
   ShadowQuality,
   Space,
@@ -1140,151 +1138,6 @@ function ExhibitorInspector({
         </Section>
       ) : null}
     </>
-  );
-}
-
-function RotationPointInspector({ project, point }: { project: Project; point: RotationPoint }) {
-  const updateRotationPoint = useEditorStore((state) => state.updateRotationPoint);
-  const deleteRotationPoint = useEditorStore((state) => state.deleteRotationPoint);
-  const setSelection = useEditorStore((state) => state.setSelection);
-  const toast = useUiStore((state) => state.toast);
-  const level = getLevel(project, entityLevelId(project, point));
-
-  return (
-    <Section
-      title="Punto de rotación"
-      action={
-        <IconButton
-          label="Eliminar punto de rotación"
-          icon={<Trash2 size={13} />}
-          onClick={() => {
-            deleteRotationPoint(point.id);
-            setSelection(null);
-            toast('Punto de rotación eliminado.', 'success');
-          }}
-        />
-      }
-    >
-      <Field label="Nombre">
-        <TextInput
-          value={point.name}
-          onChange={(event) =>
-            updateRotationPoint(
-              point.id,
-              { name: event.target.value },
-              { coalesceKey: `rot-name:${point.id}` },
-            )
-          }
-        />
-      </Field>
-      <div className="grid-2">
-        <Field label="X">
-          <NumberInput
-            value={point.position.x}
-            onChange={(x) =>
-              updateRotationPoint(
-                point.id,
-                { position: { ...point.position, x } },
-                { coalesceKey: `rot-x:${point.id}` },
-              )
-            }
-            step={0.1}
-            suffix="m"
-          />
-        </Field>
-        <Field label="Z">
-          <NumberInput
-            value={point.position.z}
-            onChange={(z) =>
-              updateRotationPoint(
-                point.id,
-                { position: { ...point.position, z } },
-                { coalesceKey: `rot-z:${point.id}` },
-              )
-            }
-            step={0.1}
-            suffix="m"
-          />
-        </Field>
-      </div>
-      <Field label="Nivel">
-        <Select
-          value={point.levelId ?? project.levels[0]?.id ?? ''}
-          onChange={(event) =>
-            updateRotationPoint(point.id, { levelId: event.target.value || null })
-          }
-        >
-          {project.levels.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.name} · {entry.elevation.toFixed(2)} m
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <div className="prop-list">
-        <div className="prop-row">
-          <span>Ángulo de parada</span>
-          <strong>{Math.round(((point.heading * 180) / Math.PI + 360) % 360)}°</strong>
-        </div>
-        <div className="prop-row">
-          <span>Altura de cámara</span>
-          <strong>{(point.cameraPosition[1] - (level?.elevation ?? 0)).toFixed(2)} m</strong>
-        </div>
-        <div className="prop-row">
-          <span>Puntos en este nivel</span>
-          <strong>
-            {
-              project.rotationPoints.filter(
-                (entry) => (entry.levelId ?? null) === (point.levelId ?? null),
-              ).length
-            }
-          </strong>
-        </div>
-      </div>
-      <div className="inline-actions">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            // El ángulo se toma de la cámara del editor: el usuario mira desde
-            // donde quiere que se encuadre la parada y el punto lo recuerda.
-            const camera = useEditorStore.getState().editorCameraView;
-            const heading = Math.atan2(
-              camera.position[2] - point.position.z,
-              camera.position[0] - point.position.x,
-            );
-            const eye = level?.elevation ?? 0;
-            updateRotationPoint(point.id, {
-              heading,
-              cameraPosition: [...camera.position] as [number, number, number],
-              cameraTarget: [point.position.x, eye + 1.1, point.position.z],
-            });
-            toast('Parada guardada desde la cámara actual.', 'success');
-          }}
-        >
-          Fijar desde la cámara del editor
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            const eye = level?.elevation ?? 0;
-            updateRotationPoint(point.id, {
-              heading: 0,
-              cameraPosition: [point.position.x, eye + 1.65, point.position.z + 2.6],
-              cameraTarget: [point.position.x, eye + 1.1, point.position.z],
-            });
-          }}
-        >
-          Reencuadrar
-        </Button>
-      </div>
-      <p className="panel-note">
-        Punto intermedio del viaje entre stands. Pertenece a este nivel: al ir a un expositor de
-        otra planta la cámara pasa por un punto del nivel de salida y otro del de llegada. Sin
-        puntos, el viaje es directo.
-      </p>
-    </Section>
   );
 }
 
@@ -2405,9 +2258,6 @@ export function Inspector({
   const opening = selection?.type === 'opening'
     ? project.levels.flatMap((level) => level.openings).find((entry) => entry.id === selection.id)
     : null;
-  const rotationPoint = selection?.type === 'rotationPoint'
-    ? project.rotationPoints.find((entry) => entry.id === selection.id)
-    : null;
   const stair = selection?.type === 'stair'
     ? project.levels.flatMap((level) => level.stairs).find((entry) => entry.id === selection.id)
     : null;
@@ -2456,10 +2306,6 @@ export function Inspector({
     title = opening.kind === 'door' ? 'Puerta' : 'Ventana';
     subtitle = 'Abertura en un muro';
     icon = opening.kind === 'door' ? <DoorOpen size={14} /> : <PanelTop size={14} />;
-  } else if (rotationPoint) {
-    title = rotationPoint.name || 'Punto de rotación';
-    subtitle = 'Pivote de transición entre expositores';
-    icon = <Orbit size={14} />;
   } else if (stair) {
     title = stair.name || 'Escalera';
     subtitle = 'Escalera del nivel';
@@ -2504,8 +2350,6 @@ export function Inspector({
           <InternalWallInspector project={project} wall={internalWall} />
         ) : opening ? (
           <OpeningInspector project={project} opening={opening} />
-        ) : rotationPoint ? (
-          <RotationPointInspector project={project} point={rotationPoint} />
         ) : stair ? (
           <StairInspector project={project} stair={stair} />
         ) : level ? (

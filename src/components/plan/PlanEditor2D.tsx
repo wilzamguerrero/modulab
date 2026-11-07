@@ -81,7 +81,6 @@ type DragState =
   | { type: 'internalWallPoint'; id: string; endpoint: 'a' | 'b' }
   | { type: 'object'; id: string; offset: Vec2 }
   | { type: 'exhibitor'; id: string; offset: Vec2 }
-  | { type: 'rotationPoint'; id: string; offset: Vec2 }
   | { type: 'stair'; id: string; offset: Vec2 }
   | { type: 'holeRect'; start: Vec2 }
   | {
@@ -441,11 +440,9 @@ export function PlanEditor2D({
   const setSelection = useEditorStore((state) => state.setSelection);
   const addObject = useEditorStore((state) => state.addObject);
   const addExhibitor = useEditorStore((state) => state.addExhibitor);
-  const addRotationPoint = useEditorStore((state) => state.addRotationPoint);
   const moveVertex = useEditorStore((state) => state.moveVertex);
   const updateObjectTransform = useEditorStore((state) => state.updateObjectTransform);
   const moveExhibitor = useEditorStore((state) => state.moveExhibitor);
-  const moveRotationPoint = useEditorStore((state) => state.moveRotationPoint);
   const toggleWall = useEditorStore((state) => state.toggleWall);
   const beginHistory = useEditorStore((state) => state.beginHistory);
   const commitHistory = useEditorStore((state) => state.commitHistory);
@@ -866,14 +863,6 @@ export function PlanEditor2D({
       moveExhibitor(drag.id, next, { history: false, touch: false });
       return;
     }
-    if (drag.type === 'rotationPoint') {
-      const next = snapPointIfNeeded({
-        x: point.x + drag.offset.x,
-        z: point.z + drag.offset.z,
-      });
-      moveRotationPoint(drag.id, next, { history: false, touch: false });
-      return;
-    }
     if (drag.type === 'stair') {
       const next = snapPointIfNeeded({
         x: point.x + drag.offset.x,
@@ -1043,15 +1032,6 @@ export function PlanEditor2D({
       return;
     }
 
-    if (state.tool === 'rotationPoint') {
-      if (activeLevel && (activeLevel.spaces.some((s) => s.vertices.length >= 3)) && !pointInLevel(activeLevel, point)) {
-        toast('Coloca el punto de rotación dentro de un espacio del nivel activo.', 'warning');
-        return;
-      }
-      addRotationPoint(point);
-      return;
-    }
-
     // Clic sobre el forjado en modo selección: se selecciona el piso completo
     // para moverlo o girarlo en 3D con el gizmo, que `setSelection` enciende al
     // seleccionar un nivel. Fuera de la planta se deselecciona, como siempre.
@@ -1165,20 +1145,6 @@ export function PlanEditor2D({
     });
     claimTarget('exhibitor', id);
     setSelection({ type: 'exhibitor', id });
-  };
-
-  const onRotationPointPointerDown = (event: ReactPointerEvent, id: string, position: Vec2) => {
-    if (tool !== 'select') return;
-    event.stopPropagation();
-    event.preventDefault();
-    const point = toWorld(event.clientX, event.clientY);
-    beginDrag(event, {
-      type: 'rotationPoint',
-      id,
-      offset: { x: position.x - point.x, z: position.z - point.z },
-    });
-    claimTarget('rotationPoint', id);
-    setSelection({ type: 'rotationPoint', id });
   };
 
   const onStairPointerDown = (event: ReactPointerEvent, stair: Stair) => {
@@ -1916,6 +1882,53 @@ export function PlanEditor2D({
           );
         })}
 
+        {/* Vistas de lectura del nivel activo: dónde arranca la cámara pública y
+            hacia dónde mira. Solo informativas; se editan en Entorno → Vistas. */}
+        {(project.readerViews ?? [])
+          .filter((view) => !view.levelId || view.levelId === activeLevel?.id)
+          .map((view) => {
+            const isEntry = view.id === project.activeReaderViewId;
+            const color = isEntry ? '#d7ff4f' : 'rgba(160,196,255,.75)';
+            const radius = Math.max(viewport.width / 260, 0.07);
+            const dx = view.target[0] - view.position[0];
+            const dz = view.target[2] - view.position[2];
+            const length = Math.hypot(dx, dz) || 1;
+            const ux = dx / length;
+            const uz = dz / length;
+            const reach = radius * 4.2;
+            return (
+              <g
+                key={`reader-view-${view.id}`}
+                transform={`translate(${view.position[0]} ${view.position[2]})`}
+                pointerEvents="none"
+              >
+                <circle r={radius} fill={isEntry ? 'rgba(215,255,79,.22)' : 'rgba(160,196,255,.14)'} stroke={color} strokeWidth={radius * 0.22} />
+                <line x1={0} y1={0} x2={ux * reach} y2={uz * reach} stroke={color} strokeWidth={radius * 0.22} />
+                <polyline
+                  points={[
+                    { x: ux * reach - uz * radius * 0.7, z: uz * reach + ux * radius * 0.7 },
+                    { x: ux * reach, z: uz * reach },
+                    { x: ux * reach + uz * radius * 0.7, z: uz * reach - ux * radius * 0.7 },
+                  ].map((point) => `${point.x},${point.z}`).join(' ')}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={radius * 0.22}
+                />
+                <text
+                  x={0}
+                  y={-radius * 1.6}
+                  textAnchor="middle"
+                  fill={color}
+                  fontSize={Math.max(textSize * 0.8, 0.06)}
+                  fontFamily="var(--mono)"
+                >
+                  {view.name}
+                  {isEntry ? ' • entrada' : ''}
+                </text>
+              </g>
+            );
+          })}
+
         {project.exhibitors
           .filter((exhibitor) => entityLevelId(project, exhibitor) === activeLevel?.id)
           .map((exhibitor) => {
@@ -1985,71 +1998,6 @@ export function PlanEditor2D({
                   {exhibitor.standCode ? ` · ${exhibitor.standCode}` : ''}
                 </text>
               ) : null}
-            </g>
-          );
-        })}
-
-        {project.rotationPoints
-          .filter((point) => entityLevelId(project, point) === activeLevel?.id)
-          .map((point) => {
-          const selected = selection?.type === 'rotationPoint' && selection.id === point.id;
-          const radius = Math.max(viewport.width / 170, 0.13);
-          const color = selected ? '#d7ff4f' : '#b48cff';
-          return (
-            <g
-              key={point.id}
-              data-rotation-point-id={point.id}
-              transform={`translate(${point.position.x} ${point.position.z})`}
-              style={{ cursor: tool === 'select' ? 'move' : 'pointer' }}
-              onPointerDown={(event) => onRotationPointPointerDown(event, point.id, point.position)}
-              onClick={(event) => {
-                event.stopPropagation();
-                setSelection({ type: 'rotationPoint', id: point.id });
-              }}
-            >
-              <rect
-                x={-radius}
-                y={-radius}
-                width={radius * 2}
-                height={radius * 2}
-                transform="rotate(45)"
-                fill={selected ? 'rgba(215,255,79,.3)' : 'rgba(180,140,255,.16)'}
-                stroke={color}
-                strokeWidth={Math.max(viewport.width / 900, 0.012)}
-              />
-              <circle r={radius * 0.32} fill={color} />
-              {/* Flecha de dirección: hacia dónde mira la parada al viajar. */}
-              <g transform={`rotate(${(point.heading * 180) / Math.PI})`}>
-                <path
-                  d={`M ${radius * 0.55} 0 L ${radius * 1.05} ${-radius * 0.34} L ${radius * 1.05} ${radius * 0.34} Z`}
-                  fill={color}
-                  opacity={selected ? 1 : 0.8}
-                  pointerEvents="none"
-                />
-              </g>
-              {selected ? (
-                // Radio de la parada: pulso tenue alrededor del punto.
-                <circle
-                  r={radius * 2.6}
-                  fill="none"
-                  stroke={color}
-                  strokeOpacity={0.28}
-                  strokeWidth={Math.max(viewport.width / 1400, 0.006)}
-                  strokeDasharray={`${radius * 0.5} ${radius * 0.4}`}
-                  pointerEvents="none"
-                />
-              ) : null}
-              <text
-                x={0}
-                y={-radius * 2}
-                textAnchor="middle"
-                fill={color}
-                fontSize={textSize * 0.9}
-                fontFamily="var(--font)"
-                pointerEvents="none"
-              >
-                {point.name || 'Punto de rotación'}
-              </text>
             </g>
           );
         })}
@@ -2511,11 +2459,6 @@ export function PlanEditor2D({
           <>
             <strong>Expositor:</strong> haz clic dentro de la planta para crear un punto de interés.
             Luego completa su ficha en el panel derecho.
-          </>
-        ) : tool === 'rotationPoint' ? (
-          <>
-            <strong>Punto de rotación:</strong> haz clic dentro de la planta para colocar un pivote.
-            La cámara pasará por el más cercano al viajar entre expositores. Puedes añadir varios.
           </>
         ) : tool === 'pan' ? (
           <>

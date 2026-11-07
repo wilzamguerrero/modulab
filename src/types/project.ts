@@ -307,27 +307,6 @@ export const projectSettingsSchema = z.object({
 });
 
 /**
- * Punto de rotación: posición intermedia por la que pasa la cámara al viajar
- * entre expositores (pivote de transición). Si no hay ninguno, la cámara viaja
- * directo al expositor como hasta ahora.
- */
-export const rotationPointSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().default('Punto de rotación'),
-  position: vec2Schema.default({ x: 0, z: 0 }),
-  levelId: z.string().nullable().optional(),
-  /**
-   * Cámara desde la que se ve el punto al pasar por él. Al viajar, la cámara
-   * llega antes del giro, hace una parada breve y ahora enfoca el punto desde
-   * esta posición: el paso entre stands se lee como un barrido continuo.
-   */
-  cameraPosition: vec3Schema.default([0, 1.6, 0]),
-  cameraTarget: vec3Schema.default([0, 1.2, 0]),
-  /** Ángulo horizontal (radianes) al que mira la cámara desde el punto. */
-  heading: z.number().default(0),
-});
-
-/**
  * Vista de lectura: cámara guardada en el editor para mostrarla como punto de
  * partida en el visor público. Se guarda con nombre para poder volver a ella.
  */
@@ -337,8 +316,15 @@ export const readerViewSchema = z.object({
   position: vec3Schema.default([12, 10, 14]),
   target: vec3Schema.default([0, 1, 0]),
   fov: z.number().min(20).max(100).default(50),
+  /**
+   * Nivel al que pertenece la vista. Los expositores de ese nivel pasan por
+   * aquí al viajar entre stands; sin nivel, la vista sirve a todo el proyecto.
+   */
+  levelId: z.string().nullable().optional(),
   createdAt: z.string().optional(),
 });
+
+export type ReaderView = z.infer<typeof readerViewSchema>;
 
 export const projectSchema = z
   .object({
@@ -356,7 +342,6 @@ export const projectSchema = z
     objects: z.array(sceneObjectSchema).default([]),
     lights: z.array(lightConfigSchema).default([]),
     exhibitors: z.array(exhibitorSchema).default([]),
-    rotationPoints: z.array(rotationPointSchema).default([]),
     camera: projectCameraSchema.default({}),
     /**
      * Vistas de lectura del editor: cada una es una cámara guardada que se
@@ -394,7 +379,6 @@ export type Stair = z.infer<typeof stairSchema>;
 export type Level = z.infer<typeof levelSchema>;
 export type LightConfig = z.infer<typeof lightConfigSchema>;
 export type Exhibitor = z.infer<typeof exhibitorSchema>;
-export type RotationPoint = z.infer<typeof rotationPointSchema>;
 export type ProjectCamera = z.infer<typeof projectCameraSchema>;
 export type Environment = z.infer<typeof environmentSchema>;
 export type EnvironmentFormat = z.infer<typeof environmentFormatSchema>;
@@ -427,7 +411,6 @@ export type Selection =
   | { type: 'object'; id: string }
   | { type: 'light'; id: string }
   | { type: 'exhibitor'; id: string }
-  | { type: 'rotationPoint'; id: string }
   | { type: 'stair'; id: string }
   | { type: 'level'; id: string }
   | { type: 'space'; id: string }
@@ -444,7 +427,6 @@ export type EditorTool =
   | 'stair'
   | 'hole'
   | 'exhibitor'
-  | 'rotationPoint'
   | 'pan';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 export type EditorView = 'plan' | '3d';

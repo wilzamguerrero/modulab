@@ -60,14 +60,13 @@ function projectWithLevel() {
     metadata: {},
     notionMissing: false,
   });
-  project.rotationPoints.push({
-    id: 'rp_1',
-    name: 'Pivote',
-    position: { x: 3, z: 1 },
+  project.readerViews.push({
+    id: 'view_1',
+    name: 'Vista del nivel',
+    position: [3, 1.6, 1],
+    target: [0, 1.2, 0],
+    fov: 50,
     levelId: base.id,
-    cameraPosition: [0, 1.6, 0],
-    cameraTarget: [0, 1.2, 0],
-    heading: 0,
   });
   return { project, level: base };
 }
@@ -114,7 +113,7 @@ describe('transformación de un nivel completo', () => {
       stair: { ...level.stairs[0].position },
       object: [...project.objects[0].transform.position] as [number, number, number],
       exhibitor: { ...project.exhibitors[0].position },
-      point: { ...project.rotationPoints[0].position },
+      point: [...project.readerViews[0].position] as [number, number, number],
     };
     applyLevelTransform(project, level.id, {
       delta: { x: 3, z: -2 },
@@ -145,10 +144,11 @@ describe('transformación de un nivel completo', () => {
       x: before.exhibitor.x + 3,
       z: before.exhibitor.z - 2,
     });
-    expect(project.rotationPoints[0].position).toEqual({
-      x: before.point.x + 3,
-      z: before.point.z - 2,
-    });
+    expect(project.readerViews[0].position).toEqual([
+      before.point[0] + 3,
+      before.point[1],
+      before.point[2] - 2,
+    ]);
   });
 
   it('girar el nivel gira también lo que está encima', () => {
@@ -156,8 +156,8 @@ describe('transformación de un nivel completo', () => {
     const angle = Math.PI / 2;
     applyLevelTransform(project, level.id, { delta: { x: 0, z: 0 }, angle, pivot: { x: 0, z: 0 } });
     // Un punto en (3, 1) pasa a (1, -3) con el convenio de rotación en Y.
-    expect(project.rotationPoints[0].position.x).toBeCloseTo(1, 6);
-    expect(project.rotationPoints[0].position.z).toBeCloseTo(-3, 6);
+    expect(project.readerViews[0].position[0]).toBeCloseTo(1, 6);
+    expect(project.readerViews[0].position[2]).toBeCloseTo(-3, 6);
     // Las rotaciones propias de cada elemento se acumulan.
     expect(project.objects[0].transform.rotationY).toBeCloseTo(0.4 + angle, 6);
     expect(project.exhibitors[0].rotation).toBeCloseTo(0.3 + angle, 6);
@@ -237,7 +237,6 @@ describe('transformación de un nivel completo', () => {
     expect(contents.stairs).toBe(1);
     expect(contents.objects).toBe(1);
     expect(contents.exhibitors).toBe(1);
-    expect(contents.rotationPoints).toBe(1);
   });
 
   it('normaliza el ángulo a (-π, π]', () => {

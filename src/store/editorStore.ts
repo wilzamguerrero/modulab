@@ -11,7 +11,6 @@ import type {
   OpeningKind,
   PlanDrawMode,
   Project,
-  RotationPoint,
   SceneObject,
   Selection,
   Space,
@@ -338,10 +337,6 @@ interface EditorState {
   deleteExhibitor: (id: string) => void;
   removeMissingExhibitors: () => void;
 
-  addRotationPoint: (position: Vec2) => string | null;
-  updateRotationPoint: (id: string, patch: Partial<RotationPoint>, options?: PatchOptions) => void;
-  moveRotationPoint: (id: string, position: Vec2, options?: PatchOptions) => void;
-  deleteRotationPoint: (id: string) => void;
 
   addLight: (type: LightConfig['type']) => string | null;
   updateLight: (id: string, patch: Partial<LightConfig>, options?: PatchOptions) => void;
@@ -361,9 +356,16 @@ interface EditorState {
   editorCameraView: { position: Vec3; target: Vec3; fov: number };
   setEditorCameraView: (view: { position: Vec3; target: Vec3; fov: number }) => void;
   /** Guarda la cámara actual como vista de lectura y la deja activa. */
-  saveReaderView: (name?: string) => string | null;
+  /**
+   * Guarda la cámara actual como vista de lectura. `levelId` la ata a un nivel
+   * para que los expositores de ese nivel pasen por ella al viajar.
+   */
+  saveReaderView: (name?: string, levelId?: string | null) => string | null;
+  setReaderViewLevel: (id: string, levelId: string | null) => void;
   /** Actualiza una vista guardada con la cámara actual (sobrescribe). */
   updateReaderViewFromCamera: (id: string) => void;
+  /** Copia una vista (mismo encuadre) para ajustarla a otro nivel sin perder la original. */
+  duplicateReaderView: (id: string) => string | null;
   renameReaderView: (id: string, name: string) => void;
   deleteReaderView: (id: string) => void;
   /** Vista de lectura que abre el visor público. */
@@ -761,7 +763,6 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       draft.levels = draft.levels.filter((level) => level.id !== id);
       draft.objects = draft.objects.filter((object) => object.levelId !== id);
       draft.exhibitors = draft.exhibitors.filter((exhibitor) => exhibitor.levelId !== id);
-      draft.rotationPoints = draft.rotationPoints.filter((point) => point.levelId !== id);
     });
     const next = get().project;
     if (next) set({ selection: null, ...validActiveIds(next, get().activeLevelId, get().activeSpaceId) });
@@ -893,13 +894,6 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
         for (const wall of level.internalWalls) wall.exhibitorId = remap(wall.exhibitorId);
         for (const opening of level.openings) opening.exhibitorId = remap(opening.exhibitorId);
         for (const object of clonedObjects) object.exhibitorId = remap(object.exhibitorId);
-      }
-      for (const point of project.rotationPoints.filter((entry) => entry.levelId === id)) {
-        draft.rotationPoints.push({
-          ...structuredClone(point),
-          id: createId('rot'),
-          levelId: level.id,
-        });
       }
       // En «mismo nivel» se desplaza la copia entera (forjado, objetos y
       // expositores) a la nueva posición en planta.
@@ -1725,52 +1719,6 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       normalizeExhibitorLinks(draft);
     }),
 
-  addRotationPoint: (position) => {
-    const project = get().project;
-    if (!project) return null;
-    const id = createId('rot');
-    // El punto nace con una cámara mirándolo desde atrás y algo elevada: es el
-    // encuadre que verá el visitante al hacer la parada entre dos stands.
-    const level = project.levels.find((entry) => entry.id === get().activeLevelId);
-    const eye = level?.elevation ?? 0;
-    const point: RotationPoint = {
-      id,
-      name: `Punto de rotación ${project.rotationPoints.length + 1}`,
-      position: { ...position },
-      levelId: get().activeLevelId,
-      cameraPosition: [position.x, eye + 1.65, position.z + 2.6],
-      cameraTarget: [position.x, eye + 1.1, position.z],
-      heading: 0,
-    };
-    get().patchProject((draft) => {
-      draft.rotationPoints.push(point);
-    });
-    set({ selection: { type: 'rotationPoint', id } });
-    return id;
-  },
-
-  updateRotationPoint: (id, patch, options = {}) =>
-    get().patchProject((draft) => {
-      const index = draft.rotationPoints.findIndex((entry) => entry.id === id);
-      if (index < 0) return;
-      draft.rotationPoints[index] = { ...draft.rotationPoints[index], ...patch, id };
-    }, { coalesceKey: `rotation-point:${id}`, ...options }),
-
-  moveRotationPoint: (id, position, options = {}) =>
-    get().patchProject((draft) => {
-      const point = draft.rotationPoints.find((entry) => entry.id === id);
-      if (!point) return;
-      point.position = { ...position };
-    }, { coalesceKey: `rotation-move:${id}`, ...options }),
-
-  deleteRotationPoint: (id) => {
-    get().patchProject((draft) => {
-      draft.rotationPoints = draft.rotationPoints.filter((entry) => entry.id !== id);
-    });
-    const selection = get().selection;
-    if (selection?.type === 'rotationPoint' && selection.id === id) set({ selection: null });
-  },
-
   addLight: (type) => {
     const project = get().project;
     if (!project) return null;
@@ -1859,7 +1807,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
   setEditorCameraView: (view) => set({ editorCameraView: view }),
 
-  saveReaderView: (name) => {
+  saveReaderView: (name, levelId) => {
     const project = get().project;
     if (!project) return null;
     const { position, target, fov } = get().editorCameraView;
@@ -1874,6 +1822,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
           position: [...position] as Vec3,
           target: [...target] as Vec3,
           fov,
+          levelId: levelId ?? get().activeLevelId ?? null,
           createdAt: new Date().toISOString(),
         },
       ];
@@ -1899,12 +1848,42 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
     });
   },
 
+  duplicateReaderView: (id) => {
+    const source = (get().project?.readerViews ?? []).find((view) => view.id === id);
+    if (!source) return null;
+    const copyId = createId('view');
+    get().patchProject((draft) => {
+      const base = source.name.replace(/\s*\(\d+\)$/, '');
+      let index = 2;
+      while ((draft.readerViews ?? []).some((view) => view.name === `${base} (${index})`)) {
+        index += 1;
+      }
+      draft.readerViews = [
+        ...(draft.readerViews ?? []),
+        {
+          ...source,
+          id: copyId,
+          name: `${base} (${index})`,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+    });
+    return copyId;
+  },
+
   renameReaderView: (id, name) =>
     get().patchProject((draft) => {
       draft.readerViews = (draft.readerViews ?? []).map((view) =>
         view.id === id ? { ...view, name } : view,
       );
     }, { coalesceKey: `reader-view-name:${id}` }),
+
+  setReaderViewLevel: (id, levelId) =>
+    get().patchProject((draft) => {
+      const view = (draft.readerViews ?? []).find((entry) => entry.id === id);
+      if (!view) return;
+      view.levelId = levelId;
+    }),
 
   deleteReaderView: (id) =>
     get().patchProject((draft) => {

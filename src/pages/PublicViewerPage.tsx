@@ -16,7 +16,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import type { Exhibitor, Project, RotationPoint, Vec2 } from '@/types/project';
+import type { Exhibitor, Project, ReaderView, Vec2 } from '@/types/project';
 import { Badge, IconButton, Spinner } from '@/components/ui';
 import { PublicScene, type ViewerCameraCommand } from '@/components/viewer/PublicScene';
 import { fetchPublished } from '@/services/publishing/publishService';
@@ -141,82 +141,59 @@ function distanceToSegment(point: Vec2, a: Vec2, b: Vec2): number {
   return Math.hypot(point.x - (a.x + t * dx), point.z - (a.z + t * dz));
 }
 
-/** Punto de rotación más cercano al trayecto entre dos posiciones de planta. */
-function pickRotationPoint(
-  points: RotationPoint[],
-  from: Vec2,
-  to: Vec2,
-): RotationPoint | null {
-  if (!points.length) return null;
-  let best = points[0];
-  let bestDistance = Infinity;
-  for (const point of points) {
-    const distance = distanceToSegment(point.position, from, to);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = point;
-    }
-  }
-  return best;
-}
-
 type Vec3Tuple = [number, number, number];
 
+type TravelStop = { position: Vec3Tuple; target: Vec3Tuple; hold?: number };
+
 /**
- * Paradas de giro del viaje entre dos stands.
+ * Recorrido del viaje entre dos stands, construido con las vistas de lectura
+ * del editor: una cámara por nivel (o una general) en la que el visitante se
+ * posa unos instantes antes de llegar.
  *
- * Cada punto de rotación guarda su propia cámara (la que el editor dejó al
- * seleccionarlo). Así el recorrido no es un corte sino una secuencia de
- * encuadres: salir del punto del nivel de origen, bajar al del destino y
- * entrar al stand. Los puntos se eligen por nivel y, dentro de cada nivel, por
- * cercanía al trayecto, de modo que mover el punto (o tener varios por planta)
- * cambia el recorrido.
+ *   1. Desde donde está, se acerca primero a la vista de su propio nivel.
+ *   2. Si viene de otro nivel, pasa por la vista del nivel de destino.
+ *   3. Entra al expositor: la cámara se coloca en la línea marcada por la
+ *      flecha de rotación del expositor y mira el stand.
+ *
+ * Los puntos de rotación ya no se usan como paradas; la posición de la vista
+ * la decide el editor en «Entorno → Vistas».
  */
 function buildTravelWaypoints(
   project: Project,
   from: Vec2,
   fromExhibitor: Exhibitor | null,
   to: Exhibitor,
-): { position: Vec3Tuple; target: Vec3Tuple; hold?: number }[] {
-  const points = project.rotationPoints;
-  if (!points.length) return [];
-
+  views: ReaderView[],
+  activeViewId: string | undefined,
+): TravelStop[] {
+  if (!views.length) return [];
   const toLevelId = entityLevelId(project, to) ?? null;
-  const fromLevelId = fromExhibitor ? entityLevelId(project, fromExhibitor) ?? null : null;
+  const fromLevelId = fromExhibitor ? (entityLevelId(project, fromExhibitor) ?? null) : null;
+  const stops: TravelStop[] = [];
 
-  const nearestTo = (levelId: string | null, a: Vec2, b: Vec2) => {
-    const inLevel = points.filter((point) => (entityLevelId(project, point) ?? null) === levelId);
-    return pickRotationPoint(inLevel.length ? inLevel : points, a, b);
+  const viewFor = (levelId: string | null) => {
+    const inLevel = views.find((view) => view.levelId && view.levelId === levelId);
+    if (inLevel) return inLevel;
+    const general = views.find((view) => !view.levelId);
+    if (general) return general;
+    if (toLevelId !== fromLevelId && levelId === toLevelId) {
+      const active = views.find((view) => view.id === activeViewId) ?? views[0];
+      return active;
+    }
+    return null;
   };
 
-  const exitPoint = nearestTo(fromLevelId, from, to.position);
-  const entryPoint = nearestTo(toLevelId, from, to.position);
-  const stops: { position: Vec3Tuple; target: Vec3Tuple; hold?: number }[] = [];
+  const stopFor = (view: ReaderView): TravelStop => ({
+    position: view.position,
+    target: view.target,
+    // Media pausa en cada vista para que el traslado se lea.
+    hold: 650,
+  });
 
-  const stopFor = (point: RotationPoint) => {
-    const level = getLevel(project, entityLevelId(project, point));
-    const pivot = point.position;
-    // La parada mira hacia la llegada: se ve el stand al que se va a entrar.
-    const towardLanding = {
-      x: pivot.x + Math.cos(point.heading) * 2,
-      z: pivot.z + Math.sin(point.heading) * 2,
-    };
-    const camera = defaultExhibitorCamera(
-      towardLanding,
-      levelVertices(level),
-      level?.elevation ?? 0,
-    );
-    return {
-      position: camera.position,
-      target: camera.target,
-      // Medio segundo de parada para que el giro se lea, sin cortar el ritmo.
-      hold: 650,
-    };
-  };
-
-  if (exitPoint) stops.push(stopFor(exitPoint));
-  if (entryPoint && entryPoint.id !== exitPoint?.id) stops.push(stopFor(entryPoint));
-
+  const exitView = fromLevelId ? viewFor(fromLevelId) : null;
+  const entryView = toLevelId !== fromLevelId ? viewFor(toLevelId) : null;
+  if (exitView && exitView.id !== entryView?.id) stops.push(stopFor(exitView));
+  if (entryView) stops.push(stopFor(entryView));
   return stops;
 }
 
@@ -501,6 +478,8 @@ export function PublicViewerPage() {
       fromPosition,
       selectedExhibitor,
       exhibitor,
+      publicProject.readerViews ?? [],
+      publicProject.activeReaderViewId,
     );
     setCameraCommand((current) => ({
       mode: 'focus',

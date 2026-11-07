@@ -24,7 +24,6 @@ import {
   MousePointer2,
   Move,
   MoveHorizontal,
-  Orbit,
   PanelLeft,
   PanelRight,
   PanelTop,
@@ -225,7 +224,6 @@ export function EditorPage() {
   const deleteHole = useEditorStore((state) => state.deleteHole);
   const setPlanDrawMode = useEditorStore((state) => state.setPlanDrawMode);
   const planDrawMode = useEditorStore((state) => state.planDrawMode);
-  const deleteRotationPoint = useEditorStore((state) => state.deleteRotationPoint);
   const activeLevelId = useEditorStore((state) => state.activeLevelId);
   const activeSpaceId = useEditorStore((state) => state.activeSpaceId);
   const setActiveLevel = useEditorStore((state) => state.setActiveLevel);
@@ -439,7 +437,6 @@ export function EditorPage() {
         else if (state.selection?.type === 'opening') deleteOpening(state.selection.id);
         else if (state.selection?.type === 'stair') deleteStair(state.selection.id);
         else if (state.selection?.type === 'hole') deleteHole(state.selection.id);
-        else if (state.selection?.type === 'rotationPoint') deleteRotationPoint(state.selection.id);
         else if (state.selection?.type === 'vertex') removeVertex(state.selection.index);
         return;
       }
@@ -477,7 +474,6 @@ export function EditorPage() {
       if (key === 'u') { setView('plan'); setTool('stair'); return; }
       if (key === 'h') { setView('plan'); setPlanDrawMode('hole'); setTool('draw'); return; }
       if (key === 'e') { setTool('exhibitor'); return; }
-      if (key === 'o') { setTool('rotationPoint'); return; }
       if (key === 't') { setView('3d'); toggleMeasureMode(); return; }
       if (key === 'g') { setTransformMode('translate'); return; }
       if (key === 'r') { setTransformMode('rotate'); return; }
@@ -492,7 +488,6 @@ export function EditorPage() {
     deleteLight,
     deleteObject,
     deleteOpening,
-    deleteRotationPoint,
     duplicateObject,
     pasteObject,
     redo,
@@ -827,9 +822,6 @@ export function EditorPage() {
             </button>
             <button type="button" className={`tool-btn${tool === 'exhibitor' ? ' is-active' : ''}`} title="Colocar expositor (E)" onClick={() => chooseTool('exhibitor')}>
               <UserPlus size={16} />
-            </button>
-            <button type="button" className={`tool-btn${tool === 'rotationPoint' ? ' is-active' : ''}`} title="Punto de rotación (O)" onClick={() => chooseTool('rotationPoint')}>
-              <Orbit size={16} />
             </button>
             <button type="button" className={`tool-btn${measureMode ? ' is-active' : ''}`} title="Medir (T)" onClick={() => { setView('3d'); toggleMeasureMode(); }}>
               <Ruler size={16} />

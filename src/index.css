@@ -1345,7 +1345,13 @@ input[type="range"] {
 /* Vistas de lectura (panel de entorno → pestaña Vistas). */
 .reader-views {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
+  min-width: 0;
+}
+
+.reader-view-list {
+  min-width: 0;
 }
 
 .reader-view-list {
@@ -1353,11 +1359,68 @@ input[type="range"] {
   gap: 4px;
 }
 
+.reader-view-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.reader-view-level {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 4px 9px;
+  font-size: 10px;
+  color: var(--muted-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.reader-view-level .select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Punto de estado: ¿esta vista actúa sobre el nivel en el que estás? */
+.reader-view-applies {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-left: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--muted-2);
+  background: transparent;
+}
+
+.reader-view-applies.is-applying {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(215, 255, 79, 0.14);
+}
+
+.reader-view-active-level {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+}
+
+.reader-view-active-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(215, 255, 79, 0.14);
+}
+
 .reader-view-item {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding-right: 4px;
+  gap: 1px;
+  min-width: 0;
+  padding-right: 3px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.02);
@@ -1387,7 +1450,7 @@ input[type="range"] {
 }
 
 .reader-view-name {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -1395,9 +1458,30 @@ input[type="range"] {
 }
 
 .reader-view-actions {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: 0;
+}
+
+/* Cinco acciones en un panel estrecho: los iconos se compactan para que el
+   de eliminar no se salga del borde. */
+.reader-view-actions .btn-icon {
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  flex: none;
+  border-radius: 5px;
+}
+
+.reader-view-actions .btn-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* El nombre cede espacio antes que las acciones. */
+.reader-view-item .reader-view-main {
+  overflow: hidden;
 }
 
 .measure-list-item.is-active .measure-list-main strong {

@@ -101,9 +101,6 @@ function migrateProject(source: Record<string, any>): Record<string, any> {
       .map(assignLevel)
       .map((object: any) => ({ code: '', showCode: true, showName: false, ...object })),
     exhibitors: (Array.isArray(source.exhibitors) ? source.exhibitors : []).map(assignLevel),
-    rotationPoints: (Array.isArray(source.rotationPoints) ? source.rotationPoints : []).map(
-      assignLevel,
-    ),
   };
 }
 
@@ -211,10 +208,6 @@ export function parseProject(raw: unknown): Project {
   project.exhibitors = project.exhibitors.map((exhibitor) => ({
     ...exhibitor,
     levelId: validLevel(exhibitor.levelId),
-  }));
-  project.rotationPoints = project.rotationPoints.map((point) => ({
-    ...point,
-    levelId: validLevel(point.levelId),
   }));
 
   // Una ficha sin vínculo a Notion nunca puede estar «ausente» en Notion.
@@ -353,10 +346,6 @@ export function duplicateProject(project: Project, name?: string): Project {
   copy.exhibitors = copy.exhibitors.map((exhibitor) => ({
     ...exhibitor,
     levelId: remapLevel(exhibitor.levelId),
-  }));
-  copy.rotationPoints = copy.rotationPoints.map((point) => ({
-    ...point,
-    levelId: remapLevel(point.levelId),
   }));
   return copy;
 }

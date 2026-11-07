@@ -1,4 +1,4 @@
-import type { Level, Project, RotationPoint, SceneObject, Vec2 } from '@/types/project';
+import type { Level, Project, SceneObject, Vec2 } from '@/types/project';
 
 /** Centro sobre el que gira un nivel: centro del área de sus espacios. */
 export interface LevelPivot {
@@ -162,9 +162,14 @@ export function applyLevelTransform(
       exhibitor.cameraTarget = [target.x, ty, target.z];
     }
   }
-  for (const point of project.rotationPoints) {
-    if (point.levelId !== levelId) continue;
-    point.position = mapPoint(point.position);
+  // Las vistas de lectura guardan posición absoluta de cámara: al mover el
+  // nivel se desplazan junto con él para no quedar flotando en otro sitio.
+  for (const view of project.readerViews ?? []) {
+    if (view.levelId !== levelId) continue;
+    const position = mapPoint({ x: view.position[0], z: view.position[2] });
+    const target = mapPoint({ x: view.target[0], z: view.target[2] });
+    view.position = [position.x, view.position[1], position.z];
+    view.target = [target.x, view.target[1], target.z];
   }
 }
 
@@ -185,14 +190,12 @@ export function levelContents(project: Project, levelId: string): {
   holes: number;
   objects: number;
   exhibitors: number;
-  rotationPoints: number;
+  readerViews: number;
 } {
   const level = project.levels.find((entry) => entry.id === levelId);
   const objects: SceneObject[] = project.objects.filter((object) => object.levelId === levelId);
   const exhibitors = project.exhibitors.filter((exhibitor) => exhibitor.levelId === levelId);
-  const points: RotationPoint[] = project.rotationPoints.filter(
-    (point) => point.levelId === levelId,
-  );
+  const views = (project.readerViews ?? []).filter((view) => view.levelId === levelId);
   return {
     spaces: level?.spaces.length ?? 0,
     walls: level?.internalWalls.length ?? 0,
@@ -200,6 +203,6 @@ export function levelContents(project: Project, levelId: string): {
     holes: level?.spaces.reduce((total, space) => total + space.holes.length, 0) ?? 0,
     objects: objects.length,
     exhibitors: exhibitors.length,
-    rotationPoints: points.length,
+    readerViews: views.length,
   };
 }
