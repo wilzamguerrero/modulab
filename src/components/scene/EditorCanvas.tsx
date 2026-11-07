@@ -515,11 +515,15 @@ function EditorSceneContents({
   cameraRequest,
   orthographic,
   active,
+  showExhibitorNames,
+  showObjectLabels,
 }: {
   project: Project;
   cameraRequest: CameraRequest;
   orthographic: boolean;
   active: boolean;
+  showExhibitorNames: boolean;
+  showObjectLabels: boolean;
 }) {
   const selection = useEditorStore((state) => state.selection);
   const setSelection = useEditorStore((state) => state.setSelection);
@@ -726,6 +730,7 @@ function EditorSceneContents({
         editable
         selectedObjectId={selection?.type === 'object' ? selection.id : null}
         selectedExhibitorId={selectedExhibitorId}
+        showLabels={showObjectLabels}
         onSelectObject={(id) => setSelection({ type: 'object', id })}
       />
       <WallEditHandles />
@@ -733,6 +738,7 @@ function EditorSceneContents({
         exhibitors={project.exhibitors}
         project={project}
         editor
+        showLabels={showExhibitorNames}
         selectedId={selection?.type === 'exhibitor' ? selection.id : null}
         onSelect={(id) => setSelection({ type: 'exhibitor', id })}
       />
@@ -763,6 +769,8 @@ export function EditorCanvas({
   cameraRequest,
   active = true,
   orthographic = false,
+  showExhibitorNames = true,
+  showObjectLabels = true,
 }: {
   project: Project;
   cameraRequest: CameraRequest;
@@ -770,6 +778,10 @@ export function EditorCanvas({
   active?: boolean;
   /** Proyección casi ortográfica para ver la escena como en programas 3D. */
   orthographic?: boolean;
+  /** Muestra los nombres de los expositores sobre sus marcadores. */
+  showExhibitorNames?: boolean;
+  /** Muestra las etiquetas de código/nombre de los objetos. */
+  showObjectLabels?: boolean;
 }) {
   const camera = useMemo(
     () => ({
@@ -804,6 +816,8 @@ export function EditorCanvas({
           cameraRequest={cameraRequest}
           orthographic={orthographic}
           active={active}
+          showExhibitorNames={showExhibitorNames}
+          showObjectLabels={showObjectLabels}
         />
       </Canvas>
     </div>

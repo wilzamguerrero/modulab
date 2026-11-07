@@ -15,12 +15,14 @@ function ExhibitorMarker({
   elevation = 0,
   selected,
   editor,
+  showLabels,
   onSelect,
 }: {
   exhibitor: Exhibitor;
   elevation?: number;
   selected: boolean;
   editor: boolean;
+  showLabels: boolean;
   onSelect?: (id: string) => void;
 }) {
   const markerY = MARKER_Y + elevation;
@@ -80,7 +82,7 @@ function ExhibitorMarker({
         {selected ? (
           <pointLight color={color} intensity={1} distance={3.4} position={[0, 1.5, 0]} />
         ) : null}
-        {editor ? (
+        {showLabels ? (
           <Html
             center
             position={[0, 2.05, 0]}
@@ -136,12 +138,15 @@ export function ExhibitorMarkers({
   project,
   selectedId,
   editor = false,
+  showLabels = editor,
   onSelect,
 }: {
   exhibitors: Exhibitor[];
   project?: Project;
   selectedId?: string | null;
   editor?: boolean;
+  /** Muestra el nombre del expositor flotando sobre el marcador. */
+  showLabels?: boolean;
   onSelect?: (id: string) => void;
 }) {
   const elevations = project ? levelElevationMap(project) : {};
@@ -158,6 +163,7 @@ export function ExhibitorMarkers({
             }
             selected={selectedId === exhibitor.id}
             editor={editor}
+            showLabels={showLabels}
             onSelect={onSelect}
           />
         ))}

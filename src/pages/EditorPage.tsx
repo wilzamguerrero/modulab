@@ -33,6 +33,7 @@ import {
   Scaling,
   Scissors,
   Sparkles,
+  Tag,
   Undo2,
   UserPlus,
   Users,
@@ -78,6 +79,52 @@ const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string; icon: ReactNode }> = 
   // así la barra queda en cinco pestañas sin que se traslapen las etiquetas.
   { id: 'environment', label: 'Entorno', icon: <Globe2 size={16} /> },
 ];
+
+/** Interruptores de etiquetas de la escena, compartidos por la vista 3D y la planta. */
+function SceneLabelToggles({
+  showObjectLabels,
+  showExhibitorNames,
+  onToggleObjectLabels,
+  onToggleExhibitorNames,
+}: {
+  showObjectLabels: boolean;
+  showExhibitorNames: boolean;
+  onToggleObjectLabels: () => void;
+  onToggleExhibitorNames: () => void;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        className={`view-cube-ortho${showObjectLabels ? ' is-active' : ''}`}
+        onClick={onToggleObjectLabels}
+        title={
+          showObjectLabels
+            ? 'Ocultar las etiquetas de los objetos'
+            : 'Mostrar las etiquetas de los objetos'
+        }
+        aria-pressed={showObjectLabels}
+      >
+        <Tag size={12} />
+        Etiquetas
+      </button>
+      <button
+        type="button"
+        className={`view-cube-ortho${showExhibitorNames ? ' is-active' : ''}`}
+        onClick={onToggleExhibitorNames}
+        title={
+          showExhibitorNames
+            ? 'Ocultar los nombres de los expositores'
+            : 'Mostrar los nombres de los expositores en la escena'
+        }
+        aria-pressed={showExhibitorNames}
+      >
+        <Users size={12} />
+        Nombres
+      </button>
+    </>
+  );
+}
 
 export function EditorPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -157,6 +204,12 @@ export function EditorPage() {
   );
   const [publishOpen, setPublishOpen] = useState(false);
   const [viewsOpen, setViewsOpen] = useState(false);
+  // Los nombres de los expositores se muestran por defecto en el editor, pero
+  // se pueden apagar cuando estorban al revisar la escena.
+  const [showExhibitorNames, setShowExhibitorNames] = useState(true);
+  // Las etiquetas de código/nombre de los objetos también se pueden apagar
+  // para revisar la escena limpia.
+  const [showObjectLabels, setShowObjectLabels] = useState(true);
   const [notionPullOpen, setNotionPullOpen] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [notionStatus, setNotionStatus] = useState<NotionStatus | null>(null);
@@ -673,8 +726,15 @@ export function EditorPage() {
               cameraRequest={cameraRequest}
               active={view === '3d'}
               orthographic={orthographic}
+              showExhibitorNames={showExhibitorNames}
+              showObjectLabels={showObjectLabels}
             />
-            {view === 'plan' ? <PlanEditor2D /> : null}
+            {view === 'plan' ? (
+              <PlanEditor2D
+                showObjectLabels={showObjectLabels}
+                showExhibitorNames={showExhibitorNames}
+              />
+            ) : null}
           </div>
 
           <div className="floating-toolbar">
@@ -835,6 +895,12 @@ export function EditorPage() {
               >
                 Cuadrícula
               </button>
+              <SceneLabelToggles
+                showObjectLabels={showObjectLabels}
+                showExhibitorNames={showExhibitorNames}
+                onToggleObjectLabels={() => setShowObjectLabels((value) => !value)}
+                onToggleExhibitorNames={() => setShowExhibitorNames((value) => !value)}
+              />
               {project.environment.url || project.environment.blockId || environmentPreview ? (
                 <button
                   type="button"
@@ -852,7 +918,17 @@ export function EditorPage() {
                 </button>
               ) : null}
             </div>
-          ) : null}
+          ) : (
+            <div className="view-cube view-cube-plan">
+              <span className="view-cube-title">Vista</span>
+              <SceneLabelToggles
+                showObjectLabels={showObjectLabels}
+                showExhibitorNames={showExhibitorNames}
+                onToggleObjectLabels={() => setShowObjectLabels((value) => !value)}
+                onToggleExhibitorNames={() => setShowExhibitorNames((value) => !value)}
+              />
+            </div>
+          )}
 
           {view === '3d' && measureMode ? (
             <div className="measure-bar">

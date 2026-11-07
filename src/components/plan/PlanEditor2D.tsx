@@ -269,7 +269,15 @@ function OpeningMarks({
   );
 }
 
-export function PlanEditor2D() {
+export function PlanEditor2D({
+  showObjectLabels = true,
+  showExhibitorNames = true,
+}: {
+  /** Etiquetas de código/nombre de los objetos en la planta. */
+  showObjectLabels?: boolean;
+  /** Nombres de los expositores en la planta. */
+  showExhibitorNames?: boolean;
+} = {}) {
   const project = useEditorStore((state) => state.project);
   const selection = useEditorStore((state) => state.selection);
   const tool = useEditorStore((state) => state.tool);
@@ -1609,7 +1617,8 @@ export function PlanEditor2D() {
                 stroke={selected ? '#d7ff4f' : paintColor ?? 'rgba(255,255,255,.4)'}
                 strokeWidth={Math.max(viewport.width / 1000, 0.006)}
               />
-              {width * (viewport.width / Math.max(svgRef.current?.clientWidth ?? 800, 1)) > 34 ? (
+              {showObjectLabels &&
+              width * (viewport.width / Math.max(svgRef.current?.clientWidth ?? 800, 1)) > 34 ? (
                 <text
                   x={0}
                   y={0}
@@ -1677,18 +1686,20 @@ export function PlanEditor2D() {
                 strokeDasharray={exhibitor.notionMissing ? `${radius * 0.35} ${radius * 0.25}` : undefined}
               />
               <circle r={radius * 0.3} fill={color} />
-              <text
-                x={0}
-                y={-radius * 1.55}
-                textAnchor="middle"
-                fill={selected ? '#d7ff4f' : color}
-                fontSize={textSize * 0.9}
-                fontFamily="var(--font)"
-                pointerEvents="none"
-              >
-                {exhibitor.name || 'Expositor'}
-                {exhibitor.standCode ? ` · ${exhibitor.standCode}` : ''}
-              </text>
+              {showExhibitorNames ? (
+                <text
+                  x={0}
+                  y={-radius * 1.55}
+                  textAnchor="middle"
+                  fill={selected ? '#d7ff4f' : color}
+                  fontSize={textSize * 0.9}
+                  fontFamily="var(--font)"
+                  pointerEvents="none"
+                >
+                  {exhibitor.name || 'Expositor'}
+                  {exhibitor.standCode ? ` · ${exhibitor.standCode}` : ''}
+                </text>
+              ) : null}
             </g>
           );
         })}

@@ -281,6 +281,7 @@ function EditableObjectInstance({
   highlighted,
   tint,
   ringColor,
+  showLabels,
   onSelect,
 }: {
   object: SceneObject;
@@ -289,6 +290,7 @@ function EditableObjectInstance({
   highlighted?: boolean;
   tint?: ObjectTint;
   ringColor?: string;
+  showLabels: boolean;
   onSelect?: (id: string) => void;
 }) {
   const [group, setGroup] = useState<THREE.Group | null>(null);
@@ -389,19 +391,21 @@ function EditableObjectInstance({
           </div>
         </Html>
       ) : null}
-      <ObjectLabel
-        object={object}
-        selected={selected}
-        ringColor={ringColor}
-        position={[
-          object.transform.position[0],
-          object.transform.position[1] +
-            elevation +
-            (dimensions ? dimensions[1] : Math.abs(object.transform.scale[1])) +
-            (selected && dimensions ? 0.62 : 0.32),
-          object.transform.position[2],
-        ]}
-      />
+      {showLabels ? (
+        <ObjectLabel
+          object={object}
+          selected={selected}
+          ringColor={ringColor}
+          position={[
+            object.transform.position[0],
+            object.transform.position[1] +
+              elevation +
+              (dimensions ? dimensions[1] : Math.abs(object.transform.scale[1])) +
+              (selected && dimensions ? 0.62 : 0.32),
+            object.transform.position[2],
+          ]}
+        />
+      ) : null}
       {selected && group ? (
         <TransformControls
           ref={gizmoRef}
@@ -426,6 +430,7 @@ function ReadOnlyObjectInstance({
   highlighted,
   tint,
   ringColor,
+  showLabels,
   onSelect,
 }: {
   object: SceneObject;
@@ -433,6 +438,7 @@ function ReadOnlyObjectInstance({
   highlighted?: boolean;
   tint?: ObjectTint;
   ringColor?: string;
+  showLabels: boolean;
   onSelect?: (object: SceneObject) => void;
 }) {
   const height = object.size ? Math.abs(object.size[1] * object.transform.scale[1]) : 1;
@@ -456,16 +462,18 @@ function ReadOnlyObjectInstance({
         <ObjectModel object={object} tint={tint} />
         {highlighted ? <SelectionRing object={object} highlighted color={ringColor} /> : null}
       </group>
-      <ObjectLabel
-        object={object}
-        selected={highlighted}
-        ringColor={ringColor}
-        position={[
-          object.transform.position[0],
-          object.transform.position[1] + elevation + height + 0.3,
-          object.transform.position[2],
-        ]}
-      />
+      {showLabels ? (
+        <ObjectLabel
+          object={object}
+          selected={highlighted}
+          ringColor={ringColor}
+          position={[
+            object.transform.position[0],
+            object.transform.position[1] + elevation + height + 0.3,
+            object.transform.position[2],
+          ]}
+        />
+      ) : null}
     </>
   );
 }
@@ -475,6 +483,7 @@ export function SceneObjects({
   editable = false,
   selectedObjectId,
   selectedExhibitorId,
+  showLabels = true,
   onSelectObject,
   onSelectExhibitor,
 }: {
@@ -482,6 +491,8 @@ export function SceneObjects({
   editable?: boolean;
   selectedObjectId?: string | null;
   selectedExhibitorId?: string | null;
+  /** Etiquetas de código/nombre de los objetos en la vista de solo lectura. */
+  showLabels?: boolean;
   onSelectObject?: (id: string) => void;
   onSelectExhibitor?: (id: string) => void;
 }) {
@@ -509,6 +520,7 @@ export function SceneObjects({
             selected={selectedObjectId === object.id}
             tint={tint}
             ringColor={ringColor}
+            showLabels={showLabels}
             onSelect={onSelectObject}
           />
         ) : (
@@ -521,6 +533,7 @@ export function SceneObjects({
             )}
             tint={tint}
             ringColor={ringColor}
+            showLabels={showLabels}
             onSelect={(entry) => {
               if (entry.exhibitorId) onSelectExhibitor?.(entry.exhibitorId);
             }}

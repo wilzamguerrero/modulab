@@ -106,6 +106,8 @@ export function PublicScene({
   selectedExhibitorId,
   cameraCommand,
   showSplat = false,
+  showObjectLabels = false,
+  showExhibitorNames = false,
   onSelectExhibitor,
   onClearSelection,
 }: {
@@ -114,6 +116,10 @@ export function PublicScene({
   cameraCommand: ViewerCameraCommand;
   /** El splat se mantiene oculto por defecto en el visor público. */
   showSplat?: boolean;
+  /** Etiquetas de código/nombre de los objetos. Ocultas por defecto. */
+  showObjectLabels?: boolean;
+  /** Nombres flotantes de los expositores sobre sus marcadores. */
+  showExhibitorNames?: boolean;
   onSelectExhibitor: (id: string) => void;
   onClearSelection: () => void;
 }) {
@@ -152,12 +158,14 @@ export function PublicScene({
         <SceneObjects
           project={project}
           selectedExhibitorId={selectedExhibitorId}
+          showLabels={showObjectLabels}
           onSelectExhibitor={onSelectExhibitor}
         />
         <ExhibitorMarkers
           exhibitors={project.exhibitors}
           project={project}
           selectedId={selectedExhibitorId}
+          showLabels={showExhibitorNames}
           onSelect={onSelectExhibitor}
         />
         <ViewerCamera project={project} command={cameraCommand} />

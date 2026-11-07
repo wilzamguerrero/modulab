@@ -12,6 +12,7 @@ import {
   Maximize2,
   MousePointer2,
   Sparkles,
+  Tags,
   Users,
   X,
 } from 'lucide-react';
@@ -311,6 +312,11 @@ export function PublicViewerPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showSplat, setShowSplat] = useState(false);
+  // Las etiquetas de los objetos llegan apagadas: en la experiencia pública el
+  // espacio se lee mejor limpio y el visitante las enciende si las necesita.
+  const [showLabels, setShowLabels] = useState(false);
+  // Botón independiente para ver solo los nombres de los expositores.
+  const [showExhibitorNames, setShowExhibitorNames] = useState(false);
   const [cameraCommand, setCameraCommand] = useState<ViewerCameraCommand>({
     mode: 'reset',
     nonce: 0,
@@ -486,6 +492,8 @@ export function PublicViewerPage() {
             selectedExhibitorId={selectedId}
             cameraCommand={cameraCommand}
             showSplat={showSplat}
+            showObjectLabels={showLabels}
+            showExhibitorNames={showExhibitorNames}
             onSelectExhibitor={selectById}
             onClearSelection={() => setSelectedId(null)}
           />
@@ -502,6 +510,30 @@ export function PublicViewerPage() {
             <button type="button" onClick={topCamera} title="Ver la planta desde arriba">
               <Maximize2 size={14} />
               Vista superior
+            </button>
+            <button
+              type="button"
+              className={showLabels ? 'is-active' : ''}
+              onClick={() => setShowLabels((value) => !value)}
+              title={showLabels ? 'Ocultar las etiquetas' : 'Mostrar las etiquetas de los objetos'}
+              aria-pressed={showLabels}
+            >
+              <Tags size={14} />
+              Etiquetas
+            </button>
+            <button
+              type="button"
+              className={showExhibitorNames ? 'is-active' : ''}
+              onClick={() => setShowExhibitorNames((value) => !value)}
+              title={
+                showExhibitorNames
+                  ? 'Ocultar los nombres de los expositores'
+                  : 'Ver solo los nombres de los expositores'
+              }
+              aria-pressed={showExhibitorNames}
+            >
+              <Users size={14} />
+              Nombres
             </button>
             {publicProject.environment.url || publicProject.environment.blockId ? (
               <button

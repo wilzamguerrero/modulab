@@ -1794,6 +1794,13 @@ input[type="range"] {
   background: var(--accent-soft);
 }
 
+/* En la planta el panel de etiquetas va abajo a la izquierda para no chocar
+   con el zoom, la ayuda ni las acciones de dibujo. */
+.view-cube.view-cube-plan {
+  left: 14px;
+  right: auto;
+}
+
 /* ------------------------------------------------------------------ */
 /* Inspector                                                           */
 /* ------------------------------------------------------------------ */
