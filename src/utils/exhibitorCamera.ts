@@ -13,7 +13,7 @@ export const DEFAULT_CAMERA_DISTANCE = 3.2;
 
 /**
  * Cámara de llegada fijada por el rumbo (la flecha del expositor), a la
- * distancia que elija el editor en la ficha (`cameraDistance`).
+ * distancia que el editor fija para el visor (`project.readerCameraDistance`).
  */
 export function headingCameraFor(exhibitor: Exhibitor, project: Project): ExhibitorCamera {
   const level = getLevel(project, entityLevelId(project, exhibitor));
@@ -23,7 +23,10 @@ export function headingCameraFor(exhibitor: Exhibitor, project: Project): Exhibi
     exhibitor.rotation,
     levelVertices(level),
     level?.elevation ?? 0,
-    exhibitor.cameraDistance ?? DEFAULT_CAMERA_DISTANCE,
+    // La distancia que manda es la del visor («Vistas → distancia de llegada»):
+    // así el editor ajusta una sola vez cuán cerca o lejos se para la cámara
+    // en TODOS los expositores, siempre sobre la línea de la flecha.
+    project.readerCameraDistance ?? DEFAULT_CAMERA_DISTANCE,
     assembly.lateral,
     assembly.ahead,
   );

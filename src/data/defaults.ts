@@ -194,6 +194,8 @@ export function createProject(options: {
     exhibitors: [],
     camera,
     readerViews: [],
+    readerCameraDistance: 3.2,
+    readerTravelSeconds: 2.2,
     environment: {
       visible: true,
       position: [0, 0, 0],

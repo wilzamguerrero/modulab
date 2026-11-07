@@ -138,10 +138,12 @@ function ExhibitorMarker({
             notifyHandlePointerDown(exhibitor.id);
           }}
         >
+          {/* Mismo tamaño con o sin selección: la flecha del rumbo es una
+              referencia de dirección, no una manija. Así la planta 2D y el 3D
+              dibujan exactamente el mismo triángulo. */}
           <mesh
             rotation={[-Math.PI / 2, 0, -Math.PI / 2]}
-            position={[0, 0, selected ? ARROW_INSET + 0.18 : ARROW_INSET]}
-            scale={selected ? 1.35 : 1}
+            position={[0, 0, ARROW_INSET]}
             renderOrder={12}
           >
             <circleGeometry args={[ARROW_SIZE, 3]} />

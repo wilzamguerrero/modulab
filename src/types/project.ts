@@ -235,8 +235,9 @@ export const exhibitorSchema = z.object({
    */
   rotationCustom: z.boolean().optional(),
   /**
-   * Distancia en metros a la que se coloca la cámara detrás del expositor al
-   * llegar al stand. Más metros = plano más abierto. Por defecto 3,2 m.
+   * Valor histórico por ficha: la llegada del visor usa ahora la distancia
+   * global `project.readerCameraDistance`. Se conserva para no romper los
+   * proyectos ya publicados.
    */
   cameraDistance: z.number().min(1).max(12).optional(),
   /** Nivel en el que se sitúa el expositor. */
@@ -355,6 +356,17 @@ export const projectSchema = z
     readerViews: z.array(readerViewSchema).default([]),
     /** Vista de lectura activa (la que abre el visor público al entrar). */
     activeReaderViewId: z.string().optional(),
+    /**
+     * Distancia (metros) a la que se coloca la cámara detrás del expositor al
+     * llegar al stand en el visor público. Más metros = plano más abierto,
+     * siempre sobre la línea de la flecha. Por defecto 3,2 m.
+     */
+    readerCameraDistance: z.number().min(1).max(20).default(3.2),
+    /**
+     * Duración (segundos) del vuelo entre stands en el visor público. Más
+     * segundos = recorrido más pausado.
+     */
+    readerTravelSeconds: z.number().min(0.5).max(10).default(2.2),
     environment: environmentSchema.default({}),
     notionBlockId: z.string().optional(),
     notionExhibitorsPageId: z.string().optional(),

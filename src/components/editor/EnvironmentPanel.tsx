@@ -23,6 +23,7 @@ import {
   IconButton,
   Modal,
   NumberInput,
+  RangeInput,
   Select,
   Switch,
   TextInput,
@@ -354,6 +355,44 @@ function ReaderViewsSection({
           })}
         </div>
       )}
+      <div className="reader-settings">
+        <Field
+          label="Distancia de llegada"
+          hint="Cuán lejos de cada expositor se detiene la cámara al entrar al stand. La dirección siempre es la de su flecha: más metros = plano más abierto y más atrás."
+        >
+          <RangeInput
+            label="Distancia"
+            value={project.readerCameraDistance ?? 3.2}
+            min={1}
+            max={12}
+            step={0.1}
+            format={(value) => `${value.toFixed(1)} m`}
+            onChange={(readerCameraDistance) =>
+              useEditorStore.getState().patchProject((draft) => {
+                draft.readerCameraDistance = readerCameraDistance;
+              })
+            }
+          />
+        </Field>
+        <Field
+          label="Velocidad del viaje"
+          hint="Duración del vuelo al cambiar entre la vista en uso y los expositores. Más segundos = recorrido más pausado."
+        >
+          <RangeInput
+            label="Duración"
+            value={project.readerTravelSeconds ?? 2.2}
+            min={0.6}
+            max={6}
+            step={0.1}
+            format={(value) => `${value.toFixed(1)} s`}
+            onChange={(readerTravelSeconds) =>
+              useEditorStore.getState().patchProject((draft) => {
+                draft.readerTravelSeconds = readerTravelSeconds;
+              })
+            }
+          />
+        </Field>
+      </div>
       <p className="panel-note">
         El visor público abre en la vista «En uso». Al viajar entre expositores, la cámara pasa
         por la vista del nivel de destino y entra al stand mirando según su flecha de rotación.

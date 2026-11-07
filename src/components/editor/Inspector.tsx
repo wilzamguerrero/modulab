@@ -928,29 +928,20 @@ function ExhibitorInspector({
             suffix="°"
           />
         </Field>
-        <Field label="Distancia de llegada">
+        <Field
+          label="Distancia de llegada"
+          hint="Se ajusta una sola vez para todos los expositores en Entorno → Vistas."
+        >
           <RangeInput
             label=""
-            value={exhibitor.cameraDistance ?? DEFAULT_CAMERA_DISTANCE}
-            min={1.5}
-            max={10}
+            value={project.readerCameraDistance ?? DEFAULT_CAMERA_DISTANCE}
+            min={1}
+            max={12}
             step={0.1}
             format={(value) => `${value.toFixed(1)} m`}
-            onChange={(cameraDistance) => {
-              // También se actualiza la ficha para que el inspector y el visor
-              // muestren el mismo plano.
-              const camera = headingCameraFor({ ...exhibitor, cameraDistance }, project);
-              updateExhibitor(exhibitor.id, {
-                cameraDistance,
-                // La distancia se mueve sobre la línea actual de la ficha (la
-                // que el editor ve en el 3D): rumbo fijo y sólo se aleja/acerca.
-                rotation: Math.atan2(
-                  exhibitor.position.x - camera.position[0],
-                  exhibitor.position.z - camera.position[2],
-                ),
-                rotationCustom: true,
-                cameraPosition: camera.position,
-                cameraTarget: camera.target,
+            onChange={(readerCameraDistance) => {
+              useEditorStore.getState().patchProject((draft) => {
+                draft.readerCameraDistance = readerCameraDistance;
               });
             }}
           />

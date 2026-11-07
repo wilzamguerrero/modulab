@@ -59,6 +59,7 @@ function makeProject(overrides: Partial<Exhibitor> = {}): Project {
     ],
     objects: [],
     exhibitors: [exhibitor],
+    readerCameraDistance: 3.2,
   } as unknown as Project;
 }
 
@@ -107,12 +108,19 @@ describe('headingCameraFor', () => {
     expect(camera.position[2]).toBeCloseTo(-3.2, 5);
   });
 
-  it('usa la distancia de llegada elegida para abrir o cerrar el plano', () => {
-    const project = makeProject({ rotation: Math.PI / 2, cameraDistance: 5 });
+  it('usa la distancia de llegada del visor para abrir o cerrar el plano', () => {
+    const project = makeProject({ rotation: Math.PI / 2 });
+    project.readerCameraDistance = 5;
     const camera = headingCameraFor(project.exhibitors[0], project);
     expect(camera.position[0]).toBeCloseTo(1 - 5, 5);
-    const closer = makeProject({ rotation: Math.PI / 2, cameraDistance: 2 });
-    expect(headingCameraFor(closer.exhibitors[0], closer).position[0]).toBeCloseTo(1 - 2, 5);
+    project.readerCameraDistance = 2;
+    expect(headingCameraFor(project.exhibitors[0], project).position[0]).toBeCloseTo(1 - 2, 5);
+  });
+
+  it('la distancia del visor manda sobre la antigua de la ficha', () => {
+    const project = makeProject({ rotation: Math.PI / 2, cameraDistance: 9 });
+    project.readerCameraDistance = 4;
+    expect(headingCameraFor(project.exhibitors[0], project).position[0]).toBeCloseTo(1 - 4, 5);
   });
 
   it('la flecha manda siempre, aunque la cámara guardada sea válida', () => {
@@ -128,10 +136,10 @@ describe('headingCameraFor', () => {
     const closer = makeProject({
       rotation: Math.PI / 2,
       rotationCustom: true,
-      cameraDistance: 5,
       cameraPosition: [4, 2, 4],
       cameraTarget: [0, 1, 0],
     });
+    closer.readerCameraDistance = 5;
     const opened = visitorCameraFor(closer.exhibitors[0], closer);
     expect(opened.position[0]).toBeCloseTo(1 - 5, 5);
     expect(opened.position[2]).toBeCloseTo(0, 5);

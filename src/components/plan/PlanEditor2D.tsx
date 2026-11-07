@@ -68,6 +68,15 @@ import {
   paintedExhibitorColor,
 } from '@/utils/exhibitorColors';
 
+/**
+ * Flecha de rumbo del expositor: los mismos valores que el marcador 3D
+ * (`ARROW_SIZE` / `ARROW_INSET` en `ExhibitorMarkers`), en metros. Así la
+ * planta y el 3D dibujan el mismo triángulo, del mismo tamaño y en el mismo
+ * sitio, apuntando a la misma dirección.
+ */
+const ARROW_SIZE = 0.2;
+const ARROW_PLAN_INSET = 0.3;
+
 interface Viewport {
   x: number;
   y: number;
@@ -1968,22 +1977,28 @@ export function PlanEditor2D({
               <circle r={radius * 0.3} fill={color} />
               {/* Hacia dónde mira la cámara: una sola flecha sencilla, la misma
                   que en 3D. Va pegada al marcador, en el borde del círculo. */}
-              {/* En SVG el ángulo crece con el eje Z hacia abajo, así que el
-                  rumbo 0° (cámara detrás, mirando a +Z) se dibuja hacia
-                  abajo: rotate(-90°) lleva la punta local (+X) a +Z. */}
+              {/* Dirección del rumbo: 0° = +Z, 90° = +X (la misma que usa
+                  `assemblyOffsetsFor` en `utils/exhibitorCamera` para llevar la
+                  cámara de llegada; el vector es (sin θ, cos θ) en el mundo XZ).
+                  En la planta el mundo se pinta con +X a la DERECHA y +Z hacia
+                  ABAJO (plan z → y del SVG), que es como lo ve la vista 3D en
+                  planta: con el grupo en `rotate(-θ)` y la punta en +y local, la
+                  punta acaba en (sin θ, cos θ) del SVG (y positivo = abajo):
+                    0°  -> (0, +1)  abajo     90° -> (+1, 0)  derecha
+                    180°-> (0, -1)  arriba    -90°-> (-1, 0)  izquierda
+                    308° (Carlos) -> abajo-izquierda, igual que en 3D.
+                  El giro y el eje de la punta van acoplados: no cambiar uno de
+                  los dos sin el otro. */}
               <g
-                transform={`rotate(${(exhibitor.rotation * 180) / Math.PI - 90})`}
+                transform={`rotate(${-(exhibitor.rotation * 180) / Math.PI})`}
                 opacity={exhibitor.rotationCustom ? 1 : 0.6}
                 pointerEvents="none"
               >
-                {/* Flecha de rumbo: base en el centro del marcador y punta un
-                    poco fuera del círculo, hacia donde mira la cámara. */}
+                {/* Mismo triángulo que el marcador 3D, en metros: la punta a
+                    ARROW_INSET + ARROW_SIZE del centro y la base a ARROW_INSET,
+                    con media anchura ARROW_SIZE. */}
                 <path
-                  d={
-                    selected
-                      ? `M 0 ${-radius * 0.26} L 0 ${radius * 0.26} L ${radius * 2.9} 0 Z`
-                      : `M 0 ${-radius * 0.2} L 0 ${radius * 0.2} L ${radius * 1.9} 0 Z`
-                  }
+                  d={`M 0 ${ARROW_PLAN_INSET + ARROW_SIZE} L ${-ARROW_SIZE} ${ARROW_PLAN_INSET - ARROW_SIZE} L ${ARROW_SIZE} ${ARROW_PLAN_INSET - ARROW_SIZE} Z`}
                   fill={color}
                 />
               </g>

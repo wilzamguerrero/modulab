@@ -1359,6 +1359,14 @@ input[type="range"] {
   gap: 4px;
 }
 
+.reader-settings {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}
+
 .reader-view-row {
   display: flex;
   flex-direction: column;

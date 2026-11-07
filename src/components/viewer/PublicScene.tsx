@@ -30,8 +30,8 @@ export interface ViewerCameraCommand {
   fov?: number;
 }
 
-/** Duración del vuelo entre stands, en milisegundos. */
-const TRAVEL_DURATION_MS = 2200;
+/** Duración del vuelo entre stands por defecto, en milisegundos. */
+const DEFAULT_TRAVEL_DURATION_MS = 2200;
 
 type Point3 = [number, number, number];
 
@@ -140,12 +140,17 @@ function ViewerCamera({
       ...waypoints.map((stop) => stop.target),
       target,
     ]);
+    // Velocidad del viaje: la fija el editor en «Vistas → velocidad».
+    const travelDuration = Math.max(
+      300,
+      (project.readerTravelSeconds ?? DEFAULT_TRAVEL_DURATION_MS / 1000) * 1000,
+    );
     const start = performance.now();
     let frame = 0;
     let cancelled = false;
     const step = () => {
       if (cancelled) return;
-      const t = Math.min(1, (performance.now() - start) / TRAVEL_DURATION_MS);
+      const t = Math.min(1, (performance.now() - start) / travelDuration);
       const eased = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
       const nextPosition = sampleCurve(control, eased);
       const nextTarget = sampleCurve(targetControl, eased);
