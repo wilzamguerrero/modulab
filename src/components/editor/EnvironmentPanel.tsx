@@ -22,6 +22,7 @@ import type { Project, Vec3 } from '@/types/project';
 import {
   Badge,
   Button,
+  ColorInput,
   Field,
   HelpButton,
   IconButton,
@@ -516,11 +517,42 @@ function ReaderExperienceSettings({ project }: { project: Project }) {
         </Select>
         <span className="reader-experience-hint">
           {settings.readerSpotlight === 'neutral'
-            ? 'El expositor elegido conserva su color; el entorno pasa a blanco.'
+            ? 'El expositor elegido conserva su color; el entorno pasa al color de abajo.'
             : settings.readerSpotlight === 'solo'
-              ? 'Se oculta el resto de expositores y el entorno queda en blanco.'
+              ? 'Se oculta el resto de expositores y el entorno queda en el color de abajo.'
               : 'La escena conserva los colores de todos los expositores.'}
         </span>
+        {settings.readerSpotlight !== 'off' ? (
+          <div className="reader-experience-sub">
+            <span className="reader-experience-label">Color del entorno</span>
+            <ColorInput
+              value={settings.readerSpotlightColor ?? '#ffffff'}
+              onChange={(readerSpotlightColor) =>
+                patchSettings((draft) => {
+                  draft.readerSpotlightColor = readerSpotlightColor;
+                })
+              }
+            />
+            <RangeInput
+              label="Suavizado"
+              value={settings.readerSpotlightBlendSeconds ?? 0.6}
+              min={0}
+              max={3}
+              step={0.1}
+              format={(value) => (value > 0 ? `${value.toFixed(1)} s` : 'Sin fundido')}
+              onChange={(readerSpotlightBlendSeconds) =>
+                patchSettings((draft) => {
+                  draft.readerSpotlightBlendSeconds = readerSpotlightBlendSeconds;
+                })
+              }
+            />
+            <span className="reader-experience-hint">
+              {settings.readerSpotlightBlendSeconds > 0
+                ? 'Al elegir un expositor el entorno cambia suavemente, no de golpe.'
+                : 'El entorno cambia al instante al seleccionar.'}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <div className="reader-experience-group">

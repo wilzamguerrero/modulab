@@ -222,6 +222,8 @@ export function createProject(options: {
       },
       readerNameMode: 'all',
       readerSpotlight: 'off',
+      readerSpotlightColor: '#ffffff',
+      readerSpotlightBlendSeconds: 0.6,
       readerEntryView: 'view',
     },
   };

@@ -7,6 +7,7 @@ import { notifyHandlePointerDown } from './sceneDragGuard';
 import { useEditorStore } from '@/store/editorStore';
 import { snapValue } from '@/utils/geometry';
 import {
+  blendTowardNeutral,
   isDimmedBySelection,
   shouldShowExhibitorName,
 } from '@/utils/exhibitorColors';
@@ -36,7 +37,8 @@ function ExhibitorMarker({
   showLabels,
   showNameLabel = true,
   hidden = false,
-  muted = false,
+  muted = 0,
+  neutralColor = '#ffffff',
   onSelect,
 }: {
   exhibitor: Exhibitor;
@@ -48,8 +50,13 @@ function ExhibitorMarker({
   showNameLabel?: boolean;
   /** Modo «solo el elegido»: este expositor no es el elegido y no se dibuja. */
   hidden?: boolean;
-  /** Modo «solo el elegido»: el marcador del resto pierde su color. */
-  muted?: boolean;
+  /**
+   * Progreso (0–1) con el que el marcador del resto pierde su color: así el
+   * cambio acompaña al fundido del entorno.
+   */
+  muted?: number;
+  /** Color del fundido neutro. */
+  neutralColor?: string;
   onSelect?: (id: string) => void;
 }) {
   const markerY = MARKER_Y + elevation;
@@ -73,7 +80,7 @@ function ExhibitorMarker({
   // El expositor conserva siempre su color asignado; la selección se marca con
   // tamaño, opacidad y un halo, no cambiando el tono a amarillo. En modo
   // «solo el elegido» los demás pierden el color y quedan en blanco.
-  const color = muted ? '#ffffff' : exhibitorColor(exhibitor);
+  const color = blendTowardNeutral(exhibitorColor(exhibitor), neutralColor, muted);
 
   const finishTransform = () => {
     if (!group) return;
@@ -262,6 +269,8 @@ export function ExhibitorMarkers({
   showLabels = editor,
   nameMode = 'all',
   spotlight = 'off',
+  spotlightProgress = 0,
+  neutralColor = '#ffffff',
   onSelect,
 }: {
   exhibitors: Exhibitor[];
@@ -277,6 +286,9 @@ export function ExhibitorMarkers({
    * aparte). `solo`: además, los demás expositores no se dibujan.
    */
   spotlight?: 'off' | 'neutral' | 'solo';
+  /** Progreso (0–1) del fundido: el color del resto lo sigue al suavizarse. */
+  spotlightProgress?: number;
+  neutralColor?: string;
   onSelect?: (id: string) => void;
 }) {
   const elevations = project ? levelElevationMap(project) : {};
@@ -296,7 +308,12 @@ export function ExhibitorMarkers({
             showLabels={showLabels}
             showNameLabel={shouldShowExhibitorName(nameMode, exhibitor.id, selectedId)}
             hidden={spotlight === 'solo' && isDimmedBySelection(selectedId, exhibitor.id)}
-            muted={spotlight !== 'off' && isDimmedBySelection(selectedId, exhibitor.id)}
+            muted={
+              spotlight !== 'off' && isDimmedBySelection(selectedId, exhibitor.id)
+                ? spotlightProgress
+                : 0
+            }
+            neutralColor={neutralColor}
             onSelect={onSelect}
           />
         ))}

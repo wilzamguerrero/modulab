@@ -103,10 +103,12 @@ function PrimitiveModel({
   shape,
   overrides,
   tint,
+  neutralColor,
 }: {
   shape: PrimitiveShape;
   overrides: Record<string, MaterialOverride>;
   tint?: ObjectTint;
+  neutralColor?: string;
 }) {
   const geometry = useMemo(() => {
     switch (shape) {
@@ -134,10 +136,10 @@ function PrimitiveModel({
   useEffect(() => {
     const override = overrides['0:Primitive'];
     // `tint` es la pintura del expositor; `whiteout` lo que no es el elegido.
-    const whiteout = tint?.color === NEUTRAL_HIGHLIGHT_COLOR ? tint.opacity : 0;
+    const whiteout = tint && tint.color === neutralColor ? tint.opacity : 0;
     const paint = whiteout > 0 ? 0 : (tint?.opacity ?? 0);
     material.color.set(override?.color ?? '#d8d2c4');
-    if (whiteout > 0) material.color.set('#ffffff');
+    if (whiteout > 0 && tint) material.color.lerp(new THREE.Color(tint.color), whiteout);
     if (paint > 0 && tint) material.color.lerp(new THREE.Color(tint.color), paint);
     material.roughness = whiteout > 0 ? 0.78 : (override?.roughness ?? 0.66);
     material.metalness = whiteout > 0 ? 0.02 : (override?.metalness ?? 0.03);
@@ -145,7 +147,7 @@ function PrimitiveModel({
     material.transparent = material.opacity < 1;
     material.visible = override?.visible ?? true;
     material.needsUpdate = true;
-  }, [material, overrides, tint?.color, tint?.opacity]);
+  }, [material, overrides, neutralColor, tint?.color, tint?.opacity]);
 
   useEffect(
     () => () => {
@@ -163,11 +165,14 @@ function GlbModel({
   object,
   overrides,
   tint,
+  neutralColor,
 }: {
   url: string;
   object: SceneObject;
   overrides: Record<string, MaterialOverride>;
   tint?: ObjectTint;
+  /** Color del tinte neutro: con él el modelo se blanquea en lugar de pintarse. */
+  neutralColor?: string;
 }) {
   const [root, setRoot] = useState<THREE.Object3D | null>(null);
   const [offset, setOffset] = useState<[number, number, number]>([0, 0, 0]);
@@ -225,12 +230,12 @@ function GlbModel({
   useEffect(() => {
     if (!root) return;
     applyOverridesToMaterials(root, overrides);
-    if (tint?.color === NEUTRAL_HIGHLIGHT_COLOR) {
-      applyWhiteoutToMaterials(root);
+    if (tint && tint.color === neutralColor) {
+      applyWhiteoutToMaterials(root, tint.color, tint.opacity);
     } else if (tint) {
       applyTintToMaterials(root, tint.color, tint.opacity);
     }
-  }, [root, overrides, tint?.color, tint?.opacity]);
+  }, [root, overrides, neutralColor, tint?.color, tint?.opacity]);
 
   if (error) {
     return (
@@ -255,11 +260,34 @@ function GlbModel({
   return <primitive object={root} position={offset} />;
 }
 
-function ObjectModel({ object, tint }: { object: SceneObject; tint?: ObjectTint }) {
+function ObjectModel({
+  object,
+  tint,
+  neutralColor,
+}: {
+  object: SceneObject;
+  tint?: ObjectTint;
+  neutralColor?: string;
+}) {
   if (object.source.type === 'primitive') {
-    return <PrimitiveModel shape={object.source.shape} overrides={object.overrides} tint={tint} />;
+    return (
+      <PrimitiveModel
+        shape={object.source.shape}
+        overrides={object.overrides}
+        tint={tint}
+        neutralColor={neutralColor}
+      />
+    );
   }
-  return <GlbModel url={object.source.url} object={object} overrides={object.overrides} tint={tint} />;
+  return (
+    <GlbModel
+      url={object.source.url}
+      object={object}
+      overrides={object.overrides}
+      tint={tint}
+      neutralColor={neutralColor}
+    />
+  );
 }
 
 function SelectionRing({
@@ -308,6 +336,7 @@ function EditableObjectInstance({
   tint,
   ringColor,
   showLabels,
+  neutralColor,
   onSelect,
 }: {
   object: SceneObject;
@@ -317,6 +346,7 @@ function EditableObjectInstance({
   tint?: ObjectTint;
   ringColor?: string;
   showLabels: boolean;
+  neutralColor?: string;
   onSelect?: (id: string) => void;
 }) {
   const [group, setGroup] = useState<THREE.Group | null>(null);
@@ -405,7 +435,7 @@ function EditableObjectInstance({
           onSelect(object.id);
         }}
       >
-        <ObjectModel object={object} tint={tint} />
+        <ObjectModel object={object} tint={tint} neutralColor={neutralColor} />
         {selected || highlighted ? (
           <SelectionRing object={object} highlighted={highlighted} color={ringColor} />
         ) : null}
@@ -469,6 +499,7 @@ function ReadOnlyObjectInstance({
   ringColor,
   showLabels,
   showMeasurements,
+  neutralColor,
   onSelect,
 }: {
   object: SceneObject;
@@ -479,6 +510,8 @@ function ReadOnlyObjectInstance({
   showLabels: boolean;
   /** Cotas del objeto resaltado en la vista de solo lectura. */
   showMeasurements?: boolean;
+  /** Color del tinte neutro («solo el elegido»). */
+  neutralColor?: string;
   onSelect?: (object: SceneObject) => void;
 }) {
   const height = object.size ? Math.abs(object.size[1] * object.transform.scale[1]) : 1;
@@ -502,7 +535,7 @@ function ReadOnlyObjectInstance({
           onSelect(object);
         }}
       >
-        <ObjectModel object={object} tint={tint} />
+        <ObjectModel object={object} tint={tint} neutralColor={neutralColor} />
         {highlighted ? <SelectionRing object={object} highlighted color={ringColor} /> : null}
       </group>
       {highlighted && dimensions && showMeasurements ? (
@@ -546,6 +579,7 @@ export function SceneObjects({
   showLabels = true,
   showMeasurements = false,
   highlightOthers = false,
+  neutralColor = NEUTRAL_HIGHLIGHT_COLOR,
   onSelectObject,
   onSelectExhibitor,
 }: {
@@ -559,9 +593,12 @@ export function SceneObjects({
   showMeasurements?: boolean;
   /**
    * Visor público: con un expositor elegido, sus objetos conservan el color y
-   * el resto se lleva a blanco.
+   * el resto se lleva al color neutro. Un número (0–1) es el progreso del
+   * fundido, que permite hacer el cambio suave.
    */
-  highlightOthers?: boolean;
+  highlightOthers?: boolean | number;
+  /** Color al que se lleva lo que no es el expositor elegido. */
+  neutralColor?: string;
   onSelectObject?: (id: string) => void;
   onSelectExhibitor?: (id: string) => void;
 }) {
@@ -582,7 +619,7 @@ export function SceneObjects({
           selectedExhibitorId,
         );
         const tint = neutralAmount > 0
-          ? { color: NEUTRAL_HIGHLIGHT_COLOR, opacity: neutralAmount }
+          ? { color: neutralColor, opacity: neutralAmount }
           : exhibitor && paintAmount > 0
             ? { color: exhibitorColor(exhibitor), opacity: paintAmount }
             : undefined;
@@ -596,6 +633,7 @@ export function SceneObjects({
             tint={tint}
             ringColor={ringColor}
             showLabels={showLabels}
+            neutralColor={neutralColor}
             onSelect={onSelectObject}
           />
         ) : (
@@ -610,6 +648,7 @@ export function SceneObjects({
             ringColor={ringColor}
             showLabels={showLabels}
             showMeasurements={showMeasurements}
+            neutralColor={neutralColor}
             onSelect={(entry) => {
               if (entry.exhibitorId) onSelectExhibitor?.(entry.exhibitorId);
             }}

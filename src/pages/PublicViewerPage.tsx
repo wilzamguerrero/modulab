@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -254,15 +254,15 @@ export function PublicViewerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Estado inicial de la barra de vistas: lo decide el expositor en el editor
-  // («Vistas → Qué se ve por defecto»). `null` hasta tener el proyecto, para
-  // no arrancar nunca con un destello de opciones equivocadas.
-  const readerDefaults = project?.settings.readerVisibility;
-  const [showSplat, setShowSplat] = useState(readerDefaults?.splat ?? false);
-  const [showLabels, setShowLabels] = useState(readerDefaults?.labels ?? false);
+  // Estado de la barra de vistas. Arranca apagado y toma los valores del
+  // proyecto en cuanto carga («Vistas → Qué se ve por defecto»): el estado
+  // inicial no puede leerlos porque el documento aún no ha llegado.
+  const [showSplat, setShowSplat] = useState(false);
+  const [showLabels, setShowLabels] = useState(false);
   // Botón independiente para ver solo los nombres de los expositores.
-  const [showExhibitorNames, setShowExhibitorNames] = useState(readerDefaults?.names ?? false);
-  const [showMeasurements, setShowMeasurements] = useState(readerDefaults?.measurements ?? false);
+  const [showExhibitorNames, setShowExhibitorNames] = useState(false);
+  const [showMeasurements, setShowMeasurements] = useState(false);
+  const appliedReaderDefaults = useRef(false);
   // `null` hasta tener el proyecto: la primera orden es la vista de lectura
   // elegida en el editor, no la cámara esquema del documento.
   const [cameraCommand, setCameraCommand] = useState<ViewerCameraCommand | null>(null);
@@ -333,6 +333,17 @@ export function PublicViewerPage() {
     }
     return { position: project?.camera.position, target: project?.camera.target, fov: project?.camera.fov };
   }, [readerView, project, publicProject]);
+
+  // Una sola vez por carga: encender lo que el expositor dejó activo.
+  useEffect(() => {
+    const defaults = publicProject?.settings.readerVisibility;
+    if (!defaults || appliedReaderDefaults.current) return;
+    appliedReaderDefaults.current = true;
+    setShowSplat(defaults.splat);
+    setShowLabels(defaults.labels);
+    setShowExhibitorNames(defaults.names);
+    setShowMeasurements(defaults.measurements);
+  }, [publicProject]);
 
   useEffect(() => {
     if (!readerCamera.position || !readerCamera.target) return;

@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useRef } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import * as THREE from 'three';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import {
   CameraControls,
   type CameraControls as CameraControlsImpl,
@@ -14,6 +22,8 @@ import { SceneObjects } from '@/components/scene/SceneObjects';
 import { ExhibitorMarkers } from '@/components/scene/ExhibitorMarkers';
 import { SceneSplat } from '@/components/scene/SceneSplat';
 import { projectBounds } from '@/utils/levels';
+import { NEUTRAL_HIGHLIGHT_COLOR, mixHexColors } from '@/utils/exhibitorColors';
+import { stepSpotlightTarget } from '@/utils/spotlightBlend';
 
 export interface ViewerCameraCommand {
   mode: 'reset' | 'focus' | 'top';
@@ -312,6 +322,138 @@ function ViewerCamera({
   );
 }
 
+const DEFAULT_SCENE_BACKGROUND = '#070a0c';
+
+/**
+ * Progreso (0–1) del fundido del entorno hacia el color neutro. Se resuelve
+ * cada fotograma dentro del lienzo y se publica por contexto: las piezas lo
+ * leen sin que toda la escena se vuelva a renderizar por cada paso.
+ */
+const SpotlightContext = createContext(0);
+const SpotlightColorContext = createContext(NEUTRAL_HIGHLIGHT_COLOR);
+const SpotlightStoreContext = createContext<{ current: number } | null>(null);
+
+function useSpotlightProgress(): number {
+  return useContext(SpotlightContext);
+}
+
+/** Progreso vivo fuera de React (fondos, materiales de modelos). */
+function useSpotlightStore() {
+  return useContext(SpotlightStoreContext);
+}
+
+function SpotlightScope({
+  target,
+  blendSeconds,
+  neutralColor,
+  children,
+}: {
+  target: number;
+  blendSeconds: number;
+  neutralColor: string;
+  children: ReactNode;
+}) {
+  const progress = useRef(target === 1 ? 1 : 0);
+  const store = useRef(progress.current);
+  const [rendered, setRendered] = useState(progress.current);
+  const background = useRef<string | null>(null);
+
+  useFrame((state, delta) => {
+    const next = stepSpotlightTarget(progress.current, target, delta * 1000, blendSeconds);
+    if (next === progress.current) return;
+    progress.current = next;
+    store.current = next;
+    setRendered(next);
+    // El fondo de la escena acompaña al fundido con el mismo color neutro
+    // mezclado sobre el fondo oscuro de base (sin destello).
+    const scene = state.scene;
+    if (progress.current <= 0) {
+      if (background.current !== DEFAULT_SCENE_BACKGROUND) {
+        background.current = DEFAULT_SCENE_BACKGROUND;
+        if (scene.background instanceof THREE.Color) {
+          scene.background.set(DEFAULT_SCENE_BACKGROUND);
+        }
+      }
+      return;
+    }
+    const mixed = mixHexColors(DEFAULT_SCENE_BACKGROUND, neutralColor, progress.current);
+    background.current = mixed;
+    if (scene.background instanceof THREE.Color) scene.background.set(mixed);
+    else scene.background = new THREE.Color(mixed);
+  });
+
+  return (
+    <SpotlightStoreContext.Provider value={store}>
+      <SpotlightColorContext.Provider value={neutralColor}>
+        <SpotlightContext.Provider value={rendered}>
+          {children}
+        </SpotlightContext.Provider>
+      </SpotlightColorContext.Provider>
+    </SpotlightStoreContext.Provider>
+  );
+}
+
+/** Edificio, objetos y marcadores con el fundido aplicado. */
+function SceneContent({
+  project,
+  selectedExhibitorId,
+  showSplat,
+  showObjectLabels,
+  showExhibitorNames,
+  showMeasurements,
+  nameMode,
+  spotlight,
+  onSelectExhibitor,
+}: {
+  project: Project;
+  selectedExhibitorId: string | null;
+  showSplat: boolean;
+  showObjectLabels: boolean;
+  showExhibitorNames: boolean;
+  showMeasurements: boolean;
+  nameMode: 'all' | 'selected';
+  spotlight: 'off' | 'neutral' | 'solo';
+  onSelectExhibitor: (id: string) => void;
+}) {
+  const progress = useSpotlightProgress();
+  const neutralColor = useContext(SpotlightColorContext);
+  const environment = useMemo(
+    () => ({ ...project.environment, visible: project.environment.visible && showSplat }),
+    [project.environment, showSplat],
+  );
+  return (
+    <>
+      <Architecture
+        project={project}
+        selectedExhibitorId={selectedExhibitorId}
+        highlightOthers={progress}
+        neutralColor={neutralColor}
+      />
+      <SceneSplat environment={environment} />
+      <SceneObjects
+        project={project}
+        selectedExhibitorId={selectedExhibitorId}
+        showLabels={showObjectLabels}
+        showMeasurements={showMeasurements}
+        highlightOthers={progress}
+        neutralColor={neutralColor}
+        onSelectExhibitor={onSelectExhibitor}
+      />
+      <ExhibitorMarkers
+        exhibitors={project.exhibitors}
+        project={project}
+        selectedId={selectedExhibitorId}
+        showLabels={showExhibitorNames}
+        nameMode={nameMode}
+        spotlight={spotlight}
+        spotlightProgress={progress}
+        neutralColor={neutralColor}
+        onSelect={onSelectExhibitor}
+      />
+    </>
+  );
+}
+
 export function PublicScene({
   project,
   selectedExhibitorId,
@@ -347,14 +489,12 @@ export function PublicScene({
   onClearSelection: () => void;
 }) {
   const shadowBounds = useMemo(() => projectBounds(project), [project]);
-  const environment = useMemo(
-    () => ({ ...project.environment, visible: project.environment.visible && showSplat }),
-    [project.environment, showSplat],
-  );
-  // El blanqueado de la escena solo tiene sentido con un expositor elegido.
-  const highlightOthers =
-    spotlight !== 'off' && Boolean(selectedExhibitorId);
-  const sceneBackground = spotlight === 'neutral' && selectedExhibitorId ? '#e7e9e6' : '#070a0c';
+  // El fundido de la escena solo tiene sentido con un expositor elegido y con
+  // uno de los modos activos; sin él el progreso vuelve a 0 (colores propios).
+  const spotlightTarget =
+    spotlight !== 'off' && Boolean(selectedExhibitorId) ? 1 : 0;
+  const spotlightColor = project.settings.readerSpotlightColor ?? '#ffffff';
+  const spotlightBlend = project.settings.readerSpotlightBlendSeconds ?? 0.6;
 
   return (
     <div className="three-canvas">
@@ -370,8 +510,8 @@ export function PublicScene({
         }}
         onPointerMissed={onClearSelection}
       >
-        <color attach="background" args={[sceneBackground]} />
-        <fog attach="fog" args={[sceneBackground, 38, 130]} />
+        <color attach="background" args={[DEFAULT_SCENE_BACKGROUND]} />
+        <fog attach="fog" args={[DEFAULT_SCENE_BACKGROUND, 38, 130]} />
         <ambientLight color="#aeb9c4" intensity={0.15} />
         <SceneEnvironment intensity={0.06} />
         <SceneShadows quality={project.settings.shadowQuality} />
@@ -380,29 +520,23 @@ export function PublicScene({
           shadowQuality={project.settings.shadowQuality}
           shadowBounds={shadowBounds}
         />
-        <Architecture
-          project={project}
-          selectedExhibitorId={selectedExhibitorId}
-          highlightOthers={highlightOthers}
-        />
-        <SceneSplat environment={environment} />
-        <SceneObjects
-          project={project}
-          selectedExhibitorId={selectedExhibitorId}
-          showLabels={showObjectLabels}
-          showMeasurements={showMeasurements}
-          highlightOthers={highlightOthers}
-          onSelectExhibitor={onSelectExhibitor}
-        />
-        <ExhibitorMarkers
-          exhibitors={project.exhibitors}
-          project={project}
-          selectedId={selectedExhibitorId}
-          showLabels={showExhibitorNames}
-          nameMode={nameMode}
-          spotlight={spotlight}
-          onSelect={onSelectExhibitor}
-        />
+        <SpotlightScope
+          target={spotlightTarget}
+          blendSeconds={spotlightBlend}
+          neutralColor={spotlightColor}
+        >
+          <SceneContent
+            project={project}
+            selectedExhibitorId={selectedExhibitorId}
+            showSplat={showSplat}
+            showObjectLabels={showObjectLabels}
+            showExhibitorNames={showExhibitorNames}
+            showMeasurements={showMeasurements}
+            nameMode={nameMode}
+            spotlight={spotlight}
+            onSelectExhibitor={onSelectExhibitor}
+          />
+        </SpotlightScope>
         <ViewerCamera project={project} command={cameraCommand} />
       </Canvas>
     </div>

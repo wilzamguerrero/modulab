@@ -357,6 +357,19 @@ export const projectSettingsSchema = z.object({
   readerNameMode: readerNameModeSchema.default('all'),
   /** Atmósfera al seleccionar un expositor (color del elegido vs. resto). */
   readerSpotlight: readerSpotlightModeSchema.default('off'),
+  /**
+   * Color al que se lleva el entorno cuando hay un expositor elegido en modo
+   * `neutral` / `solo`. Blanco por defecto.
+   */
+  readerSpotlightColor: z
+    .string()
+    .regex(/^#[0-9a-f]{6}$/i)
+    .default('#ffffff'),
+  /**
+   * Duración (segundos) del fundido del entorno hacia el color neutro al
+   * elegir un expositor. 0 = cambio instantáneo.
+   */
+  readerSpotlightBlendSeconds: z.number().min(0).max(10).default(0.6),
   /** Encuadre con el que abre el enlace público. */
   readerEntryView: readerEntryViewSchema.default('view'),
 });

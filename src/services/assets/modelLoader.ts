@@ -226,7 +226,14 @@ export function isTextMaterial(material: THREE.Material | null | undefined): boo
   return /\b(text|label|font|glyph|sign|letrer|rotul|caption)\b/i.test(material.name ?? '');
 }
 
-export function applyWhiteoutToMaterials(root: THREE.Object3D, roughness = 0.78): void {
+export function applyWhiteoutToMaterials(
+  root: THREE.Object3D,
+  color = '#ffffff',
+  amount = 1,
+): void {
+  const ratio = Math.max(0, Math.min(1, Number.isFinite(amount) ? amount : 1));
+  if (ratio <= 0) return;
+  const target = new THREE.Color(color);
   const seen = new Set<THREE.Material>();
   root.traverse((object) => {
     const mesh = object as THREE.Mesh;
@@ -237,12 +244,12 @@ export function applyWhiteoutToMaterials(root: THREE.Object3D, roughness = 0.78)
       seen.add(material);
       if (isTextMaterial(material)) continue;
       const standard = material as THREE.MeshStandardMaterial;
-      if (standard.color) standard.color.set('#ffffff');
+      if (standard.color) standard.color.lerp(target, ratio);
       if ('roughness' in standard && typeof standard.roughness === 'number') {
-        standard.roughness = roughness;
+        standard.roughness += (0.78 - standard.roughness) * ratio;
       }
       if ('metalness' in standard && typeof standard.metalness === 'number') {
-        standard.metalness = 0.02;
+        standard.metalness += (0.02 - standard.metalness) * ratio;
       }
       material.needsUpdate = true;
     }

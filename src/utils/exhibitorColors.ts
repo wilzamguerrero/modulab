@@ -79,10 +79,24 @@ export const NEUTRAL_HIGHLIGHT_COLOR = '#ffffff';
 export function highlightNeutralAmount(
   selectedExhibitorId: string | null | undefined,
   ownerExhibitorId: string | null | undefined,
-  enabled: boolean,
+  enabled: boolean | number,
 ): number {
-  if (!enabled || !selectedExhibitorId) return 0;
-  return ownerExhibitorId === selectedExhibitorId ? 0 : 1;
+  // Un número es el progreso del fundido (0–1): permite fundir poco a poco.
+  const strength = typeof enabled === 'number' ? Math.max(0, Math.min(1, enabled)) : enabled ? 1 : 0;
+  if (strength <= 0 || !selectedExhibitorId) return 0;
+  return ownerExhibitorId === selectedExhibitorId ? 0 : strength;
+}
+
+/**
+ * Lleva un color hacia el neutro según el progreso del fundido (0–1). Es lo
+ * que suaviza el cambio de material al seleccionar un expositor.
+ */
+export function blendTowardNeutral(
+  base: string,
+  neutral: string,
+  amount: number,
+): string {
+  return mixHexColors(base, neutral, amount);
 }
 
 /** Si el elemento pertenece a un expositor distinto del elegido. */
