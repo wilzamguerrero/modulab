@@ -266,6 +266,7 @@ export function PublicViewerPage() {
   // `null` hasta tener el proyecto: la primera orden es la vista de lectura
   // elegida en el editor, no la cámara esquema del documento.
   const [cameraCommand, setCameraCommand] = useState<ViewerCameraCommand | null>(null);
+  const [topTurns, setTopTurns] = useState(0);
 
   useEffect(() => {
     if (!publicId) {
@@ -434,7 +435,14 @@ export function PublicViewerPage() {
   };
 
   const topCamera = () => {
-    setCameraCommand((current) => ({ mode: 'top', nonce: (current?.nonce ?? 0) + 1 }));
+    // Cada pulsación gira la vista superior 90° respecto a la anterior.
+    const angle = topTurns * (Math.PI / 2);
+    setTopTurns((current) => current + 1);
+    setCameraCommand((current) => ({
+      mode: 'top',
+      nonce: (current?.nonce ?? 0) + 1,
+      topAngle: angle,
+    }));
   };
 
   if (loading) {

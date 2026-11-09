@@ -43,6 +43,12 @@ export interface ViewerCameraCommand {
   holdSeconds?: number;
   /** Campo de visión de la vista de lectura, si la hay. */
   fov?: number;
+  /**
+   * Giro (radianes) de la planta cuando `mode = 'top'`. Permite volver a pulsar
+   * «vista superior» y ver el plano desde otro ángulo sin salir de la vista
+   * cenital.
+   */
+  topAngle?: number;
 }
 
 /** Duración del vuelo entre stands por defecto, en milisegundos. */
@@ -189,7 +195,16 @@ function ViewerCamera({
     } else if (command.mode === 'top') {
       const bounds = projectBounds(project);
       const height = Math.max(bounds.width, bounds.depth, 6) * 1.25 + 5;
-      position = [bounds.center.x, height, bounds.center.z + 0.02];
+      // Un pequeño desplazamiento respecto al centro fija la orientación del
+      // plano: girándolo alrededor del centro, la vista sigue siendo cenital
+      // pero se mira desde otro ángulo.
+      const angle = command.topAngle ?? 0;
+      const tilt = 0.02;
+      position = [
+        bounds.center.x + Math.sin(angle) * tilt,
+        height,
+        bounds.center.z + Math.cos(angle) * tilt,
+      ];
       target = [bounds.center.x, 0, bounds.center.z];
     } else {
       position = project.camera.position;
@@ -215,6 +230,61 @@ function ViewerCamera({
     if (!animate) {
       goTo(position, target);
       return undefined;
+    }
+
+    // Vista superior: se anima como un giro alrededor de la planta. Cada
+    // pulsación orbita 90° desde el ángulo actual, así la rotación se ve
+    // continua en vez de un salto seco de la orientación.
+    if (command.mode === 'top') {
+      const center: [number, number, number] = [target[0], 0, target[2]];
+      const endAngle = command.topAngle ?? 0;
+      const tilt = 0.02;
+      const travelMs = Math.max(
+        300,
+        (project.readerTravelSeconds ?? DEFAULT_TRAVEL_DURATION_MS / 1000) * 1000,
+      );
+      const fromPosition = controls.getPosition(new THREE.Vector3());
+      const fromTarget = controls.getTarget(new THREE.Vector3());
+      const startAngle = Math.atan2(
+        fromPosition.x - center[0],
+        fromPosition.z - center[2],
+      );
+      const startRadius = Math.hypot(
+        fromPosition.x - center[0],
+        fromPosition.z - center[2],
+      );
+      const startHeight = fromPosition.y;
+      // Giro más corto hasta el ángulo pedido (90° por pulsación).
+      const delta = Math.atan2(
+        Math.sin(endAngle - startAngle),
+        Math.cos(endAngle - startAngle),
+      );
+      const startedAt = performance.now();
+      let frame = 0;
+      let cancelled = false;
+      const step = () => {
+        if (cancelled) return;
+        const t = Math.min(1, (performance.now() - startedAt) / travelMs);
+        const s = smoothProgress(t);
+        const radius = startRadius + (tilt - startRadius) * s;
+        const azimuth = startAngle + delta * s;
+        const y = startHeight + (position[1] - startHeight) * s;
+        controls.setLookAt(
+          center[0] + Math.sin(azimuth) * radius,
+          y,
+          center[2] + Math.cos(azimuth) * radius,
+          fromTarget.x + (center[0] - fromTarget.x) * s,
+          fromTarget.y * (1 - s),
+          fromTarget.z + (center[2] - fromTarget.z) * s,
+          false,
+        );
+        if (t < 1) frame = requestAnimationFrame(step);
+      };
+      frame = requestAnimationFrame(step);
+      return () => {
+        cancelled = true;
+        cancelAnimationFrame(frame);
+      };
     }
 
     // Un solo vuelo continuo hacia el expositor, con la vista de lectura como
