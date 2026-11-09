@@ -198,17 +198,15 @@ function ReaderViewsSection({
               <li>Publica de nuevo para que el enlace público use las vistas.</li>
             </ul>
           </HelpButton>
+          {activeLevel ? (
+            <span className="reader-view-level-chip" title="Nivel activo">
+              <span className="reader-view-active-dot" aria-hidden="true" />
+              {activeLevel.name}
+            </span>
+          ) : null}
           <Badge tone={views.length ? 'accent' : 'neutral'}>{views.length}</Badge>
         </span>
       </div>
-
-      {activeLevel ? (
-        <p className="panel-note reader-view-active-level">
-          <span className="reader-view-active-dot" aria-hidden="true" />
-          Nivel activo: <strong>{activeLevel.name}</strong>. Las vistas con punto verde aplican a
-          este nivel; el resto pertenece a otros niveles.
-        </p>
-      ) : null}
 
       <div className="inline-actions">
         <Button
@@ -356,47 +354,46 @@ function ReaderViewsSection({
         </div>
       )}
       <div className="reader-settings">
-        <Field
+        <RangeInput
           label="Distancia de llegada"
-          hint="Cuán lejos de cada expositor se detiene la cámara al entrar al stand. La dirección siempre es la de su flecha: más metros = plano más abierto y más atrás."
-        >
-          <RangeInput
-            label="Distancia"
-            value={project.readerCameraDistance ?? 3.2}
-            min={1}
-            max={12}
-            step={0.1}
-            format={(value) => `${value.toFixed(1)} m`}
-            onChange={(readerCameraDistance) =>
-              useEditorStore.getState().patchProject((draft) => {
-                draft.readerCameraDistance = readerCameraDistance;
-              })
-            }
-          />
-        </Field>
-        <Field
+          value={project.readerCameraDistance ?? 3.2}
+          min={1}
+          max={12}
+          step={0.1}
+          format={(value) => `${value.toFixed(1)} m`}
+          onChange={(readerCameraDistance) =>
+            useEditorStore.getState().patchProject((draft) => {
+              draft.readerCameraDistance = readerCameraDistance;
+            })
+          }
+        />
+        <RangeInput
           label="Velocidad del viaje"
-          hint="Duración del vuelo al cambiar entre la vista en uso y los expositores. Más segundos = recorrido más pausado."
-        >
-          <RangeInput
-            label="Duración"
-            value={project.readerTravelSeconds ?? 2.2}
-            min={0.6}
-            max={6}
-            step={0.1}
-            format={(value) => `${value.toFixed(1)} s`}
-            onChange={(readerTravelSeconds) =>
-              useEditorStore.getState().patchProject((draft) => {
-                draft.readerTravelSeconds = readerTravelSeconds;
-              })
-            }
-          />
-        </Field>
+          value={project.readerTravelSeconds ?? 2.2}
+          min={0.6}
+          max={6}
+          step={0.1}
+          format={(value) => `${value.toFixed(1)} s`}
+          onChange={(readerTravelSeconds) =>
+            useEditorStore.getState().patchProject((draft) => {
+              draft.readerTravelSeconds = readerTravelSeconds;
+            })
+          }
+        />
+        <RangeInput
+          label="Pausa en la vista"
+          value={project.readerHoldSeconds ?? 0}
+          min={0}
+          max={10}
+          step={0.5}
+          format={(value) => (value > 0 ? `${value.toFixed(1)} s` : 'Sin pausa')}
+          onChange={(readerHoldSeconds) =>
+            useEditorStore.getState().patchProject((draft) => {
+              draft.readerHoldSeconds = readerHoldSeconds;
+            })
+          }
+        />
       </div>
-      <p className="panel-note">
-        El visor público abre en la vista «En uso». Al viajar entre expositores, la cámara pasa
-        por la vista del nivel de destino y entra al stand mirando según su flecha de rotación.
-      </p>
     </div>
   );
 }

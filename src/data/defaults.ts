@@ -196,6 +196,7 @@ export function createProject(options: {
     readerViews: [],
     readerCameraDistance: 3.2,
     readerTravelSeconds: 2.2,
+    readerHoldSeconds: 0,
     environment: {
       visible: true,
       position: [0, 0, 0],

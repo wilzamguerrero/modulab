@@ -383,6 +383,8 @@ export function PublicViewerPage() {
       position: camera.position,
       target: camera.target,
       via: waypoints,
+      // Pausa en la vista de paso («Vistas → pausa»). 0 = atraviesa sin parar.
+      holdSeconds: publicProject.readerHoldSeconds ?? 0,
     }));
   }, [publicProject, selectedExhibitor, readerCamera]);
 

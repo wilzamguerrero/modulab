@@ -21,11 +21,16 @@ export interface ViewerCameraCommand {
   position?: Vec3;
   target?: Vec3;
   /**
-   * Punto de paso del vuelo (la vista de lectura del nivel). No es una parada:
-   * la cámara lo atraviesa dentro de un mismo movimiento continuo hacia el
-   * destino.
+   * Punto de paso del vuelo (la vista de lectura del nivel). Por defecto no es
+   * una parada: la cámara lo atraviesa dentro de un mismo movimiento continuo
+   * hacia el destino. Con `holdSeconds` > 0 se detiene ahí ese tiempo.
    */
   via?: { position: Vec3; target: Vec3 }[];
+  /**
+   * Segundos que la cámara descansa en la vista de paso antes de seguir hasta
+   * el expositor. 0 = atraviesa sin pausa.
+   */
+  holdSeconds?: number;
   /** Campo de visión de la vista de lectura, si la hay. */
   fov?: number;
 }
@@ -145,13 +150,32 @@ function ViewerCamera({
       300,
       (project.readerTravelSeconds ?? DEFAULT_TRAVEL_DURATION_MS / 1000) * 1000,
     );
+    // Pausa en la vista de paso: solo tiene sentido con un punto intermedio.
+    // La curva se recorre en dos tramos suaves (cámara → vista → expositor);
+    // entre ambos la cámara se posa en la vista durante `holdSeconds`.
+    const hold = waypoints.length ? Math.max(0, (command.holdSeconds ?? 0) * 1000) : 0;
+    const legMs = travelDuration / (hold > 0 ? 2 : 1);
+    // Avance suave de un tramo: arranca y frena sin tirones.
+    const smooth = (value: number) =>
+      value < 0.5 ? 4 * value ** 3 : 1 - (-2 * value + 2) ** 3 / 2;
     const start = performance.now();
     let frame = 0;
     let cancelled = false;
     const step = () => {
       if (cancelled) return;
-      const t = Math.min(1, (performance.now() - start) / travelDuration);
-      const eased = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+      const elapsed = performance.now() - start;
+      let eased: number;
+      if (hold > 0) {
+        if (elapsed < legMs) {
+          eased = smooth(elapsed / legMs) * 0.5;
+        } else if (elapsed < legMs + hold) {
+          eased = 0.5;
+        } else {
+          eased = 0.5 + smooth(Math.min(1, (elapsed - legMs - hold) / legMs)) * 0.5;
+        }
+      } else {
+        eased = smooth(Math.min(1, elapsed / travelDuration));
+      }
       const nextPosition = sampleCurve(control, eased);
       const nextTarget = sampleCurve(targetControl, eased);
       controls.setLookAt(
@@ -163,7 +187,9 @@ function ViewerCamera({
         nextTarget[2],
         false,
       );
-      if (t < 1) frame = requestAnimationFrame(step);
+      // Al final de la pausa `eased` vale 0,5: el segundo tramo sigue hasta 1
+      // (destino) y ahí termina la animación.
+      if (eased < 1) frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);
     return () => {

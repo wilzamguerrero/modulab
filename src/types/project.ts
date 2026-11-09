@@ -367,6 +367,13 @@ export const projectSchema = z
      * segundos = recorrido más pausado.
      */
     readerTravelSeconds: z.number().min(0.5).max(10).default(2.2),
+    /**
+     * Pausa (segundos) al llegar a la vista de lectura durante el viaje entre
+     * stands. 0 = el viaje pasa por la vista sin detenerse (comportamiento
+     * anterior); con más segundos la cámara se posa en la vista, respira un
+     * momento y sigue hasta el expositor.
+     */
+    readerHoldSeconds: z.number().min(0).max(10).default(0),
     environment: environmentSchema.default({}),
     notionBlockId: z.string().optional(),
     notionExhibitorsPageId: z.string().optional(),
