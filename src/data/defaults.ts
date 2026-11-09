@@ -214,6 +214,15 @@ export function createProject(options: {
       shadowQuality: 'medium',
       exhibitorColorMode: 'rings',
       exhibitorColorOpacity: 0.35,
+      readerVisibility: {
+        labels: false,
+        names: false,
+        measurements: false,
+        splat: false,
+      },
+      readerNameMode: 'all',
+      readerSpotlight: 'off',
+      readerEntryView: 'view',
     },
   };
 }

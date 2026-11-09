@@ -68,6 +68,45 @@ export function exhibitorPaintAmount(
   return paintEnabled ? opacity : 0;
 }
 
+/** Color al que se lleva un elemento cuando no es el del expositor elegido. */
+export const NEUTRAL_HIGHLIGHT_COLOR = '#ffffff';
+
+/**
+ * Si la escena está en modo «solo el elegido»: mezclar hacia blanco cada
+ * elemento que no pertenece al expositor seleccionado. Recibe el expositor
+ * dueño del elemento (o `null` si no tiene).
+ */
+export function highlightNeutralAmount(
+  selectedExhibitorId: string | null | undefined,
+  ownerExhibitorId: string | null | undefined,
+  enabled: boolean,
+): number {
+  if (!enabled || !selectedExhibitorId) return 0;
+  return ownerExhibitorId === selectedExhibitorId ? 0 : 1;
+}
+
+/** Si el elemento pertenece a un expositor distinto del elegido. */
+export function isDimmedBySelection(
+  selectedExhibitorId: string | null | undefined,
+  ownerExhibitorId: string | null | undefined,
+): boolean {
+  return Boolean(selectedExhibitorId) && ownerExhibitorId !== selectedExhibitorId;
+}
+
+/**
+ * Si el nombre de un expositor debe mostrarse. Con `mode = 'selected'` el
+ * nombre del resto se oculta mientras haya una selección.
+ */
+export function shouldShowExhibitorName(
+  mode: 'all' | 'selected',
+  exhibitorId: string,
+  selectedExhibitorId: string | null | undefined,
+): boolean {
+  if (mode !== 'selected') return true;
+  if (!selectedExhibitorId) return true;
+  return exhibitorId === selectedExhibitorId;
+}
+
 export function paintedExhibitorColor(
   project: Pick<Project, 'settings' | 'exhibitors'>,
   exhibitorId: string | null | undefined,

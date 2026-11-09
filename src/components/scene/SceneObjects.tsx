@@ -6,6 +6,7 @@ import type { MaterialOverride, PrimitiveShape, Project, SceneObject } from '@/t
 import {
   applyOverridesToMaterials,
   applyTintToMaterials,
+  applyWhiteoutToMaterials,
   cloneModelScene,
   loadGltf,
   modelInfoFromScene,
@@ -23,9 +24,11 @@ import {
   shouldHandleElementClick,
 } from './sceneDragGuard';
 import {
+  NEUTRAL_HIGHLIGHT_COLOR,
   exhibitorColor,
   exhibitorPaintAmount,
   findExhibitor,
+  highlightNeutralAmount,
 } from '@/utils/exhibitorColors';
 
 interface ObjectTint {
@@ -130,13 +133,17 @@ function PrimitiveModel({
 
   useEffect(() => {
     const override = overrides['0:Primitive'];
+    // `tint` es la pintura del expositor; `whiteout` lo que no es el elegido.
+    const whiteout = tint?.color === NEUTRAL_HIGHLIGHT_COLOR ? tint.opacity : 0;
+    const paint = whiteout > 0 ? 0 : (tint?.opacity ?? 0);
     material.color.set(override?.color ?? '#d8d2c4');
-    material.roughness = override?.roughness ?? 0.66;
-    material.metalness = override?.metalness ?? 0.03;
+    if (whiteout > 0) material.color.set('#ffffff');
+    if (paint > 0 && tint) material.color.lerp(new THREE.Color(tint.color), paint);
+    material.roughness = whiteout > 0 ? 0.78 : (override?.roughness ?? 0.66);
+    material.metalness = whiteout > 0 ? 0.02 : (override?.metalness ?? 0.03);
     material.opacity = override?.opacity ?? 1;
     material.transparent = material.opacity < 1;
     material.visible = override?.visible ?? true;
-    if (tint) material.color.lerp(new THREE.Color(tint.color), tint.opacity);
     material.needsUpdate = true;
   }, [material, overrides, tint?.color, tint?.opacity]);
 
@@ -218,7 +225,11 @@ function GlbModel({
   useEffect(() => {
     if (!root) return;
     applyOverridesToMaterials(root, overrides);
-    if (tint) applyTintToMaterials(root, tint.color, tint.opacity);
+    if (tint?.color === NEUTRAL_HIGHLIGHT_COLOR) {
+      applyWhiteoutToMaterials(root);
+    } else if (tint) {
+      applyTintToMaterials(root, tint.color, tint.opacity);
+    }
   }, [root, overrides, tint?.color, tint?.opacity]);
 
   if (error) {
@@ -534,6 +545,7 @@ export function SceneObjects({
   selectedExhibitorId,
   showLabels = true,
   showMeasurements = false,
+  highlightOthers = false,
   onSelectObject,
   onSelectExhibitor,
 }: {
@@ -545,6 +557,11 @@ export function SceneObjects({
   showLabels?: boolean;
   /** Cotas de los objetos del expositor seleccionado en solo lectura. */
   showMeasurements?: boolean;
+  /**
+   * Visor público: con un expositor elegido, sus objetos conservan el color y
+   * el resto se lleva a blanco.
+   */
+  highlightOthers?: boolean;
   onSelectObject?: (id: string) => void;
   onSelectExhibitor?: (id: string) => void;
 }) {
@@ -554,13 +571,19 @@ export function SceneObjects({
       {project.objects.map((object) => {
         const elevation = elevations[entityLevelId(project, object) ?? ''] ?? 0;
         const exhibitor = findExhibitor(project, object.exhibitorId);
+        const neutralAmount = highlightNeutralAmount(
+          selectedExhibitorId,
+          object.exhibitorId,
+          highlightOthers,
+        );
         const paintAmount = exhibitorPaintAmount(
           project,
           object.exhibitorId,
           selectedExhibitorId,
         );
-        const tint =
-          exhibitor && paintAmount > 0
+        const tint = neutralAmount > 0
+          ? { color: NEUTRAL_HIGHLIGHT_COLOR, opacity: neutralAmount }
+          : exhibitor && paintAmount > 0
             ? { color: exhibitorColor(exhibitor), opacity: paintAmount }
             : undefined;
         const ringColor = exhibitor ? exhibitorColor(exhibitor) : undefined;

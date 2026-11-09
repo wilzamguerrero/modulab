@@ -7,6 +7,10 @@ import { notifyHandlePointerDown } from './sceneDragGuard';
 import { useEditorStore } from '@/store/editorStore';
 import { snapValue } from '@/utils/geometry';
 import {
+  isDimmedBySelection,
+  shouldShowExhibitorName,
+} from '@/utils/exhibitorColors';
+import {
   markSceneClickHandled,
   markScenePress,
   notifyGizmoPointerDown,
@@ -30,6 +34,9 @@ function ExhibitorMarker({
   selected,
   editor,
   showLabels,
+  showNameLabel = true,
+  hidden = false,
+  muted = false,
   onSelect,
 }: {
   exhibitor: Exhibitor;
@@ -37,6 +44,12 @@ function ExhibitorMarker({
   selected: boolean;
   editor: boolean;
   showLabels: boolean;
+  /** Con «solo el elegido», el nombre del resto de expositores se oculta. */
+  showNameLabel?: boolean;
+  /** Modo «solo el elegido»: este expositor no es el elegido y no se dibuja. */
+  hidden?: boolean;
+  /** Modo «solo el elegido»: el marcador del resto pierde su color. */
+  muted?: boolean;
   onSelect?: (id: string) => void;
 }) {
   const markerY = MARKER_Y + elevation;
@@ -58,8 +71,9 @@ function ExhibitorMarker({
   // en la losa y el verde no se ve.
   const ROTATE_Y = 0.9;
   // El expositor conserva siempre su color asignado; la selección se marca con
-  // tamaño, opacidad y un halo, no cambiando el tono a amarillo.
-  const color = exhibitorColor(exhibitor);
+  // tamaño, opacidad y un halo, no cambiando el tono a amarillo. En modo
+  // «solo el elegido» los demás pierden el color y quedan en blanco.
+  const color = muted ? '#ffffff' : exhibitorColor(exhibitor);
 
   const finishTransform = () => {
     if (!group) return;
@@ -77,6 +91,7 @@ function ExhibitorMarker({
 
   return (
     <>
+      {hidden ? null : (
       <group
         ref={setGroup}
         position={[exhibitor.position.x, markerY, exhibitor.position.z]}
@@ -156,7 +171,7 @@ function ExhibitorMarker({
             />
           </mesh>
         </group>
-        {showLabels ? (
+        {showLabels && showNameLabel ? (
           <Html
             center
             position={[0, 2.05, 0]}
@@ -173,6 +188,7 @@ function ExhibitorMarker({
           </Html>
         ) : null}
       </group>
+      )}
       {editor && selected ? (
         <group
           key={headingRotate ? 'rotate' : 'translate'}
@@ -244,6 +260,8 @@ export function ExhibitorMarkers({
   selectedId,
   editor = false,
   showLabels = editor,
+  nameMode = 'all',
+  spotlight = 'off',
   onSelect,
 }: {
   exhibitors: Exhibitor[];
@@ -252,6 +270,13 @@ export function ExhibitorMarkers({
   editor?: boolean;
   /** Muestra el nombre del expositor flotando sobre el marcador. */
   showLabels?: boolean;
+  /** `selected`: con un expositor elegido solo se ve su nombre. */
+  nameMode?: 'all' | 'selected';
+  /**
+   * `neutral`: el marcador del resto pierde su color (la escena se blanquea
+   * aparte). `solo`: además, los demás expositores no se dibujan.
+   */
+  spotlight?: 'off' | 'neutral' | 'solo';
   onSelect?: (id: string) => void;
 }) {
   const elevations = project ? levelElevationMap(project) : {};
@@ -269,6 +294,9 @@ export function ExhibitorMarkers({
             selected={selectedId === exhibitor.id}
             editor={editor}
             showLabels={showLabels}
+            showNameLabel={shouldShowExhibitorName(nameMode, exhibitor.id, selectedId)}
+            hidden={spotlight === 'solo' && isDimmedBySelection(selectedId, exhibitor.id)}
+            muted={spotlight !== 'off' && isDimmedBySelection(selectedId, exhibitor.id)}
             onSelect={onSelect}
           />
         ))}

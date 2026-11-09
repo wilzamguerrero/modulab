@@ -215,6 +215,40 @@ export function applyTintToMaterials(root: THREE.Object3D, color: string, opacit
   });
 }
 
+/**
+ * En el modo «solo el elegido» todo el entorno vuelve a blanco liso. Los
+ * materiales de texto (carteles, rótulos de los modelos) se excluyen: teñirlos
+ * de blanco dejaría el texto ilegible sobre su propio fondo.
+ */
+export function isTextMaterial(material: THREE.Material | null | undefined): boolean {
+  if (!material) return false;
+  if (material.transparent) return true;
+  return /\b(text|label|font|glyph|sign|letrer|rotul|caption)\b/i.test(material.name ?? '');
+}
+
+export function applyWhiteoutToMaterials(root: THREE.Object3D, roughness = 0.78): void {
+  const seen = new Set<THREE.Material>();
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.material) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) {
+      if (!material || seen.has(material)) continue;
+      seen.add(material);
+      if (isTextMaterial(material)) continue;
+      const standard = material as THREE.MeshStandardMaterial;
+      if (standard.color) standard.color.set('#ffffff');
+      if ('roughness' in standard && typeof standard.roughness === 'number') {
+        standard.roughness = roughness;
+      }
+      if ('metalness' in standard && typeof standard.metalness === 'number') {
+        standard.metalness = 0.02;
+      }
+      material.needsUpdate = true;
+    }
+  });
+}
+
 export function applyOverridesToMaterials(
   root: THREE.Object3D,
   overrides: Record<string, import('@/types/project').MaterialOverride>,

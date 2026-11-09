@@ -25,7 +25,9 @@ import { fitStairToLevels } from '@/utils/levels';
 import { floorSlabGeometry } from '@/utils/floorGeometry';
 import {
   exhibitorColor,
+  NEUTRAL_HIGHLIGHT_COLOR,
   exhibitorPaintAmount,
+  isDimmedBySelection,
   findExhibitor,
   mixHexColors,
 } from '@/utils/exhibitorColors';
@@ -53,10 +55,13 @@ export type FloorClickHandler = (
 export function FloorMesh({
   space,
   levelId,
+  neutral = false,
   onFloorClick,
 }: {
   space: Space;
   levelId: string;
+  /** Modo «solo el elegido»: el forjado se pinta blanco. */
+  neutral?: boolean;
   onFloorClick?: FloorClickHandler;
 }) {
   const thickness = space.thickness ?? FALLBACK_FLOOR_THICKNESS;
@@ -98,16 +103,16 @@ export function FloorMesh({
       {/* Grupo 0: caras horizontales (piso arriba, envés abajo). */}
       <meshStandardMaterial
         attach="material-0"
-        color={space.color}
-        roughness={space.roughness}
-        metalness={space.metalness}
+        color={neutral ? NEUTRAL_HIGHLIGHT_COLOR : space.color}
+        roughness={neutral ? 0.8 : space.roughness}
+        metalness={neutral ? 0.02 : space.metalness}
       />
       {/* Grupo 1: canto de la losa y jambas de los huecos, un tono más oscuro. */}
       <meshStandardMaterial
         attach="material-1"
-        color={shadeHex(space.color, 0.72)}
-        roughness={Math.min(1, space.roughness + 0.08)}
-        metalness={space.metalness}
+        color={neutral ? shadeHex(NEUTRAL_HIGHLIGHT_COLOR, 0.82) : shadeHex(space.color, 0.72)}
+        roughness={neutral ? 0.82 : Math.min(1, space.roughness + 0.08)}
+        metalness={neutral ? 0.02 : space.metalness}
       />
     </mesh>
   );
@@ -223,12 +228,15 @@ export function LevelWalls({
   project,
   level,
   selectedExhibitorId,
+  highlightOthers = false,
   onWallClick,
   onOpeningClick,
 }: {
   project: Project;
   level: Level;
   selectedExhibitorId?: string | null;
+  /** Modo «solo el elegido»: muros de otros expositores en blanco. */
+  highlightOthers?: boolean;
   onWallClick?: (target: WallTarget, point: Vec2) => void;
   onOpeningClick?: (openingId: string) => void;
 }) {
@@ -245,9 +253,13 @@ export function LevelWalls({
         const spans = getOpeningSpans(length, wall.height, openings);
         const wallExhibitor = findExhibitor(project, wall.exhibitorId);
         const wallPaint = exhibitorPaintAmount(project, wall.exhibitorId, selectedExhibitorId);
-        const wallColor = wallExhibitor && wallPaint > 0
-          ? mixHexColors(wall.color, exhibitorColor(wallExhibitor), wallPaint)
-          : wall.color;
+        // Con un expositor elegido, los muros que no son suyos pasan a blanco.
+        const wallDimmed = highlightOthers && isDimmedBySelection(selectedExhibitorId, wall.exhibitorId);
+        const wallColor = wallDimmed
+          ? NEUTRAL_HIGHLIGHT_COLOR
+          : wallExhibitor && wallPaint > 0
+            ? mixHexColors(wall.color, exhibitorColor(wallExhibitor), wallPaint)
+            : wall.color;
         return (
           <group key={wall.id}>
             {pieces.map((piece, index) => (
@@ -276,13 +288,20 @@ export function LevelWalls({
                 selectedExhibitorId,
               );
               const paintColor = openingExhibitor ? exhibitorColor(openingExhibitor) : undefined;
-              const paintAmount = paintColor ? openingPaint : 0;
-              const glassColor = paintColor
-                ? mixHexColors('#bfe8ff', paintColor, paintAmount)
-                : '#bfe8ff';
-              const thresholdColor = paintColor
-                ? mixHexColors('#8b7c65', paintColor, paintAmount)
-                : '#8b7c65';
+              const openingDimmed =
+                highlightOthers &&
+                isDimmedBySelection(selectedExhibitorId, span.opening.exhibitorId);
+              const paintAmount = paintColor && !openingDimmed ? openingPaint : 0;
+              const glassColor = openingDimmed
+                ? '#e9f2f8'
+                : paintColor
+                  ? mixHexColors('#bfe8ff', paintColor, paintAmount)
+                  : '#bfe8ff';
+              const thresholdColor = openingDimmed
+                ? '#e6e6e6'
+                : paintColor
+                  ? mixHexColors('#8b7c65', paintColor, paintAmount)
+                  : '#8b7c65';
               const openingHeight = Math.max(0.02, span.top - span.sill);
               const overlay = paintColor && paintAmount > 0 ? (
                 <mesh position={position} rotation={[0, angle, 0]} renderOrder={2}>
@@ -356,7 +375,7 @@ export function LevelWalls({
 }
 
 /** Malla de una escalera (escalones, descansillos y barandillas). */
-export function StairMesh({ stair }: { stair: Stair }) {
+export function StairMesh({ stair, neutral = false }: { stair: Stair; neutral?: boolean }) {
   const boxes = useMemo(() => buildStairBoxes(stair), [stair]);
   if (!stair.visible) return null;
   return (
@@ -373,7 +392,11 @@ export function StairMesh({ stair }: { stair: Stair }) {
           receiveShadow
         >
           <boxGeometry args={box.size} />
-          <meshStandardMaterial color={stair.color} roughness={0.72} metalness={0.04} />
+          <meshStandardMaterial
+            color={neutral ? NEUTRAL_HIGHLIGHT_COLOR : stair.color}
+            roughness={neutral ? 0.8 : 0.72}
+            metalness={neutral ? 0.02 : 0.04}
+          />
         </mesh>
       ))}
     </group>
@@ -521,6 +544,7 @@ export function Architecture({
   project,
   selectedExhibitorId,
   selectedStairId,
+  highlightOthers = false,
   onSelectStair,
   onFloorClick,
   onWallClick,
@@ -528,6 +552,8 @@ export function Architecture({
 }: {
   project: Project;
   selectedExhibitorId?: string | null;
+  /** Modo «solo el elegido»: pisos, muros y escaleras pasan a blanco. */
+  highlightOthers?: boolean;
   selectedStairId?: string | null;
   onSelectStair?: (id: string) => void;
   onFloorClick?: FloorClickHandler;
@@ -549,6 +575,7 @@ export function Architecture({
                   <FloorMesh
                     space={space}
                     levelId={level.id}
+                    neutral={highlightOthers}
                     onFloorClick={onFloorClick}
                   />
                   <HolePicker
@@ -563,6 +590,7 @@ export function Architecture({
               project={project}
               level={level}
               selectedExhibitorId={selectedExhibitorId}
+              highlightOthers={highlightOthers}
               onWallClick={onWallClick}
               onOpeningClick={onOpeningClick}
             />
@@ -576,7 +604,7 @@ export function Architecture({
                   onSelect={onSelectStair}
                 />
               ) : (
-                <StairMesh key={stair.id} stair={stair} />
+                <StairMesh key={stair.id} stair={stair} neutral={highlightOthers} />
               );
             })}
           </group>

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import {
   Camera,
   Check,
+  Compass,
   Copy,
   Globe2,
   HardDriveUpload,
@@ -11,8 +12,11 @@ import {
   Ruler,
   RotateCcw,
   Scissors,
+  Sparkles,
+  Tag,
   Trash2,
   Upload,
+  UserRound,
 } from 'lucide-react';
 import type { Project, Vec3 } from '@/types/project';
 import {
@@ -393,6 +397,153 @@ function ReaderViewsSection({
             })
           }
         />
+      </div>
+      <ReaderExperienceSettings project={project} />
+    </div>
+  );
+}
+
+/**
+ * Qué ve el visitante al abrir el enlace: qué capas arrancan encendidas, cómo
+ * se muestran los nombres y qué pasa con el color del resto cuando se elige un
+ * expositor. Todo esto se guarda en `project.settings` y viaja con la
+ * publicación.
+ */
+function ReaderExperienceSettings({ project }: { project: Project }) {
+  const settings = project.settings;
+  const patchSettings = (
+    apply: (draft: Project['settings']) => void,
+  ) =>
+    useEditorStore.getState().patchProject((draft) => {
+      apply(draft.settings);
+    });
+  const visibility = settings.readerVisibility;
+
+  return (
+    <div className="reader-experience">
+      <div className="panel-title">
+        <span><Sparkles size={12} /> Experiencia del visitante</span>
+        <HelpButton title="Experiencia del visitante">
+          <ul>
+            <li><strong>Qué se ve por defecto</strong> decide qué botones de la barra del visor llegan ya encendidos: etiquetas, nombres, medidas y Gaussian.</li>
+            <li><strong>Nombres</strong>: «Todos» muestra los nombres de los expositores a la vez; «Solo el elegido», al seleccionar uno, oculta el resto.</li>
+            <li><strong>Al seleccionar</strong> controla el color de la escena: «Claro» deja al expositor elegido con su color y pasa todo lo demás a blanco.</li>
+            <li><strong>Entrada</strong>: con qué encuadre abre el enlace público.</li>
+            <li>Publica de nuevo para que el enlace use estos ajustes.</li>
+          </ul>
+        </HelpButton>
+      </div>
+
+      <div className="reader-experience-group">
+        <span className="reader-experience-label">Qué se ve por defecto</span>
+        <Switch
+          label="Etiquetas"
+          hint="Códigos y nombres de los objetos"
+          checked={visibility.labels}
+          onChange={(labels) => patchSettings((draft) => {
+            draft.readerVisibility.labels = labels;
+          })}
+        />
+        <Switch
+          label="Nombres"
+          hint="Nombre del expositor sobre su marcador"
+          checked={visibility.names}
+          onChange={(names) => patchSettings((draft) => {
+            draft.readerVisibility.names = names;
+          })}
+        />
+        <Switch
+          label="Medidas"
+          hint="Cotas A/H/F del expositor elegido"
+          checked={visibility.measurements}
+          onChange={(measurements) => patchSettings((draft) => {
+            draft.readerVisibility.measurements = measurements;
+          })}
+        />
+        <Switch
+          label="Gaussian"
+          hint={
+            project.environment.url || project.environment.blockId
+              ? 'Entorno 3D realista'
+              : 'Sube un entorno en la pestaña Entorno'
+          }
+          checked={visibility.splat}
+          onChange={(splat) => patchSettings((draft) => {
+            draft.readerVisibility.splat = splat;
+          })}
+        />
+      </div>
+
+      <div className="reader-experience-group">
+        <span className="reader-experience-label">
+          <Tag size={11} /> Nombres
+        </span>
+        <Select
+          value={settings.readerNameMode}
+          title="Cómo se muestran los nombres al seleccionar un expositor"
+          onChange={(event) =>
+            patchSettings((draft) => {
+              draft.readerNameMode = event.target.value as Project['settings']['readerNameMode'];
+            })
+          }
+        >
+          <option value="all">Todos los expositores</option>
+          <option value="selected">Solo el seleccionado</option>
+        </Select>
+        <span className="reader-experience-hint">
+          {settings.readerNameMode === 'selected'
+            ? 'Al elegir un expositor se oculta el nombre de los demás.'
+            : 'Todos los nombres visibles a la vez.'}
+        </span>
+      </div>
+
+      <div className="reader-experience-group">
+        <span className="reader-experience-label">
+          <UserRound size={11} /> Al seleccionar un expositor
+        </span>
+        <Select
+          value={settings.readerSpotlight}
+          title="Aspecto de la escena al elegir un expositor"
+          onChange={(event) =>
+            patchSettings((draft) => {
+              draft.readerSpotlight = event.target.value as Project['settings']['readerSpotlight'];
+            })
+          }
+        >
+          <option value="off">Sin cambios</option>
+          <option value="neutral">Solo el elegido a color (resto en blanco)</option>
+          <option value="solo">Solo el elegido (ocultar los demás)</option>
+        </Select>
+        <span className="reader-experience-hint">
+          {settings.readerSpotlight === 'neutral'
+            ? 'El expositor elegido conserva su color; el entorno pasa a blanco.'
+            : settings.readerSpotlight === 'solo'
+              ? 'Se oculta el resto de expositores y el entorno queda en blanco.'
+              : 'La escena conserva los colores de todos los expositores.'}
+        </span>
+      </div>
+
+      <div className="reader-experience-group">
+        <span className="reader-experience-label">
+          <Compass size={11} /> Entrada
+        </span>
+        <Select
+          value={settings.readerEntryView}
+          title="Encuadre con el que abre el enlace público"
+          onChange={(event) =>
+            patchSettings((draft) => {
+              draft.readerEntryView = event.target.value as Project['settings']['readerEntryView'];
+            })
+          }
+        >
+          <option value="view">Vista de lectura activa</option>
+          <option value="overview">Vista general del recinto</option>
+        </Select>
+        <span className="reader-experience-hint">
+          {settings.readerEntryView === 'overview'
+            ? 'Abre con el recinto completo; las vistas siguen guiando los viajes.'
+            : 'Abre con la vista marcada con «En uso».'}
+        </span>
       </div>
     </div>
   );

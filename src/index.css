@@ -1388,6 +1388,37 @@ input[type="range"] {
   text-align: right;
 }
 
+/* Experiencia del visitante: lo que el público ve al abrir el enlace. */
+.reader-experience {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+.reader-experience-group {
+  display: grid;
+  gap: 6px;
+}
+
+.reader-experience-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.reader-experience-hint {
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--muted-2);
+}
+
 .reader-view-row {
   display: flex;
   flex-direction: column;

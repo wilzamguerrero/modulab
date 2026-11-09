@@ -293,6 +293,47 @@ export const publishedInfoSchema = z.object({
 export const shadowQualitySchema = z.enum(['low', 'medium', 'high']);
 export const exhibitorColorModeSchema = z.enum(['rings', 'paint', 'both']);
 
+/**
+ * Elementos flotantes que el visitante puede encender en el visor público.
+ * Cada uno arranca encendido o apagado según lo configure el expositor.
+ */
+export const readerVisibilitySchema = z.object({
+  /** Códigos y nombres de los objetos. */
+  labels: z.boolean().default(false),
+  /** Nombres de los expositores sobre sus marcadores. */
+  names: z.boolean().default(false),
+  /** Cotas A/H/F de los objetos del expositor seleccionado. */
+  measurements: z.boolean().default(false),
+  /** Entorno Gaussian splat. */
+  splat: z.boolean().default(false),
+});
+
+export type ReaderVisibility = z.infer<typeof readerVisibilitySchema>;
+
+/**
+ * Cómo se muestran los nombres de los expositores en el visor público.
+ * `all` = todos a la vez; `selected` = al elegir un expositor se oculta el
+ * nombre del resto para no tapar la escena.
+ */
+export const readerNameModeSchema = z.enum(['all', 'selected']);
+
+/** Aspecto de la escena mientras hay un expositor elegido. */
+export const readerSpotlightModeSchema = z.enum([
+  /** Sin cambios: la escena conserva sus materiales. */
+  'off',
+  /** Solo el expositor elegido mantiene su color; el resto pasa a blanco. */
+  'neutral',
+  /** Solo la ficha elegida se ve; los demás expositores se ocultan. */
+  'solo',
+]);
+
+export type ReaderSpotlightMode = z.infer<typeof readerSpotlightModeSchema>;
+
+/** Encuadre al abrir el visor público: la vista activa o todo el recinto. */
+export const readerEntryViewSchema = z.enum(['view', 'overview']);
+
+export type ReaderEntryView = z.infer<typeof readerEntryViewSchema>;
+
 export const projectSettingsSchema = z.object({
   gridSize: z.number().min(0.05).max(2).default(0.25),
   snapToGrid: z.boolean().default(true),
@@ -310,6 +351,14 @@ export const projectSettingsSchema = z.object({
   exhibitorColorMode: exhibitorColorModeSchema.default('rings'),
   /** Intensidad de la pintura de elementos asociados (0–1). */
   exhibitorColorOpacity: z.number().min(0).max(1).default(0.35),
+  /** Qué elementos arrancan activos en la barra del visor público. */
+  readerVisibility: readerVisibilitySchema.default({}),
+  /** Nombres de expositores: todos a la vez o solo el elegido. */
+  readerNameMode: readerNameModeSchema.default('all'),
+  /** Atmósfera al seleccionar un expositor (color del elegido vs. resto). */
+  readerSpotlight: readerSpotlightModeSchema.default('off'),
+  /** Encuadre con el que abre el enlace público. */
+  readerEntryView: readerEntryViewSchema.default('view'),
 });
 
 /**

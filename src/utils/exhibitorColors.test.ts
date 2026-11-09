@@ -5,8 +5,11 @@ import {
   exhibitorColor,
   exhibitorPaintAmount,
   hexToRgba,
+  highlightNeutralAmount,
+  isDimmedBySelection,
   mixHexColors,
   paintedExhibitorColor,
+  shouldShowExhibitorName,
 } from './exhibitorColors';
 
 function projectWithExhibitor() {
@@ -61,5 +64,29 @@ describe('colores de expositores', () => {
     project.settings.exhibitorColorOpacity = 0.5;
     expect(paintedExhibitorColor(project, 'exp_1', '#000000')).toBe('#800000');
     expect(paintedExhibitorColor(project, null, '#abcdef')).toBe('#abcdef');
+  });
+
+  it('blanquea lo que no es el expositor elegido solo con el modo activo', () => {
+    expect(highlightNeutralAmount('exp_1', 'exp_1', true)).toBe(0);
+    expect(highlightNeutralAmount('exp_1', 'exp_2', true)).toBe(1);
+    expect(highlightNeutralAmount('exp_1', null, true)).toBe(1);
+    expect(highlightNeutralAmount('exp_1', 'exp_2', false)).toBe(0);
+    // Sin selección no se apaga nada: la escena se ve completa.
+    expect(highlightNeutralAmount(null, 'exp_2', true)).toBe(0);
+  });
+
+  it('detecta qué elementos son de otro expositor', () => {
+    expect(isDimmedBySelection('exp_1', 'exp_1')).toBe(false);
+    expect(isDimmedBySelection('exp_1', 'exp_2')).toBe(true);
+    expect(isDimmedBySelection('exp_1', null)).toBe(true);
+    expect(isDimmedBySelection(null, 'exp_2')).toBe(false);
+  });
+
+  it('con «solo el seleccionado» muestra únicamente el nombre elegido', () => {
+    expect(shouldShowExhibitorName('selected', 'exp_1', 'exp_1')).toBe(true);
+    expect(shouldShowExhibitorName('selected', 'exp_2', 'exp_1')).toBe(false);
+    // Sin selección se ven todos los nombres.
+    expect(shouldShowExhibitorName('selected', 'exp_2', null)).toBe(true);
+    expect(shouldShowExhibitorName('all', 'exp_2', 'exp_1')).toBe(true);
   });
 });

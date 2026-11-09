@@ -320,6 +320,8 @@ export function PublicScene({
   showObjectLabels = false,
   showExhibitorNames = false,
   showMeasurements = false,
+  nameMode = 'all',
+  spotlight = 'off',
   onSelectExhibitor,
   onClearSelection,
 }: {
@@ -334,6 +336,13 @@ export function PublicScene({
   showExhibitorNames?: boolean;
   /** Cotas A/H/F de los objetos del expositor seleccionado. */
   showMeasurements?: boolean;
+  /** `selected`: con un expositor elegido solo se ve el nombre de ese. */
+  nameMode?: 'all' | 'selected';
+  /**
+   * Atmósfera al elegir un expositor: `neutral` deja el entorno en blanco
+   * (solo el elegido conserva su color) y `solo` oculta además el resto.
+   */
+  spotlight?: 'off' | 'neutral' | 'solo';
   onSelectExhibitor: (id: string) => void;
   onClearSelection: () => void;
 }) {
@@ -342,6 +351,10 @@ export function PublicScene({
     () => ({ ...project.environment, visible: project.environment.visible && showSplat }),
     [project.environment, showSplat],
   );
+  // El blanqueado de la escena solo tiene sentido con un expositor elegido.
+  const highlightOthers =
+    spotlight !== 'off' && Boolean(selectedExhibitorId);
+  const sceneBackground = spotlight === 'neutral' && selectedExhibitorId ? '#e7e9e6' : '#070a0c';
 
   return (
     <div className="three-canvas">
@@ -357,8 +370,8 @@ export function PublicScene({
         }}
         onPointerMissed={onClearSelection}
       >
-        <color attach="background" args={['#070a0c']} />
-        <fog attach="fog" args={['#070a0c', 38, 130]} />
+        <color attach="background" args={[sceneBackground]} />
+        <fog attach="fog" args={[sceneBackground, 38, 130]} />
         <ambientLight color="#aeb9c4" intensity={0.15} />
         <SceneEnvironment intensity={0.06} />
         <SceneShadows quality={project.settings.shadowQuality} />
@@ -367,13 +380,18 @@ export function PublicScene({
           shadowQuality={project.settings.shadowQuality}
           shadowBounds={shadowBounds}
         />
-        <Architecture project={project} selectedExhibitorId={selectedExhibitorId} />
+        <Architecture
+          project={project}
+          selectedExhibitorId={selectedExhibitorId}
+          highlightOthers={highlightOthers}
+        />
         <SceneSplat environment={environment} />
         <SceneObjects
           project={project}
           selectedExhibitorId={selectedExhibitorId}
           showLabels={showObjectLabels}
           showMeasurements={showMeasurements}
+          highlightOthers={highlightOthers}
           onSelectExhibitor={onSelectExhibitor}
         />
         <ExhibitorMarkers
@@ -381,6 +399,8 @@ export function PublicScene({
           project={project}
           selectedId={selectedExhibitorId}
           showLabels={showExhibitorNames}
+          nameMode={nameMode}
+          spotlight={spotlight}
           onSelect={onSelectExhibitor}
         />
         <ViewerCamera project={project} command={cameraCommand} />

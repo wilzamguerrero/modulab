@@ -254,15 +254,15 @@ export function PublicViewerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showSplat, setShowSplat] = useState(false);
-  // Las etiquetas de los objetos llegan apagadas: en la experiencia pública el
-  // espacio se lee mejor limpio y el visitante las enciende si las necesita.
-  const [showLabels, setShowLabels] = useState(false);
+  // Estado inicial de la barra de vistas: lo decide el expositor en el editor
+  // («Vistas → Qué se ve por defecto»). `null` hasta tener el proyecto, para
+  // no arrancar nunca con un destello de opciones equivocadas.
+  const readerDefaults = project?.settings.readerVisibility;
+  const [showSplat, setShowSplat] = useState(readerDefaults?.splat ?? false);
+  const [showLabels, setShowLabels] = useState(readerDefaults?.labels ?? false);
   // Botón independiente para ver solo los nombres de los expositores.
-  const [showExhibitorNames, setShowExhibitorNames] = useState(false);
-  // Las cotas llegan apagadas: en la visita pública no hacen falta, pero se
-  // pueden encender para consultar el tamaño de los objetos de un expositor.
-  const [showMeasurements, setShowMeasurements] = useState(false);
+  const [showExhibitorNames, setShowExhibitorNames] = useState(readerDefaults?.names ?? false);
+  const [showMeasurements, setShowMeasurements] = useState(readerDefaults?.measurements ?? false);
   // `null` hasta tener el proyecto: la primera orden es la vista de lectura
   // elegida en el editor, no la cámara esquema del documento.
   const [cameraCommand, setCameraCommand] = useState<ViewerCameraCommand | null>(null);
@@ -325,11 +325,14 @@ export function PublicViewerPage() {
   }, [publicProject]);
 
   const readerCamera = useMemo(() => {
-    if (readerView) {
+    // «Vista general» como entrada: se abre con la cámara esquema del proyecto
+    // (el recinto completo de un vistazo) y la vista activa queda como origen
+    // de los viajes al elegir un expositor.
+    if (readerView && publicProject?.settings.readerEntryView !== 'overview') {
       return { position: readerView.position, target: readerView.target, fov: readerView.fov };
     }
     return { position: project?.camera.position, target: project?.camera.target, fov: project?.camera.fov };
-  }, [readerView, project]);
+  }, [readerView, project, publicProject]);
 
   useEffect(() => {
     if (!readerCamera.position || !readerCamera.target) return;
@@ -488,6 +491,8 @@ export function PublicViewerPage() {
             showObjectLabels={showLabels}
             showExhibitorNames={showExhibitorNames}
             showMeasurements={showMeasurements}
+            nameMode={publicProject.settings.readerNameMode}
+            spotlight={publicProject.settings.readerSpotlight}
             onSelectExhibitor={selectById}
             onClearSelection={() => setSelectedId(null)}
           />
