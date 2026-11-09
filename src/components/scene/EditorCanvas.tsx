@@ -9,6 +9,7 @@ import { SceneEnvironment } from './SceneEnvironment';
 import { SceneShadows } from './SceneShadows';
 import { SceneObjects } from './SceneObjects';
 import { ExhibitorMarkers } from './ExhibitorMarkers';
+import { AccessMarkers } from './AccessMarkers';
 import { SceneSplat } from './SceneSplat';
 import { LevelGizmo } from './LevelGizmo';
 import { MeasurementLayer } from './MeasurementLayer';
@@ -578,6 +579,7 @@ function EditorSceneContents({
   const setEnvironment = useEditorStore((state) => state.setEnvironment);
   const addObject = useEditorStore((state) => state.addObject);
   const addExhibitor = useEditorStore((state) => state.addExhibitor);
+  const addAccess = useEditorStore((state) => state.addAccess);
   const addOpening = useEditorStore((state) => state.addOpening);
   const addStair = useEditorStore((state) => state.addStair);
   const toggleWall = useEditorStore((state) => state.toggleWall);
@@ -632,6 +634,13 @@ function EditorSceneContents({
         ? snapPoint(point, activeProject.settings.gridSize)
         : point;
       addExhibitor(position);
+      return;
+    }
+    if (state.tool === 'access') {
+      const position = activeProject.settings.snapToGrid
+        ? snapPoint(point, activeProject.settings.gridSize)
+        : point;
+      addAccess(position);
       return;
     }
     if (state.tool === 'wall') {
@@ -777,6 +786,13 @@ function EditorSceneContents({
         selectedId={selection?.type === 'exhibitor' ? selection.id : null}
         onSelect={(id) => setSelection({ type: 'exhibitor', id })}
       />
+      <AccessMarkers
+        accesses={project.accesses}
+        project={project}
+        editor
+        selectedId={selection?.type === 'access' ? selection.id : null}
+        onSelect={(id) => setSelection({ type: 'access', id })}
+      />
       <OrbitControls
         makeDefault
         enableDamping
@@ -875,6 +891,11 @@ export function EditorCanvas({
         state.setSelection({ type: 'exhibitor', id });
         return;
       }
+      const access = state.project?.accesses.find((entry) => entry.id === id);
+      if (access) {
+        state.setSelection({ type: 'access', id });
+        return;
+      }
       state.setSelection({ type: 'object', id });
     };
     // En captura: corre antes que los manejadores de R3F, así la pieza queda
@@ -913,6 +934,14 @@ export function EditorCanvas({
         point: new THREE.Vector3(exhibitor.position.x, y, exhibitor.position.z),
       });
     }
+    for (const access of project.accesses) {
+      if (!access.visible) continue;
+      const y = (elevations[access.levelId ?? ''] ?? 0) + 0.02;
+      points.push({
+        id: access.id,
+        point: new THREE.Vector3(access.position.x, y, access.position.z),
+      });
+    }
     for (const object of project.objects) {
       if (!object.visible) continue;
       const y = (elevations[object.levelId ?? ''] ?? 0) + object.transform.position[1];
@@ -926,7 +955,7 @@ export function EditorCanvas({
       });
     }
     return points;
-  }, [project.exhibitors, project.objects, project.levels]);
+  }, [project.accesses, project.exhibitors, project.objects, project.levels]);
 
   useEffect(() => {
     setClickCandidates(active ? clickPoints : null);

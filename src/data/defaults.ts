@@ -1,4 +1,6 @@
 import type {
+  AccessKind,
+  AccessPoint,
   EdgeConfig,
   InternalWall,
   Level,
@@ -13,6 +15,10 @@ import type {
   WallOpening,
 } from '@/types/project';
 import { createId } from '@/utils/id';
+import {
+  ACCESS_KIND_COLORS,
+  ACCESS_KIND_LABELS,
+} from '@/utils/accessPoints';
 import {
   distanceToSegment,
   pointInPolygon,
@@ -92,6 +98,25 @@ export function createStair(
     landingDepth: 1.1,
     railing: true,
     color: '#c9c2b4',
+    visible: true,
+    ...overrides,
+  };
+}
+
+/** Bandera de entrada/salida con la etiqueta y el color sugeridos para su tipo. */
+export function createAccessPoint(
+  position: Vec2,
+  kind: AccessKind = 'entrance',
+  overrides: Partial<AccessPoint> = {},
+): AccessPoint {
+  return {
+    id: createId('access'),
+    name: ACCESS_KIND_LABELS[kind],
+    kind,
+    color: ACCESS_KIND_COLORS[kind],
+    position: { ...position },
+    rotation: 0,
+    levelId: null,
     visible: true,
     ...overrides,
   };
@@ -192,6 +217,7 @@ export function createProject(options: {
     objects: [],
     lights: createDefaultLights(),
     exhibitors: [],
+    accesses: [],
     camera,
     readerViews: [],
     readerCameraDistance: 3.2,

@@ -7,6 +7,7 @@ import {
   Copy,
   CopyPlus,
   DoorOpen,
+  Flag,
   ImagePlus,
   Lightbulb,
   MapPin,
@@ -22,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import type {
+  AccessPoint,
   Exhibitor,
   ExhibitorColorMode,
   InternalWall,
@@ -47,6 +49,7 @@ import {
   IconButton,
   NumberInput,
   RangeInput,
+  Segmented,
   Select,
   Switch,
   TextArea,
@@ -66,6 +69,11 @@ import { levelPivot } from '@/utils/levelTransform';
 import { LevelReadout } from '@/components/editor/LevelReadout';
 import { findWallInProject, getWallById, wallLength } from '@/utils/walls';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
+import {
+  ACCESS_KIND_LABELS,
+  accessColor,
+  accessKindLabel,
+} from '@/utils/accessPoints';
 
 function AxisInput({
   value,
@@ -1170,6 +1178,129 @@ function ExhibitorInspector({
           </div>
         </Section>
       ) : null}
+    </>
+  );
+}
+
+function AccessInspector({ access }: { access: AccessPoint }) {
+  const updateAccess = useEditorStore((state) => state.updateAccess);
+  const deleteAccess = useEditorStore((state) => state.deleteAccess);
+  const duplicateAccess = useEditorStore((state) => state.duplicateAccess);
+  const setSelection = useEditorStore((state) => state.setSelection);
+  const toast = useUiStore((state) => state.toast);
+
+  return (
+    <>
+      <Section
+        title="Acceso"
+        action={
+          <IconButton
+            label="Eliminar acceso"
+            icon={<Trash2 size={13} />}
+            onClick={() => {
+              deleteAccess(access.id);
+              setSelection(null);
+              toast('Acceso eliminado.', 'success');
+            }}
+          />
+        }
+      >
+        <Field
+          label="Etiqueta"
+          hint="Texto que se verá sobre la bandera en el editor y en el visor público."
+        >
+          <TextInput
+            value={access.name}
+            placeholder={accessKindLabel(access.kind)}
+            onChange={(event) => updateAccess(access.id, { name: event.target.value })}
+          />
+        </Field>
+        <Field
+          label="Función"
+          hint="Entrada, salida o las dos. Duplica el acceso si necesitas otra boca en otro sitio."
+        >
+          <Segmented
+            value={access.kind}
+            options={[
+              { value: 'entrance', label: ACCESS_KIND_LABELS.entrance },
+              { value: 'exit', label: ACCESS_KIND_LABELS.exit },
+              { value: 'both', label: 'Ambas' },
+            ]}
+            onChange={(kind) => updateAccess(access.id, { kind })}
+          />
+        </Field>
+        <Field label="Color de la bandera">
+          <ColorInput
+            value={accessColor(access)}
+            onChange={(color) => updateAccess(access.id, { color })}
+          />
+        </Field>
+        <Switch
+          checked={access.visible}
+          label="Visible"
+          hint="Oculta la bandera sin eliminarla."
+          onChange={(visible) => updateAccess(access.id, { visible })}
+        />
+        <div className="inline-actions">
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<CopyPlus size={13} />}
+            onClick={() => {
+              const id = duplicateAccess(access.id);
+              if (id) toast('Acceso duplicado. Cambia su función o su posición.', 'success');
+            }}
+          >
+            Duplicar acceso
+          </Button>
+        </div>
+      </Section>
+
+      <Section
+        title="Posición"
+        action={
+          <HelpButton title="Posición del acceso">
+            <p>
+              En la vista 3D también puedes seleccionar la bandera y arrastrar las flechas X/Z
+              para moverla con precisión. Con el manipulador en modo rotar (R) cambias hacia
+              dónde apunta el paso.
+            </p>
+          </HelpButton>
+        }
+      >
+        <div className="grid-2">
+          <Field label="X">
+            <NumberInput
+              value={access.position.x}
+              onChange={(x) =>
+                updateAccess(access.id, { position: { ...access.position, x } })
+              }
+              step={0.1}
+              suffix="m"
+            />
+          </Field>
+          <Field label="Z">
+            <NumberInput
+              value={access.position.z}
+              onChange={(z) =>
+                updateAccess(access.id, { position: { ...access.position, z } })
+              }
+              step={0.1}
+              suffix="m"
+            />
+          </Field>
+        </div>
+        <Field label="Sentido del paso">
+          <NumberInput
+            value={((access.rotation * 180) / Math.PI + 360) % 360}
+            onChange={(degrees) =>
+              updateAccess(access.id, { rotation: (degrees * Math.PI) / 180 })
+            }
+            step={5}
+            suffix="°"
+          />
+        </Field>
+      </Section>
     </>
   );
 }
@@ -2282,6 +2413,9 @@ export function Inspector({
   const exhibitor = selection?.type === 'exhibitor'
     ? project.exhibitors.find((entry) => entry.id === selection.id)
     : null;
+  const access = selection?.type === 'access'
+    ? project.accesses.find((entry) => entry.id === selection.id)
+    : null;
   const light = selection?.type === 'light'
     ? project.lights.find((entry) => entry.id === selection.id)
     : null;
@@ -2319,6 +2453,10 @@ export function Inspector({
     title = exhibitor.name || 'Expositor';
     subtitle = exhibitor.standCode || 'Punto de interés';
     icon = <Users size={14} />;
+  } else if (access) {
+    title = access.name || 'Acceso';
+    subtitle = accessKindLabel(access.kind);
+    icon = <Flag size={14} />;
   } else if (light) {
     title = light.name || 'Luz';
     subtitle = 'Iluminación de la escena';
@@ -2373,6 +2511,8 @@ export function Inspector({
           <ObjectInspector project={project} object={object} />
         ) : exhibitor ? (
           <ExhibitorInspector project={project} exhibitor={exhibitor} />
+        ) : access ? (
+          <AccessInspector access={access} />
         ) : light ? (
           <LightInspector light={light} />
         ) : selection?.type === 'vertex' ? (

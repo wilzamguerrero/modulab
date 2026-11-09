@@ -213,6 +213,29 @@ export const lightConfigSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
+/** Tipo de acceso: entrada, salida o las dos cosas en el mismo punto. */
+export const accessKindSchema = z.enum(['entrance', 'exit', 'both']);
+
+/**
+ * Bandera de entrada o salida del recinto. Es independiente del expositor:
+ * marca un punto del recorrido con una etiqueta, un color y un sentido de paso.
+ * Se puede duplicar para tener la entrada y la salida en sitios distintos.
+ */
+export const accessPointSchema = z.object({
+  id: z.string().min(1),
+  /** Etiqueta visible sobre la bandera (p. ej. «Entrada principal»). */
+  name: z.string().default('Entrada'),
+  kind: accessKindSchema.default('entrance'),
+  /** Color de la bandera y de su marcador en planta. */
+  color: z.string().optional(),
+  position: vec2Schema.default({ x: 0, z: 0 }),
+  /** Hacia dónde apunta el paso (radianes). 0° = +Z. */
+  rotation: z.number().default(0),
+  /** Nivel en el que se sitúa el acceso. */
+  levelId: z.string().nullable().optional(),
+  visible: z.boolean().default(true),
+});
+
 export const exhibitorSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -422,6 +445,8 @@ export const projectSchema = z
     objects: z.array(sceneObjectSchema).default([]),
     lights: z.array(lightConfigSchema).default([]),
     exhibitors: z.array(exhibitorSchema).default([]),
+    /** Banderas de entrada y salida del recinto. */
+    accesses: z.array(accessPointSchema).default([]),
     camera: projectCameraSchema.default({}),
     /**
      * Vistas de lectura del editor: cada una es una cámara guardada que se
@@ -476,6 +501,8 @@ export type StairDirection = z.infer<typeof stairDirectionSchema>;
 export type Stair = z.infer<typeof stairSchema>;
 export type Level = z.infer<typeof levelSchema>;
 export type LightConfig = z.infer<typeof lightConfigSchema>;
+export type AccessKind = z.infer<typeof accessKindSchema>;
+export type AccessPoint = z.infer<typeof accessPointSchema>;
 export type Exhibitor = z.infer<typeof exhibitorSchema>;
 export type ProjectCamera = z.infer<typeof projectCameraSchema>;
 export type Environment = z.infer<typeof environmentSchema>;
@@ -509,6 +536,7 @@ export type Selection =
   | { type: 'object'; id: string }
   | { type: 'light'; id: string }
   | { type: 'exhibitor'; id: string }
+  | { type: 'access'; id: string }
   | { type: 'stair'; id: string }
   | { type: 'level'; id: string }
   | { type: 'space'; id: string }
@@ -525,6 +553,7 @@ export type EditorTool =
   | 'stair'
   | 'hole'
   | 'exhibitor'
+  | 'access'
   | 'pan';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 export type EditorView = 'plan' | '3d';

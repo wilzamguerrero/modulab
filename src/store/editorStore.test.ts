@@ -277,3 +277,63 @@ describe('mover un expositor agrupado', () => {
     expect(object.transform.position[2]).toBeCloseTo(4);
   });
 });
+
+describe('banderas de entrada y salida', () => {
+  beforeEach(() => {
+    resetWithProject();
+  });
+
+  it('crea una entrada y permite convertirla en salida', () => {
+    const id = useEditorStore.getState().addAccess({ x: 2, z: 1 }, 'entrance')!;
+    let access = useEditorStore.getState().project!.accesses.find((entry) => entry.id === id)!;
+
+    expect(access.kind).toBe('entrance');
+    expect(access.name).toBe('Entrada');
+    expect(access.levelId).toBe(useEditorStore.getState().project!.levels[0].id);
+
+    useEditorStore.getState().updateAccess(id, { kind: 'exit' });
+    access = useEditorStore.getState().project!.accesses.find((entry) => entry.id === id)!;
+    expect(access.kind).toBe('exit');
+    // La etiqueta y el color de fábrica acompañan al tipo nuevo.
+    expect(access.name).toBe('Salida');
+    expect(access.color).toBe('#f87171');
+  });
+
+  it('conserva una etiqueta y un color personalizados al cambiar el tipo', () => {
+    const id = useEditorStore.getState().addAccess({ x: 2, z: 1 }, 'entrance')!;
+    useEditorStore.getState().updateAccess(id, { name: 'Puerta norte', color: '#123456' });
+    useEditorStore.getState().updateAccess(id, { kind: 'both' });
+
+    const access = useEditorStore.getState().project!.accesses.find((entry) => entry.id === id)!;
+    expect(access.kind).toBe('both');
+    expect(access.name).toBe('Puerta norte');
+    expect(access.color).toBe('#123456');
+  });
+
+  it('duplica una bandera con id nuevo y la desplaza', () => {
+    const id = useEditorStore.getState().addAccess({ x: 2, z: 1 }, 'exit')!;
+    const copyId = useEditorStore.getState().duplicateAccess(id)!;
+    const copy = useEditorStore.getState().project!.accesses.find((entry) => entry.id === copyId)!;
+
+    expect(copyId).not.toBe(id);
+    expect(copy.kind).toBe('exit');
+    expect(copy.position).toEqual({ x: 2.75, z: 1.75 });
+
+    useEditorStore.getState().deleteAccess(copyId);
+    expect(useEditorStore.getState().project!.accesses).toHaveLength(1);
+  });
+
+  it('la copia de un nivel se lleva sus banderas con ids nuevos', () => {
+    const level = useEditorStore.getState().project!.levels[0];
+    useEditorStore.getState().addAccess({ x: 2, z: 1 }, 'entrance');
+
+    const copyId = useEditorStore.getState().duplicateLevel(level.id, { placement: 'same' })!;
+    const accesses = useEditorStore
+      .getState()
+      .project!.accesses.filter((access) => access.levelId === copyId);
+
+    expect(accesses).toHaveLength(1);
+    expect(accesses[0].kind).toBe('entrance');
+    expect(accesses[0].position.x).toBeGreaterThan(2);
+  });
+});

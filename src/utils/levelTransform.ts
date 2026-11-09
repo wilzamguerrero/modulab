@@ -162,6 +162,15 @@ export function applyLevelTransform(
       exhibitor.cameraTarget = [target.x, ty, target.z];
     }
   }
+  // Las banderas de entrada/salida pertenecen al piso: se desplazan y giran con
+  // él, incluido el sentido de paso.
+  for (const access of project.accesses) {
+    if (access.levelId !== levelId) continue;
+    access.position = mapPoint(access.position);
+    if (Math.abs(angle) > 1e-9) {
+      access.rotation = normalizeAngle(access.rotation + angle);
+    }
+  }
   // Las vistas de lectura guardan posición absoluta de cámara: al mover el
   // nivel se desplazan junto con él para no quedar flotando en otro sitio.
   for (const view of project.readerViews ?? []) {
@@ -190,11 +199,13 @@ export function levelContents(project: Project, levelId: string): {
   holes: number;
   objects: number;
   exhibitors: number;
+  accesses: number;
   readerViews: number;
 } {
   const level = project.levels.find((entry) => entry.id === levelId);
   const objects: SceneObject[] = project.objects.filter((object) => object.levelId === levelId);
   const exhibitors = project.exhibitors.filter((exhibitor) => exhibitor.levelId === levelId);
+  const accesses = project.accesses.filter((access) => access.levelId === levelId);
   const views = (project.readerViews ?? []).filter((view) => view.levelId === levelId);
   return {
     spaces: level?.spaces.length ?? 0,
@@ -203,6 +214,7 @@ export function levelContents(project: Project, levelId: string): {
     holes: level?.spaces.reduce((total, space) => total + space.holes.length, 0) ?? 0,
     objects: objects.length,
     exhibitors: exhibitors.length,
+    accesses: accesses.length,
     readerViews: views.length,
   };
 }

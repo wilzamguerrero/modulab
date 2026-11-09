@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type {
+  AccessKind,
+  AccessPoint,
   CatalogItem,
   EdgeConfig,
   EditorTool,
@@ -21,6 +23,7 @@ import type {
   WallOpening,
 } from '@/types/project';
 import {
+  createAccessPoint,
   createEdgeConfig,
   createInternalWall,
   createLevel,
@@ -33,6 +36,7 @@ import {
 import { normalizeEdges, normalizeExhibitorLinks, normalizeOpenings } from '@/data/projectSchema';
 import { createId } from '@/utils/id';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
+import { ACCESS_KIND_COLORS, ACCESS_KIND_LABELS } from '@/utils/accessPoints';
 import { pointInPolygon, polygonCentroid } from '@/utils/geometry';
 import { translateAssignedElements } from '@/utils/exhibitorGroup';
 import { applyLevelTransform, levelPivot, normalizeAngle } from '@/utils/levelTransform';
@@ -336,6 +340,13 @@ interface EditorState {
   moveExhibitor: (id: string, position: Vec2, options?: PatchOptions) => void;
   deleteExhibitor: (id: string) => void;
   removeMissingExhibitors: () => void;
+
+  /** Banderas de entrada/salida del recinto. */
+  addAccess: (position: Vec2, kind?: AccessKind) => string | null;
+  updateAccess: (id: string, patch: Partial<AccessPoint>, options?: PatchOptions) => void;
+  moveAccess: (id: string, position: Vec2, options?: PatchOptions) => void;
+  duplicateAccess: (id: string) => string | null;
+  deleteAccess: (id: string) => void;
 
 
   addLight: (type: LightConfig['type']) => string | null;
@@ -763,6 +774,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       draft.levels = draft.levels.filter((level) => level.id !== id);
       draft.objects = draft.objects.filter((object) => object.levelId !== id);
       draft.exhibitors = draft.exhibitors.filter((exhibitor) => exhibitor.levelId !== id);
+      draft.accesses = draft.accesses.filter((access) => access.levelId !== id);
     });
     const next = get().project;
     if (next) set({ selection: null, ...validActiveIds(next, get().activeLevelId, get().activeSpaceId) });
@@ -880,6 +892,14 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
           .filter((value): value is string => Boolean(value));
         exhibitorIds.set(exhibitor.id, copy.id);
         draft.exhibitors.push(copy);
+      }
+      // Las banderas de entrada/salida también pertenecen al piso: la copia se
+      // lleva las suyas con ids nuevos y la misma etiqueta y color.
+      for (const access of project.accesses.filter((entry) => entry.levelId === id)) {
+        const copy = structuredClone(access);
+        copy.id = createId('access');
+        copy.levelId = level.id;
+        draft.accesses.push(copy);
       }
       // Los muros y aberturas del piso copiado que pertenecían al expositor
       // original pasan a pertenecer al expositor copiado.
@@ -1718,6 +1738,72 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       );
       normalizeExhibitorLinks(draft);
     }),
+
+  addAccess: (position, kind = 'entrance') => {
+    const project = get().project;
+    if (!project) return null;
+    const level = resolveLevel(project, get().activeLevelId);
+    const access = createAccessPoint(position, kind, {
+      levelId: level?.id ?? get().activeLevelId,
+    });
+    get().patchProject((draft) => {
+      draft.accesses.push(access);
+    });
+    set({ selection: { type: 'access', id: access.id } });
+    return access.id;
+  },
+
+  updateAccess: (id, patch, options = {}) =>
+    get().patchProject((draft) => {
+      const index = draft.accesses.findIndex((access) => access.id === id);
+      if (index < 0) return;
+      const current = draft.accesses[index];
+      const next = { ...current, ...patch };
+      // Al cambiar el tipo, la etiqueta y el color de fábrica acompañan al tipo
+      // nuevo; si el usuario ya los personalizó, se respetan.
+      if (patch.kind && patch.kind !== current.kind) {
+        if (!patch.name && (!current.name || current.name === ACCESS_KIND_LABELS[current.kind])) {
+          next.name = ACCESS_KIND_LABELS[patch.kind];
+        }
+        if (!patch.color && (!current.color || current.color === ACCESS_KIND_COLORS[current.kind])) {
+          next.color = ACCESS_KIND_COLORS[patch.kind];
+        }
+      }
+      draft.accesses[index] = next;
+    }, { coalesceKey: `access:${id}`, ...options }),
+
+  moveAccess: (id, position, options = {}) =>
+    get().patchProject((draft) => {
+      const access = draft.accesses.find((entry) => entry.id === id);
+      if (!access) return;
+      access.position = { ...position };
+    }, options),
+
+  duplicateAccess: (id) => {
+    const project = get().project;
+    const source = project?.accesses.find((entry) => entry.id === id);
+    if (!source) return null;
+    const copy = structuredClone(source);
+    copy.id = createId('access');
+    copy.name = source.name ? `${source.name} (copia)` : source.name;
+    // Se desplaza un poco para que la copia no quede exactamente encima y se
+    // pueda arrastrar a su sitio. El tipo y el color se conservan; se cambia
+    // desde el inspector si la copia debe ser la salida.
+    copy.position = { x: source.position.x + 0.75, z: source.position.z + 0.75 };
+    get().patchProject((draft) => {
+      draft.accesses.push(copy);
+    });
+    set({ selection: { type: 'access', id: copy.id } });
+    return copy.id;
+  },
+
+  deleteAccess: (id) => {
+    get().patchProject((draft) => {
+      draft.accesses = draft.accesses.filter((access) => access.id !== id);
+    });
+    const selection = get().selection;
+    if (selection?.type === 'access' && selection.id === id) set({ selection: null });
+  },
 
   addLight: (type) => {
     const project = get().project;

@@ -20,6 +20,7 @@ import { SceneEnvironment } from '@/components/scene/SceneEnvironment';
 import { SceneShadows } from '@/components/scene/SceneShadows';
 import { SceneObjects } from '@/components/scene/SceneObjects';
 import { ExhibitorMarkers } from '@/components/scene/ExhibitorMarkers';
+import { AccessMarkers } from '@/components/scene/AccessMarkers';
 import { SceneSplat } from '@/components/scene/SceneSplat';
 import { projectBounds } from '@/utils/levels';
 import { NEUTRAL_HIGHLIGHT_COLOR, mixHexColors } from '@/utils/exhibitorColors';
@@ -535,6 +536,9 @@ function SceneContent({
         neutralColor={neutralColor}
         onSelect={onSelectExhibitor}
       />
+      {/* Entradas y salidas: se mantienen visibles también en el visor público
+          para que el visitante sepa por dónde entrar y salir del recinto. */}
+      <AccessMarkers accesses={project.accesses} project={project} showLabels />
     </>
   );
 }

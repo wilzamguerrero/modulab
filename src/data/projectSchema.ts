@@ -209,6 +209,10 @@ export function parseProject(raw: unknown): Project {
     ...exhibitor,
     levelId: validLevel(exhibitor.levelId),
   }));
+  project.accesses = project.accesses.map((access) => ({
+    ...access,
+    levelId: validLevel(access.levelId),
+  }));
 
   // Una ficha sin vínculo a Notion nunca puede estar «ausente» en Notion.
   project.exhibitors = project.exhibitors.map((exhibitor) => ({
@@ -298,6 +302,10 @@ export function duplicateProject(project: Project, name?: string): Project {
         .filter((value): value is string => Boolean(value)),
     };
   });
+  copy.accesses = copy.accesses.map((access) => ({
+    ...access,
+    id: createId('access'),
+  }));
 
   const remapExhibitor = (exhibitorId: string | null | undefined) =>
     exhibitorId ? exhibitorIdMap.get(exhibitorId) ?? null : null;
@@ -346,6 +354,10 @@ export function duplicateProject(project: Project, name?: string): Project {
   copy.exhibitors = copy.exhibitors.map((exhibitor) => ({
     ...exhibitor,
     levelId: remapLevel(exhibitor.levelId),
+  }));
+  copy.accesses = copy.accesses.map((access) => ({
+    ...access,
+    levelId: remapLevel(access.levelId),
   }));
   return copy;
 }

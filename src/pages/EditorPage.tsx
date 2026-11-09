@@ -14,6 +14,7 @@ import {
   DoorOpen,
   DraftingCompass,
   Eye,
+  Flag,
   Globe2,
   Hand,
   HelpCircle,
@@ -59,6 +60,7 @@ import { PlanPanel } from '@/components/editor/PlanPanel';
 import { LevelsPanel } from '@/components/editor/LevelsPanel';
 import { CatalogPanel } from '@/components/editor/CatalogPanel';
 import { ExhibitorsPanel } from '@/components/editor/ExhibitorsPanel';
+import { AccessesPanel } from '@/components/editor/AccessesPanel';
 import { EnvironmentPanel } from '@/components/editor/EnvironmentPanel';
 import { Inspector } from '@/components/editor/Inspector';
 import { StairQuickEditor } from '@/components/editor/StairQuickEditor';
@@ -71,15 +73,16 @@ import { edgeLength, formatArea, formatMeters, polygonArea, validatePolygon } fr
 import { getLevel, getSpace, levelBounds, sortedLevels } from '@/utils/levels';
 import { formatRelativeDate } from '@/utils/format';
 
-type SidebarTab = 'plan' | 'levels' | 'catalog' | 'exhibitors' | 'environment';
+type SidebarTab = 'plan' | 'levels' | 'catalog' | 'exhibitors' | 'accesses' | 'environment';
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string; icon: ReactNode }> = [
   { id: 'plan', label: 'Planta', icon: <DraftingCompass size={16} /> },
   { id: 'levels', label: 'Niveles', icon: <Layers size={16} /> },
   { id: 'catalog', label: 'Catálogo', icon: <Boxes size={16} /> },
   { id: 'exhibitors', label: 'Expositores', icon: <Users size={16} /> },
+  { id: 'accesses', label: 'Accesos', icon: <Flag size={16} /> },
   // Iluminación y cortes viven dentro de Entorno: son ajustes del espacio, y
-  // así la barra queda en cinco pestañas sin que se traslapen las etiquetas.
+  // así la barra queda compacta sin que se traslapen las etiquetas.
   { id: 'environment', label: 'Entorno', icon: <Globe2 size={16} /> },
 ];
 
@@ -217,6 +220,8 @@ export function EditorPage() {
   const deleteObject = useEditorStore((state) => state.deleteObject);
   const duplicateObject = useEditorStore((state) => state.duplicateObject);
   const deleteExhibitor = useEditorStore((state) => state.deleteExhibitor);
+  const duplicateAccess = useEditorStore((state) => state.duplicateAccess);
+  const deleteAccess = useEditorStore((state) => state.deleteAccess);
   const deleteLight = useEditorStore((state) => state.deleteLight);
   const deleteInternalWall = useEditorStore((state) => state.deleteInternalWall);
   const deleteOpening = useEditorStore((state) => state.deleteOpening);
@@ -402,6 +407,8 @@ export function EditorPage() {
         event.preventDefault();
         if (state.selection?.type === 'object') {
           duplicateObject(state.selection.id);
+        } else if (state.selection?.type === 'access') {
+          duplicateAccess(state.selection.id);
         }
         return;
       }
@@ -432,6 +439,7 @@ export function EditorPage() {
       if (event.key === 'Delete') {
         if (state.selection?.type === 'object') deleteObject(state.selection.id);
         else if (state.selection?.type === 'exhibitor') deleteExhibitor(state.selection.id);
+        else if (state.selection?.type === 'access') deleteAccess(state.selection.id);
         else if (state.selection?.type === 'light') deleteLight(state.selection.id);
         else if (state.selection?.type === 'internalWall') deleteInternalWall(state.selection.id);
         else if (state.selection?.type === 'opening') deleteOpening(state.selection.id);
@@ -474,6 +482,7 @@ export function EditorPage() {
       if (key === 'u') { setView('plan'); setTool('stair'); return; }
       if (key === 'h') { setView('plan'); setPlanDrawMode('hole'); setTool('draw'); return; }
       if (key === 'e') { setTool('exhibitor'); return; }
+      if (key === 'a') { setTool('access'); return; }
       if (key === 't') { setView('3d'); toggleMeasureMode(); return; }
       if (key === 'g') { setTransformMode('translate'); return; }
       if (key === 'r') { setTransformMode('rotate'); return; }
@@ -483,11 +492,13 @@ export function EditorPage() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
     clipboardObject,
+    deleteAccess,
     deleteExhibitor,
     deleteInternalWall,
     deleteLight,
     deleteObject,
     deleteOpening,
+    duplicateAccess,
     duplicateObject,
     pasteObject,
     redo,
@@ -760,6 +771,7 @@ export function EditorPage() {
             {activeTab === 'exhibitors' ? (
               <ExhibitorsPanel project={project} notionConfigured={Boolean(notionStatus?.configured)} />
             ) : null}
+            {activeTab === 'accesses' ? <AccessesPanel project={project} /> : null}
             {activeTab === 'environment' ? (
               <EnvironmentPanel project={project} onApplyReaderView={applyReaderView} />
             ) : null}
@@ -822,6 +834,9 @@ export function EditorPage() {
             </button>
             <button type="button" className={`tool-btn${tool === 'exhibitor' ? ' is-active' : ''}`} title="Colocar expositor (E)" onClick={() => chooseTool('exhibitor')}>
               <UserPlus size={16} />
+            </button>
+            <button type="button" className={`tool-btn${tool === 'access' ? ' is-active' : ''}`} title="Colocar entrada o salida (A)" onClick={() => chooseTool('access')}>
+              <Flag size={16} />
             </button>
             <button type="button" className={`tool-btn${measureMode ? ' is-active' : ''}`} title="Medir (T)" onClick={() => { setView('3d'); toggleMeasureMode(); }}>
               <Ruler size={16} />
@@ -1089,6 +1104,7 @@ export function EditorPage() {
         <span className="status-item"><DraftingCompass size={11} /> <strong>{activeSpace?.vertices.length ?? 0}</strong> vértices</span>
         <span className="status-item"><Boxes size={11} /> <strong>{project.objects.length}</strong> objetos</span>
         <span className="status-item"><Users size={11} /> <strong>{project.exhibitors.length}</strong> expositores</span>
+        <span className="status-item"><Flag size={11} /> <strong>{project.accesses.length}</strong> accesos</span>
         <span className="status-item"><Layers size={11} /> <strong>{wallCount}</strong> muros · {formatMeters(totalWallLength, 1)}</span>
         {validation && !validation.valid ? (
           <span className="status-item status-warning"><AlertTriangle size={11} /> {validation.errors[0]}</span>

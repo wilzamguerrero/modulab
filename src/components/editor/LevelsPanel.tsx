@@ -82,6 +82,7 @@ export function LevelsPanel({ project }: { project: Project }) {
       `${counts.stairs} escalera(s)`,
       `${counts.objects} objeto(s)`,
       `${counts.exhibitors} expositor(es)`,
+      `${counts.accesses} acceso(s)`,
     ];
     return `Se moverá con el piso: ${parts.join(' · ')}.`;
   }, [activeLevel, project]);

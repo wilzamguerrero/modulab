@@ -67,6 +67,12 @@ import {
   mixHexColors,
   paintedExhibitorColor,
 } from '@/utils/exhibitorColors';
+import {
+  accessColor,
+  accessKindLabel,
+  accessShowsKindLabel,
+  accessTitle,
+} from '@/utils/accessPoints';
 
 /**
  * Flecha de rumbo del expositor: los mismos valores que el marcador 3D
@@ -90,6 +96,7 @@ type DragState =
   | { type: 'internalWallPoint'; id: string; endpoint: 'a' | 'b' }
   | { type: 'object'; id: string; offset: Vec2 }
   | { type: 'exhibitor'; id: string; offset: Vec2 }
+  | { type: 'access'; id: string; offset: Vec2 }
   | { type: 'stair'; id: string; offset: Vec2 }
   | { type: 'holeRect'; start: Vec2 }
   | {
@@ -449,6 +456,8 @@ export function PlanEditor2D({
   const setSelection = useEditorStore((state) => state.setSelection);
   const addObject = useEditorStore((state) => state.addObject);
   const addExhibitor = useEditorStore((state) => state.addExhibitor);
+  const addAccess = useEditorStore((state) => state.addAccess);
+  const moveAccess = useEditorStore((state) => state.moveAccess);
   const moveVertex = useEditorStore((state) => state.moveVertex);
   const updateObjectTransform = useEditorStore((state) => state.updateObjectTransform);
   const moveExhibitor = useEditorStore((state) => state.moveExhibitor);
@@ -872,6 +881,14 @@ export function PlanEditor2D({
       moveExhibitor(drag.id, next, { history: false, touch: false });
       return;
     }
+    if (drag.type === 'access') {
+      const next = snapPointIfNeeded({
+        x: point.x + drag.offset.x,
+        z: point.z + drag.offset.z,
+      });
+      moveAccess(drag.id, next, { history: false, touch: false });
+      return;
+    }
     if (drag.type === 'stair') {
       const next = snapPointIfNeeded({
         x: point.x + drag.offset.x,
@@ -1041,6 +1058,15 @@ export function PlanEditor2D({
       return;
     }
 
+    if (state.tool === 'access') {
+      if (activeLevel && (activeLevel.spaces.some((s) => s.vertices.length >= 3)) && !pointInLevel(activeLevel, point)) {
+        toast('Coloca el acceso dentro de un espacio del nivel activo.', 'warning');
+        return;
+      }
+      addAccess(point);
+      return;
+    }
+
     // Clic sobre el forjado en modo selección: se selecciona el piso completo
     // para moverlo o girarlo en 3D con el gizmo, que `setSelection` enciende al
     // seleccionar un nivel. Fuera de la planta se deselecciona, como siempre.
@@ -1154,6 +1180,20 @@ export function PlanEditor2D({
     });
     claimTarget('exhibitor', id);
     setSelection({ type: 'exhibitor', id });
+  };
+
+  const onAccessPointerDown = (event: ReactPointerEvent, id: string, position: Vec2) => {
+    if (tool !== 'select') return;
+    event.stopPropagation();
+    event.preventDefault();
+    const point = toWorld(event.clientX, event.clientY);
+    beginDrag(event, {
+      type: 'access',
+      id,
+      offset: { x: position.x - point.x, z: position.z - point.z },
+    });
+    claimTarget('access', id);
+    setSelection({ type: 'access', id });
   };
 
   const onStairPointerDown = (event: ReactPointerEvent, stair: Stair) => {
@@ -2020,6 +2060,82 @@ export function PlanEditor2D({
           );
         })}
 
+        {project.accesses
+          .filter((access) => entityLevelId(project, access) === activeLevel?.id)
+          .map((access) => {
+            const selected = selection?.type === 'access' && selection.id === access.id;
+            const radius = Math.max(viewport.width / 120, 0.18);
+            const color = accessColor(access);
+            const title = accessTitle(access);
+            const kindLabel = accessKindLabel(access.kind);
+            const showKind = accessShowsKindLabel(access);
+            return (
+              <g
+                key={access.id}
+                data-access-id={access.id}
+                transform={`translate(${access.position.x} ${access.position.z})`}
+                opacity={access.visible ? 1 : 0.35}
+                style={{ cursor: tool === 'select' ? 'move' : 'pointer' }}
+                onPointerDown={(event) => onAccessPointerDown(event, access.id, access.position)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setSelection({ type: 'access', id: access.id });
+                }}
+              >
+                {/* Rombo: la bandera de acceso se distingue del aro del expositor. */}
+                <path
+                  d={`M 0 ${-radius} L ${radius} 0 L 0 ${radius} L ${-radius} 0 Z`}
+                  fill={hexToRgba(color, selected ? 0.36 : 0.18)}
+                  stroke={color}
+                  strokeWidth={Math.max(viewport.width / 900, 0.012)}
+                />
+                {/* Sentido del paso, fuera del rombo. */}
+                <g
+                  transform={`rotate(${-(access.rotation * 180) / Math.PI})`}
+                  pointerEvents="none"
+                >
+                  <path
+                    d={`M 0 ${radius * 1.5} L ${-radius * 0.34} ${radius * 0.98} L ${radius * 0.34} ${radius * 0.98} Z`}
+                    fill={color}
+                    opacity={0.9}
+                  />
+                </g>
+                {/* Bandera dibujada dentro del rombo; doble si es entrada y salida. */}
+                <g pointerEvents="none">
+                  <path
+                    d={`M ${-radius * 0.2} ${radius * 0.48} L ${-radius * 0.2} ${-radius * 0.55}`}
+                    stroke={color}
+                    strokeWidth={radius * 0.16}
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d={`M ${-radius * 0.12} ${-radius * 0.52} L ${radius * 0.52} ${-radius * 0.28} L ${-radius * 0.12} ${-radius * 0.04} Z`}
+                    fill={color}
+                  />
+                  {access.kind === 'both' ? (
+                    <path
+                      d={`M ${-radius * 0.28} ${-radius * 0.52} L ${-radius * 0.92} ${-radius * 0.28} L ${-radius * 0.28} ${-radius * 0.04} Z`}
+                      fill={color}
+                      opacity={0.75}
+                    />
+                  ) : null}
+                </g>
+                <text
+                  x={0}
+                  y={-radius * 1.65}
+                  textAnchor="middle"
+                  fill={selected ? '#d7ff4f' : color}
+                  fontSize={textSize * 0.9}
+                  fontFamily="var(--font)"
+                  pointerEvents="none"
+                >
+                  {title}
+                  {showKind ? ` · ${kindLabel}` : ''}
+                </text>
+              </g>
+            );
+          })}
+
         {vertices.map((vertex, index) => {
           const selected = selectedVertex === index;
           return (
@@ -2477,6 +2593,12 @@ export function PlanEditor2D({
           <>
             <strong>Expositor:</strong> haz clic dentro de la planta para crear un punto de interés.
             Luego completa su ficha en el panel derecho.
+          </>
+        ) : tool === 'access' ? (
+          <>
+            <strong>Acceso:</strong> haz clic dentro de la planta para colocar una bandera de
+            entrada. Cambia su tipo a salida o entrada y salida en el inspector y duplícala si
+            necesitas otra boca en otro sitio.
           </>
         ) : tool === 'pan' ? (
           <>
