@@ -38,6 +38,11 @@ export interface ViewerCameraCommand {
 /** Duración del vuelo entre stands por defecto, en milisegundos. */
 const DEFAULT_TRAVEL_DURATION_MS = 2200;
 
+/** Elevación máxima (metros) de la cámara durante la respiración. */
+const HOLD_BREATH_LIFT = 0.09;
+/** Duración de un ciclo de respiración, en milisegundos. */
+const HOLD_BREATH_PERIOD_MS = 2600;
+
 type Point3 = [number, number, number];
 
 /**
@@ -51,6 +56,84 @@ function buildTravelCurve(points: Point3[]): Point3[] {
   // pasa exactamente por él si se toma como control ponderado.
   const [start, middle, end] = points;
   return [start, [2 * middle[0] - (start[0] + end[0]) / 2, 2 * middle[1] - (start[1] + end[1]) / 2, 2 * middle[2] - (start[2] + end[2]) / 2], end];
+}
+
+/** Curva de avance suave y estrictamente creciente, de 0 a 1. */
+function smoothProgress(value: number): number {
+  const clamped = Math.min(1, Math.max(0, value));
+  return clamped < 0.5 ? 4 * clamped ** 3 : 1 - (-2 * clamped + 2) ** 3 / 2;
+}
+
+/**
+ * Tramo de Hermite: de `from` a `to` con las velocidades dadas en los extremos
+ * (en unidades de avance por unidad de la variable `u`). Con pendientes iguales
+ * a la media el tramo es recto; con 0 en un extremo, frena suave.
+ */
+function hermiteSegment(
+  from: number,
+  slopeFrom: number,
+  to: number,
+  slopeTo: number,
+  u: number,
+): number {
+  const u2 = u * u;
+  const u3 = u2 * u;
+  return (
+    (2 * u3 - 3 * u2 + 1) * from +
+    (u3 - 2 * u2 + u) * slopeFrom +
+    (-2 * u3 + 3 * u2) * to +
+    (u3 - u2) * slopeTo
+  );
+}
+
+/**
+ * Avance del recorrido (0 → 1) cuando hay pausa en la vista.
+ *
+ * Tres tramos: vuelo hasta la vista, pausa y vuelo hasta el expositor. La
+ * clave es que la pausa entra y sale con la MISMA velocidad que llevaban los
+ * vuelos en ese punto: así no hay frenada antes de la pausa ni arranque
+ * después, y el recorrido se siente como un único movimiento que se ralentiza
+ * al pasar por la vista. La pausa no se congela: avanza despacio (una fracción
+ * pequeña del camino). El resultado es siempre creciente, sin saltos.
+ */
+function travelProgressWithHold(t: number, travelShare: number, holdShare: number): number {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  // Mitad del tiempo de vuelo para cada tramo (ida a la vista y salida).
+  const legShare = travelShare / 2;
+  // Fracción del camino que se recorre durante la pausa: pequeña, pero
+  // perceptible, para que la parada se sienta viva.
+  const passSpan = Math.min(0.08, legShare * 0.5);
+  const entry = 0.5 - passSpan / 2;
+  const exit = 0.5 + passSpan / 2;
+  // Velocidad compartida en los bordes de la pausa (avance por unidad de t).
+  const edgeSpeed = passSpan / holdShare;
+
+  if (t < legShare) {
+    const u = t / legShare;
+    // Sale de 0 (velocidad 0) y llega a la pausa ya en marcha, con `edgeSpeed`.
+    return hermiteSegment(0, 0, entry, edgeSpeed * legShare, u);
+  }
+  if (t < legShare + holdShare) {
+    const u = (t - legShare) / holdShare;
+    // Con la misma pendiente en ambos extremos e igual al avance total, el
+    // tramo es una deriva a velocidad constante: ni frena al entrar ni al salir.
+    return hermiteSegment(entry, edgeSpeed * holdShare, exit, edgeSpeed * holdShare, u);
+  }
+  const u = (t - legShare - holdShare) / legShare;
+  // Retoma desde `edgeSpeed` y frena al llegar al expositor.
+  return hermiteSegment(exit, edgeSpeed * legShare, 1, 0, u);
+}
+
+/**
+ * Altura de la respiración durante la pausa, en función del avance de la propia
+ * pausa (`pause`, de 0 a 1). Vale exactamente 0 al entrar y al salir, así que
+ * se suma al vuelo sin ningún salto aunque la cámara esté en movimiento.
+ */
+function breathLift(pause: number): number {
+  // Un solo ciclo: sube y baja una vez durante la pausa. El seno ya vale 0 en
+  // los extremos, así que no hay salto al entrar ni al salir.
+  return Math.sin(pause * Math.PI * 2) * Math.sin(pause * Math.PI);
 }
 
 function sampleCurve(points: Point3[], t: number): Point3 {
@@ -151,45 +234,51 @@ function ViewerCamera({
       (project.readerTravelSeconds ?? DEFAULT_TRAVEL_DURATION_MS / 1000) * 1000,
     );
     // Pausa en la vista de paso: solo tiene sentido con un punto intermedio.
-    // La curva se recorre en dos tramos suaves (cámara → vista → expositor);
-    // entre ambos la cámara se posa en la vista durante `holdSeconds`.
+    // No es un alto en seco: el viaje va y vuelve a frenar en la vista, se
+    // queda ahí `holdSeconds` avanzando muy despacio, y retoma el vuelo sin
+    // arrancar de cero.
     const hold = waypoints.length ? Math.max(0, (command.holdSeconds ?? 0) * 1000) : 0;
-    const legMs = travelDuration / (hold > 0 ? 2 : 1);
-    // Avance suave de un tramo: arranca y frena sin tirones.
-    const smooth = (value: number) =>
-      value < 0.5 ? 4 * value ** 3 : 1 - (-2 * value + 2) ** 3 / 2;
+    const totalMs = travelDuration + hold;
+    // Tiempo en el que la cámara está en la pausa (para el borneo).
+    const holdStart = travelDuration / 2;
+    const holdEnd = holdStart + hold;
     const start = performance.now();
     let frame = 0;
     let cancelled = false;
     const step = () => {
       if (cancelled) return;
       const elapsed = performance.now() - start;
-      let eased: number;
-      if (hold > 0) {
-        if (elapsed < legMs) {
-          eased = smooth(elapsed / legMs) * 0.5;
-        } else if (elapsed < legMs + hold) {
-          eased = 0.5;
-        } else {
-          eased = 0.5 + smooth(Math.min(1, (elapsed - legMs - hold) / legMs)) * 0.5;
-        }
-      } else {
-        eased = smooth(Math.min(1, elapsed / travelDuration));
+      const t = Math.min(1, elapsed / totalMs);
+      // Avance del recorrido (0 → 1) en una sola curva monótona: no retrocede
+      // nunca y no tiene saltos.
+      const eased = hold > 0 && waypoints.length
+        ? travelProgressWithHold(t, travelDuration / totalMs, hold / totalMs)
+        : smoothProgress(t);
+      let viewPosition = sampleCurve(control, eased);
+      let viewTarget = sampleCurve(targetControl, eased);
+      // Respiración: un borneo leve siempre que la pausa esté activa y se esté
+      // en la vista, fundido en los bordes para que no tenga esquinas.
+      if (hold > 0 && waypoints.length && elapsed >= holdStart && elapsed < holdEnd) {
+        const lift = breathLift((elapsed - holdStart) / hold) * HOLD_BREATH_LIFT;
+        viewPosition = [viewPosition[0], viewPosition[1] + lift, viewPosition[2]];
+        viewTarget = [
+          viewTarget[0],
+          viewTarget[1] + lift * 0.55,
+          viewTarget[2],
+        ];
       }
-      const nextPosition = sampleCurve(control, eased);
-      const nextTarget = sampleCurve(targetControl, eased);
       controls.setLookAt(
-        nextPosition[0],
-        nextPosition[1],
-        nextPosition[2],
-        nextTarget[0],
-        nextTarget[1],
-        nextTarget[2],
+        viewPosition[0],
+        viewPosition[1],
+        viewPosition[2],
+        viewTarget[0],
+        viewTarget[1],
+        viewTarget[2],
         false,
       );
-      // Al final de la pausa `eased` vale 0,5: el segundo tramo sigue hasta 1
-      // (destino) y ahí termina la animación.
-      if (eased < 1) frame = requestAnimationFrame(step);
+      // La animación dura `travelDuration + hold` y termina justo al llegar al
+      // expositor.
+      if (t < 1) frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);
     return () => {
