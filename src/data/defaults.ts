@@ -224,6 +224,7 @@ export function createProject(options: {
       readerSpotlight: 'off',
       readerSpotlightColor: '#ffffff',
       readerSpotlightBlendSeconds: 0.6,
+      readerKeepEnvironment: false,
       readerEntryView: 'view',
     },
   };

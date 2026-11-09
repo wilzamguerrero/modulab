@@ -109,10 +109,11 @@ export function isDimmedBySelection(
 
 /**
  * Si el nombre de un expositor debe mostrarse. Con `mode = 'selected'` el
- * nombre del resto se oculta mientras haya una selección.
+ * nombre del resto se oculta mientras haya una selección; con `always` no se
+ * oculta nunca, aunque el resto de expositores se esconda.
  */
 export function shouldShowExhibitorName(
-  mode: 'all' | 'selected',
+  mode: 'all' | 'selected' | 'always',
   exhibitorId: string,
   selectedExhibitorId: string | null | undefined,
 ): boolean {

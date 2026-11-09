@@ -427,8 +427,9 @@ function ReaderExperienceSettings({ project }: { project: Project }) {
         <HelpButton title="Experiencia del visitante">
           <ul>
             <li><strong>Qué se ve por defecto</strong> decide qué botones de la barra del visor llegan ya encendidos: etiquetas, nombres, medidas y Gaussian.</li>
-            <li><strong>Nombres</strong>: «Todos» muestra los nombres de los expositores a la vez; «Solo el elegido», al seleccionar uno, oculta el resto.</li>
-            <li><strong>Al seleccionar</strong> controla el color de la escena: «Claro» deja al expositor elegido con su color y pasa todo lo demás a blanco.</li>
+            <li><strong>Nombres</strong>: «Todos» muestra los nombres de los expositores a la vez; «Solo el elegido», al seleccionar uno, oculta el resto; «Siempre visibles» no los oculta nunca.</li>
+            <li><strong>Al seleccionar</strong> controla el color de la escena: «Solo el elegido a color» deja al expositor elegido con su color y pasa todo lo demás a blanco; «Los demás en el color elegido» tiñe solo a los otros expositores y deja el edificio intacto.</li>
+            <li><strong>Entorno</strong>: «Mantener el entorno del editor» conserva el piso, los muros, las ventanas y el fondo tal como se ven al editar.</li>
             <li><strong>Entrada</strong>: con qué encuadre abre el enlace público.</li>
             <li>Publica de nuevo para que el enlace use estos ajustes.</li>
           </ul>
@@ -490,11 +491,14 @@ function ReaderExperienceSettings({ project }: { project: Project }) {
         >
           <option value="all">Todos los expositores</option>
           <option value="selected">Solo el seleccionado</option>
+          <option value="always">Siempre visibles</option>
         </Select>
         <span className="reader-experience-hint">
           {settings.readerNameMode === 'selected'
             ? 'Al elegir un expositor se oculta el nombre de los demás.'
-            : 'Todos los nombres visibles a la vez.'}
+            : settings.readerNameMode === 'always'
+              ? 'Los nombres no se ocultan nunca, ni al seleccionar un expositor.'
+              : 'Todos los nombres visibles a la vez.'}
         </span>
       </div>
 
@@ -513,18 +517,25 @@ function ReaderExperienceSettings({ project }: { project: Project }) {
         >
           <option value="off">Sin cambios</option>
           <option value="neutral">Solo el elegido a color (resto en blanco)</option>
+          <option value="tint">Los demás en el color elegido (entorno intacto)</option>
           <option value="solo">Solo el elegido (ocultar los demás)</option>
         </Select>
         <span className="reader-experience-hint">
           {settings.readerSpotlight === 'neutral'
             ? 'El expositor elegido conserva su color; el entorno pasa al color de abajo.'
-            : settings.readerSpotlight === 'solo'
-              ? 'Se oculta el resto de expositores y el entorno queda en el color de abajo.'
-              : 'La escena conserva los colores de todos los expositores.'}
+            : settings.readerSpotlight === 'tint'
+              ? 'Solo los demás expositores toman el color de abajo; el piso, los muros y las ventanas no cambian.'
+              : settings.readerSpotlight === 'solo'
+                ? 'Se oculta el resto de expositores y el entorno queda en el color de abajo.'
+                : 'La escena conserva los colores de todos los expositores.'}
         </span>
         {settings.readerSpotlight !== 'off' ? (
           <div className="reader-experience-sub">
-            <span className="reader-experience-label">Color del entorno</span>
+            <span className="reader-experience-label">
+              {settings.readerSpotlight === 'tint'
+                ? 'Color de los demás expositores'
+                : 'Color del entorno'}
+            </span>
             <ColorInput
               value={settings.readerSpotlightColor ?? '#ffffff'}
               onChange={(readerSpotlightColor) =>
@@ -533,26 +544,55 @@ function ReaderExperienceSettings({ project }: { project: Project }) {
                 })
               }
             />
-            <RangeInput
-              label="Suavizado"
-              value={settings.readerSpotlightBlendSeconds ?? 0.6}
-              min={0}
-              max={3}
-              step={0.1}
-              format={(value) => (value > 0 ? `${value.toFixed(1)} s` : 'Sin fundido')}
-              onChange={(readerSpotlightBlendSeconds) =>
-                patchSettings((draft) => {
-                  draft.readerSpotlightBlendSeconds = readerSpotlightBlendSeconds;
-                })
-              }
-            />
-            <span className="reader-experience-hint">
-              {settings.readerSpotlightBlendSeconds > 0
-                ? 'Al elegir un expositor el entorno cambia suavemente, no de golpe.'
-                : 'El entorno cambia al instante al seleccionar.'}
-            </span>
+            {settings.readerSpotlight === 'tint' ? (
+              <span className="reader-experience-hint">
+                El expositor elegido conserva su color; los demás se tiñen con este.
+              </span>
+            ) : (
+              <>
+                <RangeInput
+                  label="Suavizado"
+                  value={settings.readerSpotlightBlendSeconds ?? 0.6}
+                  min={0}
+                  max={3}
+                  step={0.1}
+                  format={(value) => (value > 0 ? `${value.toFixed(1)} s` : 'Sin fundido')}
+                  onChange={(readerSpotlightBlendSeconds) =>
+                    patchSettings((draft) => {
+                      draft.readerSpotlightBlendSeconds = readerSpotlightBlendSeconds;
+                    })
+                  }
+                />
+                <span className="reader-experience-hint">
+                  {settings.readerSpotlightBlendSeconds > 0
+                    ? 'Al elegir un expositor el entorno cambia suavemente, no de golpe.'
+                    : 'El entorno cambia al instante al seleccionar.'}
+                </span>
+              </>
+            )}
           </div>
         ) : null}
+      </div>
+
+      <div className="reader-experience-group">
+        <span className="reader-experience-label">
+          <Globe2 size={11} /> Entorno
+        </span>
+        <Switch
+          label="Mantener el entorno del editor"
+          hint="Piso, muros, ventanas y fondo tal como se ven al editar"
+          checked={settings.readerKeepEnvironment ?? false}
+          onChange={(readerKeepEnvironment) =>
+            patchSettings((draft) => {
+              draft.readerKeepEnvironment = readerKeepEnvironment;
+            })
+          }
+        />
+        <span className="reader-experience-hint">
+          {settings.readerKeepEnvironment
+            ? 'El visor abre con los materiales y el fondo del editor.'
+            : 'El visor usa su fondo oscuro neutro.'}
+        </span>
       </div>
 
       <div className="reader-experience-group">

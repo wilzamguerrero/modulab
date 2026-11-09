@@ -37,6 +37,7 @@ function ExhibitorMarker({
   showLabels,
   showNameLabel = true,
   hidden = false,
+  keepLabelWhenHidden = false,
   muted = 0,
   neutralColor = '#ffffff',
   onSelect,
@@ -50,6 +51,11 @@ function ExhibitorMarker({
   showNameLabel?: boolean;
   /** Modo «solo el elegido»: este expositor no es el elegido y no se dibuja. */
   hidden?: boolean;
+  /**
+   * «Nombres siempre visibles»: aunque el marcador se oculte, su nombre sigue
+   * flotando en la escena.
+   */
+  keepLabelWhenHidden?: boolean;
   /**
    * Progreso (0–1) con el que el marcador del resto pierde su color: así el
    * cambio acompaña al fundido del entorno.
@@ -96,9 +102,35 @@ function ExhibitorMarker({
     if (controls) controls.enabled = true;
   };
 
+  const nameLabel =
+    showLabels && showNameLabel ? (
+      <Html
+        center
+        position={[0, 2.05, 0]}
+        zIndexRange={[100, 0]}
+        style={{ pointerEvents: 'none' }}
+      >
+        <div
+          className={`marker-label${selected ? ' is-selected' : ''}`}
+          style={{ borderColor: color }}
+        >
+          <strong style={{ color }}>{exhibitor.name || 'Expositor'}</strong>
+          {exhibitor.standCode ? <span>{exhibitor.standCode}</span> : null}
+        </div>
+      </Html>
+    ) : null;
+
   return (
     <>
-      {hidden ? null : (
+      {hidden ? (
+        // «Nombres siempre visibles»: el marcador desaparece pero su nombre
+        // sigue flotando en la escena.
+        keepLabelWhenHidden && nameLabel ? (
+          <group position={[exhibitor.position.x, markerY, exhibitor.position.z]}>
+            {nameLabel}
+          </group>
+        ) : null
+      ) : (
       <group
         ref={setGroup}
         position={[exhibitor.position.x, markerY, exhibitor.position.z]}
@@ -178,22 +210,7 @@ function ExhibitorMarker({
             />
           </mesh>
         </group>
-        {showLabels && showNameLabel ? (
-          <Html
-            center
-            position={[0, 2.05, 0]}
-            zIndexRange={[100, 0]}
-            style={{ pointerEvents: 'none' }}
-          >
-            <div
-              className={`marker-label${selected ? ' is-selected' : ''}`}
-              style={{ borderColor: color }}
-            >
-              <strong style={{ color }}>{exhibitor.name || 'Expositor'}</strong>
-              {exhibitor.standCode ? <span>{exhibitor.standCode}</span> : null}
-            </div>
-          </Html>
-        ) : null}
+        {nameLabel}
       </group>
       )}
       {editor && selected ? (
@@ -279,13 +296,18 @@ export function ExhibitorMarkers({
   editor?: boolean;
   /** Muestra el nombre del expositor flotando sobre el marcador. */
   showLabels?: boolean;
-  /** `selected`: con un expositor elegido solo se ve su nombre. */
-  nameMode?: 'all' | 'selected';
+  /**
+   * `selected`: con un expositor elegido solo se ve su nombre. `always`: los
+   * nombres no se ocultan nunca, aunque el resto de marcadores desaparezca.
+   */
+  nameMode?: 'all' | 'selected' | 'always';
   /**
    * `neutral`: el marcador del resto pierde su color (la escena se blanquea
-   * aparte). `solo`: además, los demás expositores no se dibujan.
+   * aparte). `tint`: solo los demás expositores toman el color elegido y el
+   * edificio conserva sus materiales. `solo`: además, los demás expositores no
+   * se dibujan.
    */
-  spotlight?: 'off' | 'neutral' | 'solo';
+  spotlight?: 'off' | 'neutral' | 'tint' | 'solo';
   /** Progreso (0–1) del fundido: el color del resto lo sigue al suavizarse. */
   spotlightProgress?: number;
   neutralColor?: string;
@@ -308,10 +330,17 @@ export function ExhibitorMarkers({
             showLabels={showLabels}
             showNameLabel={shouldShowExhibitorName(nameMode, exhibitor.id, selectedId)}
             hidden={spotlight === 'solo' && isDimmedBySelection(selectedId, exhibitor.id)}
+            keepLabelWhenHidden={nameMode === 'always'}
             muted={
-              spotlight !== 'off' && isDimmedBySelection(selectedId, exhibitor.id)
-                ? spotlightProgress
-                : 0
+              // `tint` no toca el edificio: solo los demás marcadores toman el
+              // color elegido, y lo hacen de golpe (no hay fundido que seguir).
+              spotlight === 'tint'
+                ? isDimmedBySelection(selectedId, exhibitor.id)
+                  ? 1
+                  : 0
+                : spotlight !== 'off' && isDimmedBySelection(selectedId, exhibitor.id)
+                  ? spotlightProgress
+                  : 0
             }
             neutralColor={neutralColor}
             onSelect={onSelect}

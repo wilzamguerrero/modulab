@@ -89,4 +89,10 @@ describe('colores de expositores', () => {
     expect(shouldShowExhibitorName('selected', 'exp_2', null)).toBe(true);
     expect(shouldShowExhibitorName('all', 'exp_2', 'exp_1')).toBe(true);
   });
+
+  it('con «siempre visibles» no oculta ningún nombre', () => {
+    expect(shouldShowExhibitorName('always', 'exp_1', 'exp_1')).toBe(true);
+    expect(shouldShowExhibitorName('always', 'exp_2', 'exp_1')).toBe(true);
+    expect(shouldShowExhibitorName('always', 'exp_2', null)).toBe(true);
+  });
 });

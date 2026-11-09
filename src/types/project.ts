@@ -313,9 +313,10 @@ export type ReaderVisibility = z.infer<typeof readerVisibilitySchema>;
 /**
  * Cómo se muestran los nombres de los expositores en el visor público.
  * `all` = todos a la vez; `selected` = al elegir un expositor se oculta el
- * nombre del resto para no tapar la escena.
+ * nombre del resto para no tapar la escena; `always` = los nombres nunca se
+ * ocultan, ni siquiera en el modo «solo el elegido».
  */
-export const readerNameModeSchema = z.enum(['all', 'selected']);
+export const readerNameModeSchema = z.enum(['all', 'selected', 'always']);
 
 /** Aspecto de la escena mientras hay un expositor elegido. */
 export const readerSpotlightModeSchema = z.enum([
@@ -323,6 +324,11 @@ export const readerSpotlightModeSchema = z.enum([
   'off',
   /** Solo el expositor elegido mantiene su color; el resto pasa a blanco. */
   'neutral',
+  /**
+   * Solo los demás expositores se tiñen con el color elegido; el edificio
+   * (pisos, muros, ventanas) conserva los materiales del editor.
+   */
+  'tint',
   /** Solo la ficha elegida se ve; los demás expositores se ocultan. */
   'solo',
 ]);
@@ -370,6 +376,12 @@ export const projectSettingsSchema = z.object({
    * elegir un expositor. 0 = cambio instantáneo.
    */
   readerSpotlightBlendSeconds: z.number().min(0).max(10).default(0.6),
+  /**
+   * Mantiene en el visor público los materiales del entorno tal como están en
+   * el editor: piso del espacio, fondo del recinto y cristales de ventanas.
+   * Con `false` se usa el fondo oscuro neutro del visor.
+   */
+  readerKeepEnvironment: z.boolean().default(false),
   /** Encuadre con el que abre el enlace público. */
   readerEntryView: readerEntryViewSchema.default('view'),
 });

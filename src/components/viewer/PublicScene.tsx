@@ -323,6 +323,12 @@ function ViewerCamera({
 }
 
 const DEFAULT_SCENE_BACKGROUND = '#070a0c';
+/**
+ * Fondo y niebla del editor. Con «mantener el entorno» el visor público usa
+ * estos valores para que piso, muros y ventanas se lean igual que al editar.
+ */
+const EDITOR_SCENE_BACKGROUND = '#0a0d10';
+const EDITOR_FOG: [string, number, number] = [EDITOR_SCENE_BACKGROUND, 35, 160];
 
 /**
  * Progreso (0–1) del fundido del entorno hacia el color neutro. Se resuelve
@@ -346,11 +352,14 @@ function SpotlightScope({
   target,
   blendSeconds,
   neutralColor,
+  baseBackground = DEFAULT_SCENE_BACKGROUND,
   children,
 }: {
   target: number;
   blendSeconds: number;
   neutralColor: string;
+  /** Fondo de partida: el del visor o el del editor si se conserva el entorno. */
+  baseBackground?: string;
   children: ReactNode;
 }) {
   const progress = useRef(target === 1 ? 1 : 0);
@@ -368,15 +377,15 @@ function SpotlightScope({
     // mezclado sobre el fondo oscuro de base (sin destello).
     const scene = state.scene;
     if (progress.current <= 0) {
-      if (background.current !== DEFAULT_SCENE_BACKGROUND) {
-        background.current = DEFAULT_SCENE_BACKGROUND;
+      if (background.current !== baseBackground) {
+        background.current = baseBackground;
         if (scene.background instanceof THREE.Color) {
-          scene.background.set(DEFAULT_SCENE_BACKGROUND);
+          scene.background.set(baseBackground);
         }
       }
       return;
     }
-    const mixed = mixHexColors(DEFAULT_SCENE_BACKGROUND, neutralColor, progress.current);
+    const mixed = mixHexColors(baseBackground, neutralColor, progress.current);
     background.current = mixed;
     if (scene.background instanceof THREE.Color) scene.background.set(mixed);
     else scene.background = new THREE.Color(mixed);
@@ -411,12 +420,18 @@ function SceneContent({
   showObjectLabels: boolean;
   showExhibitorNames: boolean;
   showMeasurements: boolean;
-  nameMode: 'all' | 'selected';
-  spotlight: 'off' | 'neutral' | 'solo';
+  nameMode: 'all' | 'selected' | 'always';
+  spotlight: 'off' | 'neutral' | 'tint' | 'solo';
   onSelectExhibitor: (id: string) => void;
 }) {
   const progress = useSpotlightProgress();
   const neutralColor = useContext(SpotlightColorContext);
+  // En `tint` el edificio conserva sus materiales: solo los demás expositores
+  // (marcadores y objetos asociados) toman el color elegido, así que el fundido
+  // del entorno no se aplica y el tinte va directo.
+  const buildingProgress = spotlight === 'tint' ? 0 : progress;
+  const objectsProgress =
+    spotlight === 'tint' ? (selectedExhibitorId ? 1 : 0) : progress;
   const environment = useMemo(
     () => ({ ...project.environment, visible: project.environment.visible && showSplat }),
     [project.environment, showSplat],
@@ -426,7 +441,7 @@ function SceneContent({
       <Architecture
         project={project}
         selectedExhibitorId={selectedExhibitorId}
-        highlightOthers={progress}
+        highlightOthers={buildingProgress}
         neutralColor={neutralColor}
       />
       <SceneSplat environment={environment} />
@@ -435,7 +450,7 @@ function SceneContent({
         selectedExhibitorId={selectedExhibitorId}
         showLabels={showObjectLabels}
         showMeasurements={showMeasurements}
-        highlightOthers={progress}
+        highlightOthers={objectsProgress}
         neutralColor={neutralColor}
         onSelectExhibitor={onSelectExhibitor}
       />
@@ -478,23 +493,35 @@ export function PublicScene({
   showExhibitorNames?: boolean;
   /** Cotas A/H/F de los objetos del expositor seleccionado. */
   showMeasurements?: boolean;
-  /** `selected`: con un expositor elegido solo se ve el nombre de ese. */
-  nameMode?: 'all' | 'selected';
+  /**
+   * `selected`: con un expositor elegido solo se ve el nombre de ese.
+   * `always`: los nombres no se ocultan nunca.
+   */
+  nameMode?: 'all' | 'selected' | 'always';
   /**
    * Atmósfera al elegir un expositor: `neutral` deja el entorno en blanco
-   * (solo el elegido conserva su color) y `solo` oculta además el resto.
+   * (solo el elegido conserva su color), `tint` tiñe solo a los demás
+   * expositores y `solo` oculta además el resto.
    */
-  spotlight?: 'off' | 'neutral' | 'solo';
+  spotlight?: 'off' | 'neutral' | 'tint' | 'solo';
   onSelectExhibitor: (id: string) => void;
   onClearSelection: () => void;
 }) {
   const shadowBounds = useMemo(() => projectBounds(project), [project]);
   // El fundido de la escena solo tiene sentido con un expositor elegido y con
   // uno de los modos activos; sin él el progreso vuelve a 0 (colores propios).
+  // `tint` no funde el edificio: solo recolorea los demás marcadores.
   const spotlightTarget =
-    spotlight !== 'off' && Boolean(selectedExhibitorId) ? 1 : 0;
+    spotlight !== 'off' && spotlight !== 'tint' && Boolean(selectedExhibitorId) ? 1 : 0;
   const spotlightColor = project.settings.readerSpotlightColor ?? '#ffffff';
   const spotlightBlend = project.settings.readerSpotlightBlendSeconds ?? 0.6;
+  // «Mantener el entorno»: el visor arranca con el fondo y la niebla del
+  // editor, de modo que piso, muros y cristales se vean como al editar.
+  const keepEnvironment = project.settings.readerKeepEnvironment ?? false;
+  const background = keepEnvironment ? EDITOR_SCENE_BACKGROUND : DEFAULT_SCENE_BACKGROUND;
+  const fog: [string, number, number] = keepEnvironment
+    ? EDITOR_FOG
+    : [DEFAULT_SCENE_BACKGROUND, 38, 130];
 
   return (
     <div className="three-canvas">
@@ -510,9 +537,9 @@ export function PublicScene({
         }}
         onPointerMissed={onClearSelection}
       >
-        <color attach="background" args={[DEFAULT_SCENE_BACKGROUND]} />
-        <fog attach="fog" args={[DEFAULT_SCENE_BACKGROUND, 38, 130]} />
-        <ambientLight color="#aeb9c4" intensity={0.15} />
+        <color attach="background" args={[background]} />
+        <fog attach="fog" args={fog} />
+        <ambientLight color="#aeb9c4" intensity={keepEnvironment ? 0.22 : 0.15} />
         <SceneEnvironment intensity={0.06} />
         <SceneShadows quality={project.settings.shadowQuality} />
         <SceneLights
@@ -524,6 +551,7 @@ export function PublicScene({
           target={spotlightTarget}
           blendSeconds={spotlightBlend}
           neutralColor={spotlightColor}
+          baseBackground={background}
         >
           <SceneContent
             project={project}
