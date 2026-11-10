@@ -12,7 +12,11 @@ export const vec3Schema = z.tuple([
   z.number().finite(),
 ]);
 
-export const primitiveShapeSchema = z.enum(['box', 'sphere', 'cylinder', 'cone']);
+/**
+ * Formas básicas del catálogo. `spider` es la araña metálica con un impreso
+ * largo colgado: un soporte con un paño vertical (60 × 160 cm de referencia).
+ */
+export const primitiveShapeSchema = z.enum(['box', 'sphere', 'cylinder', 'cone', 'spider']);
 
 export const catalogSourceSchema = z.discriminatedUnion('type', [
   z.object({
@@ -38,6 +42,28 @@ export const materialOverrideSchema = z
   })
   .partial();
 
+/** Tipo de contenido de la galería de un expositor, del evento o de un impreso. */
+export const mediaKindSchema = z.enum(['image', 'video', 'pdf', 'file']);
+
+/**
+ * Elemento multimedia. El binario no viaja dentro del proyecto: se guarda en
+ * Notion y aquí solo queda su bloque y unos metadatos para poder listarlo.
+ * `url` se usa cuando el archivo vive fuera de Notion.
+ */
+export const mediaItemSchema = z.object({
+  id: z.string().min(1),
+  kind: mediaKindSchema.default('file'),
+  /** Nombre visible (normalmente el nombre del archivo). */
+  name: z.string().default(''),
+  /** Pie de foto o descripción opcional. */
+  caption: z.string().default(''),
+  url: z.string().optional(),
+  notionBlockId: z.string().optional(),
+  mimeType: z.string().optional(),
+  sizeBytes: z.number().min(0).optional(),
+  createdAt: z.string().optional(),
+});
+
 export const objectTransformSchema = z.object({
   position: vec3Schema,
   rotationY: z.number().finite(),
@@ -62,6 +88,12 @@ export const sceneObjectSchema = z.object({
   overrides: z.record(materialOverrideSchema).default({}),
   visible: z.boolean().default(true),
   size: vec3Schema.optional(),
+  /**
+   * Impreso colgado de una araña metálica (`source.shape === 'spider'`). El
+   * binario vive en Notion, igual que las galerías de los expositores; aquí
+   * sólo se guardan los metadatos para poder volver a servirlo.
+   */
+  banner: mediaItemSchema.optional(),
   exhibitorId: z.string().nullable().optional(),
   /** Nivel al que pertenece el objeto (su Y es relativa a la elevación). */
   levelId: z.string().nullable().optional(),
@@ -234,28 +266,6 @@ export const accessPointSchema = z.object({
   /** Nivel en el que se sitúa el acceso. */
   levelId: z.string().nullable().optional(),
   visible: z.boolean().default(true),
-});
-
-/** Tipo de contenido de la galería de un expositor o del evento. */
-export const mediaKindSchema = z.enum(['image', 'video', 'pdf', 'file']);
-
-/**
- * Elemento de la galería. El binario no viaja dentro del proyecto: se guarda
- * en Notion y aquí solo queda su bloque y unos metadatos para poder listarlo.
- * `url` se usa cuando el archivo vive fuera de Notion.
- */
-export const mediaItemSchema = z.object({
-  id: z.string().min(1),
-  kind: mediaKindSchema.default('file'),
-  /** Nombre visible (normalmente el nombre del archivo). */
-  name: z.string().default(''),
-  /** Pie de foto o descripción opcional. */
-  caption: z.string().default(''),
-  url: z.string().optional(),
-  notionBlockId: z.string().optional(),
-  mimeType: z.string().optional(),
-  sizeBytes: z.number().min(0).optional(),
-  createdAt: z.string().optional(),
 });
 
 export const exhibitorSchema = z.object({
@@ -601,6 +611,8 @@ export interface CatalogItem {
   file?: string;
   kind: 'glb' | 'primitive';
   shape?: PrimitiveShape;
+  /** Medidas por defecto de la pieza (metros), si el catálogo las conoce. */
+  size?: Vec3;
   sizeBytes?: number;
   modifiedAt?: string;
 }

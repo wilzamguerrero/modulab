@@ -459,6 +459,15 @@ export const PRIMITIVE_CATALOG = [
   { shape: 'sphere' as const, name: 'Esfera', size: [1, 1, 1] as Vec3, color: '#d8d2c4' },
   { shape: 'cylinder' as const, name: 'Cilindro', size: [1, 1, 1] as Vec3, color: '#d8d2c4' },
   { shape: 'cone' as const, name: 'Cono', size: [1, 1, 1] as Vec3, color: '#d8d2c4' },
+  // Araña metálica con impreso: paño de 60 × 160 cm colgado de un soporte.
+  // El tamaño va en metros (ancho 0.60, alto 1.60) para que al colocarla en el
+  // plano ya tenga la medida real del producto, sin reescalar a mano.
+  {
+    shape: 'spider' as const,
+    name: 'Araña con impreso',
+    size: [0.6, 1.6, 0.08] as Vec3,
+    color: '#d8d2c4',
+  },
 ];
 
 export function primitiveSize(shape: string): Vec3 {
@@ -469,6 +478,9 @@ export function primitiveSize(shape: string): Vec3 {
       return [1, 1, 1];
     case 'cone':
       return [1, 1, 1];
+    case 'spider':
+      // Medidas reales del producto de referencia (60 × 160 cm).
+      return [0.6, 1.6, 0.08];
     default:
       return [1, 1, 1];
   }

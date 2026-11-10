@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { Html, TransformControls } from '@react-three/drei';
-import type { MaterialOverride, PrimitiveShape, Project, SceneObject } from '@/types/project';
+import type { MaterialOverride, MediaItem, PrimitiveShape, Project, SceneObject } from '@/types/project';
+import { mediaItemUrl } from '@/services/assets/mediaService';
 import {
   applyOverridesToMaterials,
   applyTintToMaterials,
@@ -84,8 +85,7 @@ function ObjectLabel({
   );
 }
 
-function disposeCloneMaterials(root: THREE.Object3D) {
-  const seen = new Set<THREE.Material>();
+function disposeCloneMaterials(root: THREE.Object3D) {  const seen = new Set<THREE.Material>();
   root.traverse((object) => {
     const mesh = object as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -99,17 +99,203 @@ function disposeCloneMaterials(root: THREE.Object3D) {
   });
 }
 
+/**
+ * Araña metálica con un impreso largo colgado: el soporte es un arnés de
+ * tubos y el impreso es un paño vertical con la imagen del cliente.
+ *
+ * El paño se adapta a la imagen: se mantiene el alto útil (1,60 m) y el ancho
+ * se ensancha o se recorta en función de la relación de aspecto real del
+ * archivo, así un diseño vertical y uno apaisado cuelgan sin deformarse.
+ *
+ * La geometría se construye en el rango 0..1 de alto y se escala con el
+ * `size` del objeto (0.60 × 1.60 m por defecto), igual que las demás formas.
+ */
+/**
+ * Araña metálica con un impreso largo colgado.
+ *
+ * La pieza es un marco rectangular (dos postes y dos travesaños) con el paño
+ * del impreso tensado dentro. No lleva patas: en la referencia el soporte es
+ * un marco plano que se apoya en el suelo.
+ *
+ * El paño se adapta a la imagen: el marco conserva las medidas reales del
+ * producto (0.60 × 1.60 m) y la imagen se ajusta dentro sin deformarse
+ * (`object-fit: contain`), dejando el aire que haga falta a los lados.
+ *
+ * La geometría se construye en el rango 0..1 y se escala con el `size` del
+ * objeto, igual que las demás formas.
+ */
+function SpiderModel({
+  banner,
+  tint,
+  neutralColor,
+  size,
+}: {
+  banner?: MediaItem;
+  tint?: ObjectTint;
+  neutralColor?: string;
+  /** Medidas reales del objeto (se usan para dibujar el marco a escala). */
+  size?: [number, number, number];
+}) {
+  const url = mediaItemUrl(banner);
+
+  // Relación de aspecto real de la imagen (ancho / alto). Mientras llega se
+  // usa la del producto de referencia (60 × 160 ≈ 0.375).
+  const [aspect, setAspect] = useState(0.375);
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
+  const [textureError, setTextureError] = useState(false);
+
+  useEffect(() => {
+    setAspect(0.375);
+    setTexture(null);
+    setTextureError(false);
+    if (!url) return;
+
+    let cancelled = false;
+    // Se carga con un <img> normal (mismo origen, sin CORS) y se sube a una
+    // textura de Three. Con `TextureLoader` + crossOrigin la petición al proxy
+    // de Notion fallaba y el paño quedaba en negro.
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = () => {
+      if (cancelled) return;
+      const ratio = image.naturalHeight > 0 ? image.naturalWidth / image.naturalHeight : 0.375;
+      setAspect(Math.min(Math.max(ratio, 0.1), 6));
+      const loaded = new THREE.Texture(image);
+      loaded.colorSpace = THREE.SRGBColorSpace;
+      loaded.anisotropy = 8;
+      loaded.needsUpdate = true;
+      setTexture(loaded);
+    };
+    image.onerror = () => {
+      if (!cancelled) setTextureError(true);
+    };
+    image.src = url;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  useEffect(() => () => texture?.dispose(), [texture]);
+
+  // Tinta: sin expositor asignado el marco es metal gris; al elegir un
+  // expositor se pinta como el resto de sus piezas.
+  const frameColor = useMemo(() => {
+    if (!tint || tint.opacity <= 0.001) return '#8f959c';
+    const base = new THREE.Color('#8f959c');
+    base.lerp(new THREE.Color(tint.color), tint.opacity);
+    return `#${base.getHexString()}`;
+  }, [tint?.color, tint?.opacity]);
+
+  const whiteout = tint && tint.color === neutralColor ? tint.opacity : 0;
+  const printOpacity = whiteout > 0 ? Math.max(0.18, 1 - whiteout) : 1;
+
+  // El marco toma la forma del impreso: se conserva el alto real del objeto
+  // (160 cm por defecto) y el ancho sale de la proporción de la imagen. Así un
+  // impreso cuadrado queda cuadrado, uno vertical queda alargado y uno
+  // apaisado queda ancho, sin deformar nunca la imagen.
+  const frameHeight = Math.max(size?.[1] ?? 1.6, 0.05);
+  // Se limita a 3× el alto para que una panorámica extrema no invada el stand.
+  const frameWidth = Math.min(Math.max(frameHeight * aspect, 0.08), frameHeight * 3);
+  const barRadius = Math.min(frameWidth, frameHeight) * 0.017;
+
+  // El paño llena el marco: como el marco ya tiene la proporción de la imagen,
+  // ésta se muestra completa de lado a lado.
+  const innerWidth = frameWidth * 0.94;
+  const innerHeight = frameHeight * 0.94;
+
+  return (
+    <group>
+      {/* Marco: dos postes verticales y dos travesaños. */}
+      {[-1, 1].map((side) => (
+        <mesh
+          key={`post-${side}`}
+          position={[(side * frameWidth) / 2, frameHeight / 2, 0]}
+          castShadow
+        >
+          <cylinderGeometry args={[barRadius, barRadius, frameHeight, 12]} />
+          <meshStandardMaterial color={frameColor} roughness={0.35} metalness={0.85} />
+        </mesh>
+      ))}
+      {[0, frameHeight].map((y) => (
+        <mesh
+          key={`rail-${y}`}
+          position={[0, y, 0]}
+          rotation={[0, 0, Math.PI / 2]}
+          castShadow
+        >
+          <cylinderGeometry args={[barRadius, barRadius, frameWidth, 12]} />
+          <meshStandardMaterial color={frameColor} roughness={0.35} metalness={0.85} />
+        </mesh>
+      ))}
+
+      {/*
+        Impreso por las dos caras. El mismo dibujo se monta dos veces: una de
+        cara al frente y otra girada 180° para la parte de atrás. Así la imagen
+        se ve igual desde los dos lados (con DoubleSide la cara trasera salía
+        reflejada) y el paño no tapa a la otra al mirar desde atrás.
+      */}
+      {[0, Math.PI].map((rotationY, index) => (
+        <mesh
+          key={`print-${index}`}
+          position={[0, frameHeight / 2, index === 0 ? 0.006 : -0.006]}
+          rotation={[0, rotationY, 0]}
+          castShadow
+        >
+          <planeGeometry args={[innerWidth, innerHeight]} />
+          {texture ? (
+            <meshBasicMaterial
+              map={texture}
+              transparent
+              opacity={printOpacity}
+              toneMapped={false}
+            />
+          ) : (
+            <meshStandardMaterial
+              color={textureError ? '#6b3a3a' : '#c9c4b8'}
+              transparent
+              opacity={printOpacity}
+              roughness={0.9}
+              metalness={0.02}
+              side={THREE.DoubleSide}
+            />
+          )}
+        </mesh>
+      ))}
+
+    </group>
+  );
+}
+
 function PrimitiveModel({
   shape,
   overrides,
   tint,
   neutralColor,
+  banner,
+  size,
 }: {
   shape: PrimitiveShape;
   overrides: Record<string, MaterialOverride>;
   tint?: ObjectTint;
   neutralColor?: string;
+  /** Impreso de la araña (solo se usa con `shape === 'spider'`). */
+  banner?: MediaItem;
+  /** Medidas del objeto, para dibujar la araña a escala real. */
+  size?: [number, number, number];
 }) {
+  // La araña tiene su propia geometría (arnés + paño texturizado), así que se
+  // resuelve antes de crear los recursos de las formas simples.
+  if (shape === 'spider') {
+    return (
+      <SpiderModel
+        banner={banner}
+        tint={tint}
+        neutralColor={neutralColor}
+        size={size}
+      />
+    );
+  }
   const geometry = useMemo(() => {
     switch (shape) {
       case 'sphere':
@@ -276,6 +462,8 @@ function ObjectModel({
         overrides={object.overrides}
         tint={tint}
         neutralColor={neutralColor}
+        banner={object.banner}
+        size={object.size}
       />
     );
   }

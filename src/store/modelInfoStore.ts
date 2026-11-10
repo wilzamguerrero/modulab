@@ -8,10 +8,13 @@ function primitiveInfo(shape: PrimitiveShape): ModelInfo {
     sphere: 'Esfera',
     cylinder: 'Cilindro',
     cone: 'Cono',
+    spider: 'Araña con impreso',
   };
+  // La araña tiene las medidas reales del producto (0.60 × 1.60 m).
+  const size: Vec3 = shape === 'spider' ? [0.6, 1.6, 0.08] : [1, 1, 1];
   return {
     url: `primitive:${shape}`,
-    size: [1, 1, 1] as Vec3,
+    size,
     offset: [0, 0.5, 0] as Vec3,
     materials: [
       {

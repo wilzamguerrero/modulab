@@ -5246,3 +5246,19 @@ input[type="range"] {
   display: flex;
   gap: 6px;
 }
+
+/* ------------------------------------------------------------------ */
+/* Araña metálica con impreso                                         */
+/* ------------------------------------------------------------------ */
+
+/* La pieza es vertical (60 × 160 cm): la previsualización del impreso
+   mantiene esa proporción en lugar de un cuadrado. */
+.event-image-preview.is-banner {
+  width: 72px;
+  height: 132px;
+}
+
+.event-image-preview.is-banner img {
+  object-fit: contain;
+  background: var(--bg-soft);
+}

@@ -67,7 +67,7 @@ import { formatDateTime } from '@/utils/format';
 import { edgeLength, formatArea, formatMeters, polygonArea, polygonBounds, snapValue } from '@/utils/geometry';
 import { levelPivot } from '@/utils/levelTransform';
 import { LevelReadout } from '@/components/editor/LevelReadout';
-import { EventImageField, MediaManager, mediaParentBlockId } from '@/components/editor/MediaSections';
+import { EventImageField, MediaManager, ObjectBannerField, mediaParentBlockId } from '@/components/editor/MediaSections';
 import { findWallInProject, getWallById, wallLength } from '@/utils/walls';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
 import {
@@ -614,6 +614,26 @@ function ObjectInspector({
           />
         </div>
       </Section>
+
+      {object.source.type === 'primitive' && object.source.shape === 'spider' ? (
+        <Section
+          title="Impreso de la araña"
+          action={
+            <HelpButton title="Impreso de la araña">
+              <p>
+                La araña metálica sostiene un único impreso largo. Sube la imagen que quieras
+                mostrar y el paño se adapta a su proporción sin deformarla.
+              </p>
+              <p>
+                El archivo se guarda en Notion, igual que las galerías de los expositores, por lo
+                que puedes continuar el proyecto en otro equipo y cambiarlo cuando quieras.
+              </p>
+            </HelpButton>
+          }
+        >
+          <ObjectBannerField project={project} object={object} />
+        </Section>
+      ) : null}
 
       <Section
         title="Medidas reales"

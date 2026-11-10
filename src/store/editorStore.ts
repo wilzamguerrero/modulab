@@ -1540,7 +1540,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       },
       overrides: {},
       visible: true,
-      size: source.type === 'primitive' ? primitiveSize(source.shape) : undefined,
+      // La araña nace con las medidas reales del producto (0.60 × 1.60 m).
+      size: source.type === 'primitive' ? item.size ?? primitiveSize(source.shape) : undefined,
       exhibitorId: null,
       levelId: get().activeLevelId,
       locked: false,

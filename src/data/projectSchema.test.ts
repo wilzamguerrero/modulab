@@ -448,4 +448,60 @@ describe('project data', () => {
     expect(parsed.exhibitors[0].media).toEqual([]);
     expect(parsed.eventImage).toBeUndefined();
   });
+
+  it('conserva el impreso de la araña al guardar y releer el proyecto', () => {
+    const project = createProject({ name: 'Araña' });
+    project.objects.push({
+      id: 'obj_arana',
+      name: 'Araña con impreso',
+      code: 'AR1',
+      showCode: true,
+      showName: false,
+      source: { type: 'primitive', shape: 'spider', name: 'Araña con impreso' },
+      transform: { position: [1, 0, 1], rotationY: 0, scale: [1, 1, 1] },
+      overrides: {},
+      visible: true,
+      size: [0.6, 1.6, 0.08],
+      banner: {
+        id: 'media_impreso',
+        kind: 'image',
+        name: 'impreso.jpg',
+        caption: '',
+        notionBlockId: 'block-9',
+        sizeBytes: 512000,
+      },
+      exhibitorId: null,
+      levelId: null,
+      locked: false,
+    });
+
+    // El viaje por Notion es JSON plano: el bloque de la imagen debe volver.
+    const parsed = parseProject(JSON.parse(JSON.stringify(project)));
+    const object = parsed.objects.find((entry) => entry.id === 'obj_arana');
+    expect(object?.source).toMatchObject({ type: 'primitive', shape: 'spider' });
+    expect(object?.size).toEqual([0.6, 1.6, 0.08]);
+    expect(object?.banner?.notionBlockId).toBe('block-9');
+    expect(object?.banner?.kind).toBe('image');
+  });
+
+  it('acepta arañas sin impreso todavía', () => {
+    const project = createProject({ name: 'Araña vacía' });
+    project.objects.push({
+      id: 'obj_sin_impreso',
+      name: 'Araña',
+      code: 'AR2',
+      showCode: true,
+      showName: false,
+      source: { type: 'primitive', shape: 'spider', name: 'Araña con impreso' },
+      transform: { position: [0, 0, 0], rotationY: 0, scale: [1, 1, 1] },
+      overrides: {},
+      visible: true,
+      size: [0.6, 1.6, 0.08],
+      exhibitorId: null,
+      levelId: null,
+      locked: false,
+    });
+    const parsed = parseProject(JSON.parse(JSON.stringify(project)));
+    expect(parsed.objects.find((entry) => entry.id === 'obj_sin_impreso')?.banner).toBeUndefined();
+  });
 });

@@ -58,6 +58,7 @@ function fallbackPrimitives(): CatalogItem[] {
     category: 'Formas básicas',
     kind: 'primitive',
     shape: item.shape,
+    size: item.size,
   }));
 }
 

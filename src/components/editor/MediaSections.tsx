@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
 import { ImagePlus, Loader2, Maximize2, Trash2, Upload } from 'lucide-react';
-import type { MediaItem, MediaKind, Project } from '@/types/project';
+import type { MediaItem, MediaKind, Project, SceneObject } from '@/types/project';
 import { Badge, Button, Field, IconButton, TextInput } from '@/components/ui';
 import { useUiStore } from '@/store/uiStore';
+import { useEditorStore } from '@/store/editorStore';
 import {
   deleteMediaItem,
   formatBytes,
@@ -223,6 +224,117 @@ export function MediaManager({
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Impreso de una araña metálica. Es una sola imagen la que cuelga del soporte;
+ * el archivo se adjunta a Notion con el mismo sistema que la galería y la foto
+ * del expositor, así que se puede cambiar o quitar al reabrir el proyecto.
+ */
+export function ObjectBannerField({ project, object }: { project: Project; object: SceneObject }) {
+  const toast = useUiStore((state) => state.toast);
+  const updateObject = useEditorStore((state) => state.updateObject);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [gallery, setGallery] = useState(false);
+  const value = object.banner;
+  const url = mediaItemUrl(value);
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    if (mediaKindForFile(file) !== 'image') {
+      toast('El impreso debe ser una imagen (JPG, PNG, WEBP…).', 'warning');
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
+    setUploading(true);
+    setProgress(0);
+    try {
+      const next = await uploadMediaFile(file, {
+        parentBlockId: project.notionBlockId ?? '',
+        kind: 'image' as MediaKind,
+        onProgress: setProgress,
+      });
+      const previous = value;
+      updateObject(object.id, { banner: next });
+      // El archivo anterior deja de usarse: se archiva en Notion para no
+      // acumular adjuntos huérfanos en la página del proyecto.
+      if (previous) await deleteMediaItem(previous);
+      toast('Impreso actualizado.', 'success');
+    } catch (error) {
+      toast(`No se pudo subir el impreso: ${(error as Error).message}`, 'error');
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  const remove = async () => {
+    updateObject(object.id, { banner: undefined });
+    if (value) await deleteMediaItem(value);
+    toast('Impreso eliminado.', 'success');
+  };
+
+  return (
+    <Field label="Imagen que cuelga del soporte">
+      <div className="event-image-field">
+        <button
+          type="button"
+          className="event-image-preview is-banner"
+          onClick={() => (url ? setGallery(true) : inputRef.current?.click())}
+          title={url ? 'Ver a pantalla completa' : 'Subir la imagen del impreso'}
+        >
+          {url ? (
+            <img src={url} alt={value?.name || 'Impreso'} />
+          ) : (
+            <span className="event-image-empty">
+              <ImagePlus size={20} />
+              <span>60 × 160</span>
+            </span>
+          )}
+          {uploading ? (
+            <span className="event-image-overlay">
+              <Loader2 size={18} className="spin" />
+              {Math.round(progress * 100)} %
+            </span>
+          ) : null}
+        </button>
+        <div className="event-image-side">
+          <p className="event-image-hint">
+            El paño mantiene el alto real de 160 cm y el ancho se ajusta a la proporción de tu
+            imagen (vertical, cuadrada o apaisada) sin deformarla.
+          </p>
+          <div className="event-image-actions">
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Upload size={13} />}
+              onClick={() => inputRef.current?.click()}
+              loading={uploading}
+            >
+              {value ? 'Reemplazar' : 'Subir imagen'}
+            </Button>
+            {value ? (
+              <Button size="sm" variant="ghost" icon={<Trash2 size={13} />} onClick={remove}>
+                Quitar
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(event) => handleFile(event.target.files?.[0])}
+      />
+      {gallery && value ? (
+        <MediaGalleryModal items={[value]} title="Impreso" onClose={() => setGallery(false)} />
+      ) : null}
+    </Field>
   );
 }
 

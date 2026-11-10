@@ -61,6 +61,30 @@ function primitiveMesh(item: CatalogItem): THREE.Object3D {
       return new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 48), new THREE.MeshStandardMaterial({ color: '#d8d2c4', roughness: 0.55 }));
     case 'cone':
       return new THREE.Mesh(new THREE.ConeGeometry(0.55, 1, 48), new THREE.MeshStandardMaterial({ color: '#d8d2c4', roughness: 0.55 }));
+    case 'spider': {
+      // Vista de la araña: arnés metálico y paño del impreso.
+      const group = new THREE.Group();
+      const metal = new THREE.MeshStandardMaterial({ color: '#8f959c', roughness: 0.35, metalness: 0.8 });
+      const cloth = new THREE.MeshStandardMaterial({ color: '#c9c4b8', roughness: 0.9, side: THREE.DoubleSide });
+      const width = 0.6;
+      const height = 1.6;
+      const bar = 0.022;
+      for (const side of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(bar, bar, height, 12), metal);
+        post.position.set((side * width) / 2, height / 2, 0);
+        group.add(post);
+      }
+      for (const y of [0, height]) {
+        const rail = new THREE.Mesh(new THREE.CylinderGeometry(bar, bar, width, 12), metal);
+        rail.position.set(0, y, 0);
+        rail.rotation.z = Math.PI / 2;
+        group.add(rail);
+      }
+      const print = new THREE.Mesh(new THREE.PlaneGeometry(width * 0.94, height * 0.94), cloth);
+      print.position.set(0, height / 2, 0.02);
+      group.add(print);
+      return group;
+    }
     default:
       return new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: '#d8d2c4', roughness: 0.7 }));
   }

@@ -45,6 +45,7 @@ export async function loadCatalog(): Promise<{ items: CatalogItem[]; directory: 
     category: 'Formas básicas',
     kind: 'primitive',
     shape: item.shape as PrimitiveShape,
+    size: item.size,
   }));
   return {
     items: [...primitives, ...glbItems],
