@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImagePlus, Loader2, Maximize2, Trash2, Upload } from 'lucide-react';
 import type { MediaItem, MediaKind, Project, SceneObject } from '@/types/project';
 import { Badge, Button, Field, IconButton, TextInput } from '@/components/ui';
@@ -154,10 +154,29 @@ export function MediaManager({
   };
 
   // Flujo progresivo: las miniaturas entran poco a poco, con un cupo de
-  // descargas simultáneas. Se reinicia al cambiar de galería.
+  // descargas simultáneas.
+  //
+  // El reinicio NO puede depender de `parentBlockId`: esa página de Notion se
+  // crea la primera vez que se guarda y el identificador cambia a mitad de
+  // sesión. Al reiniciar el flujo a las primeras 14 tarjetas con las imágenes
+  // ya en la caché del navegador, ninguna dispara `onLoad` y la galería se
+  // quedaba a medias («se queda cargando hasta que recargo»).
+  //
+  // El reinicio correcto es cuando cambia el conjunto de archivos: otra
+  // galería, o un proyecto distinto.
+  // Se ordenan los identificadores: reordenar con «subir»/«bajar» no debe
+  // reiniciar el flujo, sólo añadir o quitar archivos.
+  const streamResetKey = useMemo(
+    () =>
+      items
+        .map((entry) => entry.id)
+        .sort()
+        .join(','),
+    [items],
+  );
   const stream = useProgressiveStream({
     total: items.length,
-    resetKey: parentBlockId || 'galeria',
+    resetKey: streamResetKey,
   });
 
   const move = (id: string, direction: -1 | 1) => {

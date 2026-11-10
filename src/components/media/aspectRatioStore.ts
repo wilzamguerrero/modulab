@@ -26,6 +26,7 @@ let flushTimer: number | undefined;
 
 function load(): Record<string, number> {
   if (cache) return cache;
+  if (typeof localStorage === 'undefined') return (cache = {});
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
@@ -41,6 +42,9 @@ function load(): Record<string, number> {
 // serializar miles de claves en cada `onLoad`.
 function scheduleFlush() {
   if (flushTimer) return;
+  // Sin DOM (SSR, pruebas, Web Worker) no hay nada que persistir: la caché en
+  // memoria sigue funcionando durante la sesión.
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   flushTimer = window.setTimeout(() => {
     flushTimer = undefined;
     const data = cache;

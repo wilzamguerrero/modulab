@@ -19,6 +19,10 @@ import {
 import type { Exhibitor, Project, ReaderView, Vec2 } from '@/types/project';
 import { Badge, Button, IconButton, Spinner } from '@/components/ui';
 import { MediaGalleryModal, MediaThumb } from '@/components/media/MediaGallery';
+import {
+  MediaLoadContext,
+  useProgressiveStream,
+} from '@/components/media/useProgressiveStream';
 import { mediaItemUrl, mediaKindLabel } from '@/services/assets/mediaService';
 import { PublicScene, type ViewerCameraCommand } from '@/components/viewer/PublicScene';
 import { fetchPublished } from '@/services/publishing/publishService';
@@ -180,6 +184,9 @@ function ExhibitorCard({
   const photo = notionPhotoUrl(exhibitor);
   const media = exhibitor.media ?? [];
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
+  // La galería entra en cascada: las miniaturas se piden de pocas en pocas para
+  // no saturar la conexión y para que el panel aparezca al instante.
+  const stream = useProgressiveStream({ total: media.length, resetKey: exhibitor.id });
   const related = project.objects.filter(
     (object) =>
       object.exhibitorId === exhibitor.id || exhibitor.relatedObjectIds.includes(object.id),
@@ -253,18 +260,21 @@ function ExhibitorCard({
             </Button>
           </div>
           <div className="viewer-media-grid">
-            {media.map((item, index) => (
-              <button
-                key={item.id}
-                type="button"
-                className="viewer-media-item"
-                onClick={() => setGalleryIndex(index)}
-                title={`${item.caption || item.name} · ${mediaKindLabel(item.kind)}`}
-              >
-                <MediaThumb item={item} size={64} />
-                <span className="viewer-media-kind">{mediaKindLabel(item.kind)}</span>
-              </button>
-            ))}
+            <MediaLoadContext.Provider value={stream.loadApi}>
+              {media.slice(0, stream.visibleCount).map((item, index) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="viewer-media-item"
+                  onClick={() => setGalleryIndex(index)}
+                  title={`${item.caption || item.name} · ${mediaKindLabel(item.kind)}`}
+                >
+                  <MediaThumb item={item} size={64} />
+                  <span className="viewer-media-kind">{mediaKindLabel(item.kind)}</span>
+                </button>
+              ))}
+              {!stream.isComplete ? <div ref={stream.sentinelRef} className="media-stream-sentinel" /> : null}
+            </MediaLoadContext.Provider>
           </div>
         </div>
       ) : null}

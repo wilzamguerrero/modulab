@@ -111,6 +111,24 @@ export function useProgressiveStream({
     }
   }, []);
 
+  //
+  // Diagnóstico del atasco «se queda cargando hasta que recargo»:
+  //
+  // El cupo de concurrencia sólo baja cuando una tarjeta llama a `settle`.
+  // Hay dos casos en los que esa llamada nunca llega y el flujo se detiene:
+  //
+  //  1. La imagen ya estaba en la caché del navegador: el evento `load` se
+  //     dispara antes de que React registre los manejadores, así que no hay
+  //     `onLoad` y el cupo se queda ocupado.
+  //  2. La tarjeta se vuelve a montar (cambio de `resetKey`, StrictMode) y el
+  //     registro anterior quedó huérfano en el conjunto.
+  //
+  // En ambos casos `STALL_MS` desbloquea, pero esperar 2,2 s por cada imagen
+  // cacheada hace que la galería parezca colgada. La solución es no depender
+  // sólo de `onLoad`: se comprueba el estado real del elemento y se libera el
+  // cupo también si la imagen ya está completa (`img.complete`).
+  //
+
   // Bomba de admisión: un frame, unas pocas tarjetas, y vuelta a empezar.
   const pump = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -189,6 +207,25 @@ export function useProgressiveStream({
     observer.observe(el);
     return () => observer.disconnect();
   }, [isComplete]);
+
+  // Red de seguridad de último recurso: si por cualquier motivo el flujo se
+  // quedó sin cupos (imagen cacheada, tarjeta desmontada, evento perdido), se
+  // libera y se reanuda. Sin esto la galería podía quedarse a medias hasta
+  // recargar la página.
+  useEffect(() => {
+    if (visibleCount >= total) return;
+    const watchdog = window.setTimeout(() => {
+      const cap = nearEdgeRef.current ? NEAR_EDGE_CONCURRENCY : IDLE_CONCURRENCY;
+      if (pendingRef.current.size < cap) {
+        pumpRef.current();
+        return;
+      }
+      // El cupo sigue lleno tras el margen de espera: nada terminó.
+      pendingRef.current.clear();
+      pumpRef.current();
+    }, STALL_MS + 800);
+    return () => clearTimeout(watchdog);
+  }, [visibleCount, total]);
 
   useEffect(() => clearTimers, [clearTimers]);
 

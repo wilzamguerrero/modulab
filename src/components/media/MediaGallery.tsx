@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, FileText, Film, Image as ImageIcon } from 'lucide-react';
 import type { MediaItem } from '@/types/project';
 import { Button, IconButton, Modal } from '@/components/ui';
@@ -28,30 +28,63 @@ export function MediaKindIcon({ kind, size = 13 }: { kind: MediaItem['kind']; si
 export function MediaThumb({ item, size = 56 }: { item: MediaItem; size?: number }) {
   const url = mediaItemUrl(item);
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const settle = useMediaSettle(item.id, item.kind === 'image' && Boolean(url));
 
-  if (item.kind === 'image' && url) {
-    const handleLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
-      const img = event.currentTarget;
-      rememberRatio(item.id, img.naturalWidth, img.naturalHeight);
+  const finish = useCallback(
+    (img?: HTMLImageElement | null) => {
+      if (img && img.naturalWidth && img.naturalHeight) {
+        rememberRatio(item.id, img.naturalWidth, img.naturalHeight);
+      }
       setLoaded(true);
+      // Libera siempre el cupo, tanto por `onLoad` como por la comprobación de
+      // caché. `settle` es idempotente, así que llamarlo dos veces no afecta.
       settle();
+    },
+    [item.id, settle],
+  );
+
+  // Si la imagen ya estaba en la caché del navegador, el evento `load` puede
+  // haberse disparado antes de que React enganchara `onLoad`. Sin esto el cupo
+  // del flujo se quedaba ocupado y la galería parecía colgada hasta recargar.
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img) return;
+    // `complete` es cierto tanto si la imagen terminó como si falló sin llegar
+    // a cargar; `naturalWidth` distingue los dos casos.
+    if (img.complete) {
+      finish(img.naturalWidth ? img : null);
+      return;
+    }
+    // Segunda oportunidad: la imagen puede terminar entre el commit y este
+    // efecto. Si para entonces ya está completa, se libera el cupo sin esperar
+    // al temporizador de reserva.
+    let cancelled = false;
+    const check = () => {
+      if (cancelled) return;
+      const el = imgRef.current;
+      if (el?.complete) finish(el.naturalWidth ? el : null);
     };
+    const timer = window.setTimeout(check, 160);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [finish, url]);
+
+  if (item.kind === 'image' && url) {
     return (
       <span className="media-thumb-frame" style={{ width: size, height: size }}>
         {!loaded ? <span className="media-thumb-skeleton" aria-hidden /> : null}
         <img
+          ref={imgRef}
           className={`media-thumb${loaded ? ' is-loaded' : ''}`}
           src={url}
           alt={item.caption || item.name}
           loading="lazy"
           decoding="async"
-          onLoad={handleLoad}
-          onError={() => {
-            // Un fallo no debe congelar el flujo: se libera el cupo igualmente.
-            setLoaded(true);
-            settle();
-          }}
+          onLoad={(event) => finish(event.currentTarget)}
+          onError={() => finish(null)}
           style={{ width: size, height: size }}
         />
       </span>
@@ -129,6 +162,8 @@ function MediaViewer({ item }: { item: MediaItem }) {
             if (learned) setRatio(learned);
             setLoaded(true);
           }}
+          onLoadedData={() => setLoaded(true)}
+          onCanPlay={() => setLoaded(true)}
           onError={() => setLoaded(true)}
         >
           Tu navegador no puede reproducir este vídeo.
