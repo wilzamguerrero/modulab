@@ -178,17 +178,28 @@ function SpiderModel({
 
   useEffect(() => () => texture?.dispose(), [texture]);
 
+  // El modo neutro (lectura) aclara los muebles del expositor, pero el
+  // impreso es contenido: su imagen no debe perder opacidad ni aclararse.
+  // Solo se atenúa el marco, igual que `applyWhiteoutToMaterials` respeta
+  // los materiales de texto.
+  const frameDimmed = tint && tint.color === neutralColor ? tint.opacity : 0;
+
   // Tinta: sin expositor asignado el marco es metal gris; al elegir un
   // expositor se pinta como el resto de sus piezas.
   const frameColor = useMemo(() => {
-    if (!tint || tint.opacity <= 0.001) return '#8f959c';
     const base = new THREE.Color('#8f959c');
+    if (!tint || tint.opacity <= 0.001) return `#${base.getHexString()}`;
     base.lerp(new THREE.Color(tint.color), tint.opacity);
     return `#${base.getHexString()}`;
   }, [tint?.color, tint?.opacity]);
 
-  const whiteout = tint && tint.color === neutralColor ? tint.opacity : 0;
-  const printOpacity = whiteout > 0 ? Math.max(0.18, 1 - whiteout) : 1;
+  // En modo neutro el marco tira a blanco en vez de teñirse de un color.
+  const railColor = useMemo(() => {
+    if (frameDimmed <= 0.001) return frameColor;
+    const base = new THREE.Color(frameColor);
+    base.lerp(new THREE.Color('#f2f0eb'), Math.min(1, frameDimmed));
+    return `#${base.getHexString()}`;
+  }, [frameColor, frameDimmed]);
 
   // El marco toma la forma del impreso: se conserva el alto real del objeto
   // (160 cm por defecto) y el ancho sale de la proporción de la imagen. Así un
@@ -214,7 +225,7 @@ function SpiderModel({
           castShadow
         >
           <cylinderGeometry args={[barRadius, barRadius, frameHeight, 12]} />
-          <meshStandardMaterial color={frameColor} roughness={0.35} metalness={0.85} />
+          <meshStandardMaterial color={railColor} roughness={0.35} metalness={0.85} />
         </mesh>
       ))}
       {[0, frameHeight].map((y) => (
@@ -225,7 +236,7 @@ function SpiderModel({
           castShadow
         >
           <cylinderGeometry args={[barRadius, barRadius, frameWidth, 12]} />
-          <meshStandardMaterial color={frameColor} roughness={0.35} metalness={0.85} />
+          <meshStandardMaterial color={railColor} roughness={0.35} metalness={0.85} />
         </mesh>
       ))}
 
@@ -246,15 +257,15 @@ function SpiderModel({
           {texture ? (
             <meshBasicMaterial
               map={texture}
-              transparent
-              opacity={printOpacity}
+              transparent={false}
+              opacity={1}
               toneMapped={false}
             />
           ) : (
             <meshStandardMaterial
               color={textureError ? '#6b3a3a' : '#c9c4b8'}
-              transparent
-              opacity={printOpacity}
+              transparent={false}
+              opacity={1}
               roughness={0.9}
               metalness={0.02}
               side={THREE.DoubleSide}
