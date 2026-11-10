@@ -3,6 +3,11 @@ import { cleanNotionId } from './config';
 
 const NOTION_BASE = 'https://api.notion.com/v1';
 const NOTION_VERSION = '2022-06-28';
+/**
+ * Tiempo máximo por llamada a Notion. Sin él, una respuesta que nunca llega
+ * deja la petición colgada hasta que Cloudflare la mata sin devolver nada.
+ */
+const NOTION_TIMEOUT_MS = 20_000;
 
 export class NotionError extends Error {
   readonly status: number;
@@ -13,7 +18,13 @@ export class NotionError extends Error {
   }
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number, before?: () => void) =>
+  new Promise((resolve) => {
+    // Libera el cupo de concurrencia ANTES de esperar: si se retiene durante la
+    // espera, dos reintentos simultáneos bloquean la cola entera.
+    before?.();
+    setTimeout(resolve, ms);
+  });
 
 function resolveConfig(config?: NotionConfig): NotionConfig {
   if (!config) throw new NotionError('Notion no está configurado.', 400);
@@ -33,9 +44,23 @@ async function acquire(): Promise<void> {
   if (waiting.length >= MAX_QUEUE) {
     throw new NotionError('Notion está recibiendo demasiadas solicitudes. Intenta de nuevo en unos segundos.', 503);
   }
-  await new Promise<void>((resolve) => waiting.push(resolve));
+  // Tope de espera: si un cupo nunca se libera (petición colgada), es preferible
+  // devolver un error claro antes que dejar que Cloudflare mate la petición.
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const index = waiting.indexOf(onSlot);
+      if (index >= 0) waiting.splice(index, 1);
+      reject(
+        new NotionError('Notion tardó demasiado en responder. Intenta de nuevo en unos segundos.', 503),
+      );
+    }, NOTION_TIMEOUT_MS);
+    const onSlot = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    waiting.push(onSlot);
+  });
 }
-
 function release(): void {
   const next = waiting.shift();
   if (next) {
@@ -78,6 +103,7 @@ async function notionFetch<T = any>(
           'Content-Type': 'application/json',
         },
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(NOTION_TIMEOUT_MS),
       });
       const text = await response.text();
       let data: any = {};
@@ -91,8 +117,11 @@ async function notionFetch<T = any>(
       if (!response.ok) {
         const message = data?.message || data?.code || `HTTP ${response.status}`;
         if (isRetryable(response.status) && attempt < 3) {
-          freeSlot();
-          await sleep(1000 * 2 ** attempt);
+          // No se libera aquí: el `finally` ya se encarga de devolver el cupo
+          // una sola vez. Hacerlo en ambos sitios dejaba `active` corrupto y,
+          // como el isolate de Cloudflare se reutiliza, todas las llamadas
+          // posteriores a Notion quedaban esperando para siempre (hang).
+          await sleep(1000 * 2 ** attempt, freeSlot);
           continue;
         }
         throw new NotionError(`Notion: ${message}`, response.status);
@@ -101,8 +130,7 @@ async function notionFetch<T = any>(
     } catch (error) {
       if (error instanceof NotionError) throw error;
       if (attempt < 3) {
-        freeSlot();
-        await sleep(1000 * 2 ** attempt);
+        await sleep(1000 * 2 ** attempt, freeSlot);
         continue;
       }
       throw new NotionError(`No se pudo conectar con Notion: ${(error as Error).message}`, 502);
@@ -134,6 +162,13 @@ export function toRichTextChunks(content: string): Array<{ type: 'text'; text: {
   }
   return chunks.length ? chunks : [{ type: 'text', text: { content: '' } }];
 }
+
+/**
+ * Notion acepta como máximo 100 elementos `rich_text` por bloque. Con trozos de
+ * 1900 caracteres eso son ~190 000, pero conviene comprobarlo aparte: al pasarse,
+ * Notion devuelve un 400 que, sin este aviso, acababa como un 500 opaco.
+ */
+export const MAX_RICH_TEXT_CHUNKS = 100;
 
 export async function listAllChildren(
   blockId: string,
@@ -219,6 +254,12 @@ export async function writeJsonBlock(
   if (json.length > 190_000) {
     throw new NotionError(
       'El proyecto es demasiado grande para guardarlo en un bloque de Notion (límite ≈190 000 caracteres). Reduce imágenes incrustadas o divide el proyecto.',
+      413,
+    );
+  }
+  if (toRichTextChunks(json).length > MAX_RICH_TEXT_CHUNKS) {
+    throw new NotionError(
+      'El proyecto es demasiado grande para guardarlo en un bloque de Notion (demasiados fragmentos de texto). Reduce imágenes incrustadas o divide el proyecto.',
       413,
     );
   }

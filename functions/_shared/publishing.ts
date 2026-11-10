@@ -86,14 +86,20 @@ export async function publishDocument(
 
   let mirrored = false;
   if (notionBlockId) {
-    const config = await loadConfig(env);
-    if (config.notionSecret) {
-      try {
+    try {
+      const config = await loadConfig(env);
+      if (config.notionSecret) {
         await savePublishedSnapshot(notionBlockId, payload, config);
         mirrored = true;
-      } catch (error) {
-        console.warn('[modulab] No se pudo guardar la publicación en Notion:', (error as Error).message);
       }
+    } catch (error) {
+      // El espejo es un extra: si Notion lo rechaza (proyecto grande, token
+      // caducado, red), la publicación ya quedó en KV y debe seguir adelante.
+      // Antes este fallo se propagaba y la interfaz mostraba un 500 sin causa.
+      console.warn(
+        '[modulab] La publicación quedó guardada, pero no se pudo espejar en Notion:',
+        (error as Error)?.message || error,
+      );
     }
   }
 

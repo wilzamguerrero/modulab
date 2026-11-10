@@ -36,6 +36,7 @@ import {
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { detectSplatFormat, uploadSplatToNotion } from '@/services/assets/splatService';
+import { notionSessionToken } from '@/services/api';
 import { HolesPanel } from './HolesPanel';
 import { LightsPanel } from './LightsPanel';
 import { AccessesPanel } from './AccessesPanel';
@@ -778,7 +779,14 @@ function EnvironmentSectionPanel({ project }: { project: Project }) {
 
   const viewFromNotion = () => {
     clearPreview();
-    const url = env.url ?? (env.blockId ? `/api/splat/${encodeURIComponent(env.blockId)}` : undefined);
+    let url = env.url;
+    if (!url && env.blockId) {
+      const base = `/api/splat/${encodeURIComponent(env.blockId)}`;
+      // El visor carga esta URL sin cabeceras propias: el token viaja en `?k=`
+      // para que el servidor no responda 409 en producción.
+      const token = notionSessionToken();
+      url = token ? `${base}?k=${encodeURIComponent(token)}` : base;
+    }
     if (url) {
       setEnvironment({ url, visible: true });
       setUrlInput(url);

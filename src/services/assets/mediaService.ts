@@ -1,5 +1,5 @@
 import type { MediaItem, MediaKind } from '@/types/project';
-import { apiDelete, apiPost, notionSessionHeaders } from '@/services/api';
+import { apiDelete, apiPost, notionSessionHeaders, notionSessionToken } from '@/services/api';
 import { createId } from '@/utils/id';
 
 interface InitResponse {
@@ -36,6 +36,11 @@ export function mediaKindForFile(file: Pick<File, 'name' | 'type'>): MediaKind {
 /**
  * URL con la que se sirve el contenido. Los archivos de Notion se piden a
  * través del proxy del servidor porque sus enlaces firmados caducan.
+ *
+ * El proxy exige la marca de conexión de Notion del navegador y estas URLs se
+ * entregan a etiquetas (`<img>`, `<video>`) que no envían cabeceras propias, así
+ * que el token viaja en `?k=`. Sin él, el servidor responde 409 y la imagen no
+ * se ve en producción aunque el proyecto tenga la referencia guardada.
  */
 export function mediaItemUrl(
   item: Pick<MediaItem, 'kind' | 'notionBlockId' | 'url'> | null | undefined,
@@ -43,7 +48,9 @@ export function mediaItemUrl(
   if (!item) return undefined;
   if (item.notionBlockId) {
     const endpoint = item.kind === 'image' ? 'image' : 'file';
-    return `/api/notion/${endpoint}/${encodeURIComponent(item.notionBlockId)}`;
+    const base = `/api/notion/${endpoint}/${encodeURIComponent(item.notionBlockId)}`;
+    const token = notionSessionToken();
+    return token ? `${base}?k=${encodeURIComponent(token)}` : base;
   }
   return item.url;
 }

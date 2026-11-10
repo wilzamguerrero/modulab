@@ -92,13 +92,15 @@ export async function publishDocument(
   writePublished(document);
   notionPublishedCache.set(document.publicId, { at: Date.now(), document });
   if (notionBlockId) {
-    const config = loadNotionConfig();
-    if (config.notionSecret) {
-      try {
+    try {
+      const config = loadNotionConfig();
+      if (config.notionSecret) {
         await savePublishedSnapshot(notionBlockId, document, config);
-      } catch (error) {
-        console.warn('[modulab] La publicación quedó local, pero no se pudo guardar en Notion:', (error as Error).message);
       }
+    } catch (error) {
+      // El espejo es un extra: la publicación ya está escrita en disco, así que
+      // un fallo de Notion no debe impedir publicar.
+      console.warn('[modulab] La publicación quedó local, pero no se pudo guardar en Notion:', (error as Error).message);
     }
   }
 }

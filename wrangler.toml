@@ -1,0 +1,18 @@
+# Configuración de Cloudflare Pages para MODULAB.
+#
+# El binding KV NO se declara aquí: en Pages se configura en el panel
+# (Settings → Functions → KV namespace bindings). Ya está creado con el nombre
+# MODULAB_KV. Si algún día despliegas con `wrangler pages deploy`, descomenta el
+# bloque del final.
+name = "modulabd"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "dist"
+
+# El proyecto usa Express en local y Pages Functions en producción. Las rutas de
+# la API viven en `functions/`, por eso no hay `main`.
+
+# --- KV (solo para `wrangler pages deploy`) ---------------------------------
+# [[kv_namespaces]]
+# binding = "MODULAB_KV"
+# id = "<id-del-namespace>"
