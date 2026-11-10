@@ -5264,3 +5264,55 @@ input[type="range"] {
   object-fit: contain;
   background: var(--bg-soft);
 }
+
+/* Arrastrar y soltar sobre la galería (expositores, escena, eventos).
+   Mientras se arrastra un archivo se resalta el panel completo y una capa
+   indica que se puede soltar ahí. Al final del archivo para que gane sobre
+   las reglas base de .media-empty y .media-manager. */
+.media-manager {
+  position: relative;
+}
+
+.media-manager.is-dragging .media-list,
+.media-manager.is-dragging .media-empty {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.media-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-soft) 84%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
+}
+
+.media-empty {
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.media-empty:hover,
+.media-empty:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.media-empty-drop {
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent);
+}

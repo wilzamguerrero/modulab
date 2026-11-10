@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ImagePlus, Loader2, Maximize2, Trash2, Upload } from 'lucide-react';
 import type { MediaItem, MediaKind, Project, SceneObject } from '@/types/project';
 import { Badge, Button, Field, IconButton, TextInput } from '@/components/ui';
@@ -50,6 +50,11 @@ export function MediaManager({
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<{ name: string; value: number; index: number; total: number } | null>(null);
   const [gallery, setGallery] = useState<{ index: number } | null>(null);
+  // Arrastrar y soltar: `dragDepth` evita que el resaltado parpadee cuando el
+  // puntero cruza los hijos del contenedor (dragenter/dragleave se disparan
+  // en cada uno).
+  const [dragDepth, setDragDepth] = useState(0);
+  const isDragging = dragDepth > 0;
 
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -87,6 +92,54 @@ export function MediaManager({
     }
   };
 
+  /** Comprueba si el arrastre trae archivos (y no texto o una fila interna). */
+  const hasFiles = (event: React.DragEvent) => {
+    const types = event.dataTransfer?.types;
+    return Boolean(types && Array.from(types).includes('Files'));
+  };
+
+  const onDragEnter = (event: React.DragEvent) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    setDragDepth((depth) => depth + 1);
+  };
+
+  const onDragOver = (event: React.DragEvent) => {
+    if (!hasFiles(event)) return;
+    // Sin preventDefault el navegador abre el archivo en lugar de soltarlo.
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  };
+
+  const onDragLeave = (event: React.DragEvent) => {
+    if (!hasFiles(event)) return;
+    setDragDepth((depth) => Math.max(0, depth - 1));
+  };
+
+  const onDrop = (event: React.DragEvent) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    setDragDepth(0);
+    if (uploading) return;
+    void handleFiles(event.dataTransfer.files);
+  };
+
+  // Si el arrastre acaba fuera de la ventana no llega ningún `dragleave` al
+  // panel y el resaltado se quedaría pegado. Se reinicia al soltar en
+  // cualquier sitio o al salir de la ventana.
+  useEffect(() => {
+    if (dragDepth === 0) return;
+    const reset = () => setDragDepth(0);
+    window.addEventListener('drop', reset);
+    window.addEventListener('dragend', reset);
+    document.addEventListener('mouseleave', reset);
+    return () => {
+      window.removeEventListener('drop', reset);
+      window.removeEventListener('dragend', reset);
+      document.removeEventListener('mouseleave', reset);
+    };
+  }, [dragDepth]);
+
   const remove = async (item: MediaItem) => {
     onChange(items.filter((entry) => entry.id !== item.id));
     await deleteMediaItem(item);
@@ -107,7 +160,13 @@ export function MediaManager({
   };
 
   return (
-    <div className="media-manager">
+    <div
+      className={`media-manager${isDragging ? ' is-dragging' : ''}`}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       {items.length ? (
         <div className="media-list">
           {items.map((item, index) => (
@@ -177,11 +236,30 @@ export function MediaManager({
           ))}
         </div>
       ) : (
-        <div className="media-empty">
+        <div className="media-empty" role="button" tabIndex={0}
+          onClick={() => inputRef.current?.click()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              inputRef.current?.click();
+            }
+          }}
+          title="Arrastra aquí tus archivos o haz clic para seleccionarlos"
+        >
           <MediaKindIcon kind="image" size={22} />
           <p>{emptyHint}</p>
+          <span className="media-empty-drop">
+            {isDragging ? 'Suelta los archivos aquí' : 'o arrástralos y suéltalos aquí'}
+          </span>
         </div>
       )}
+
+      {isDragging ? (
+        <div className="media-drop-overlay" aria-live="polite">
+          <Upload size={20} />
+          <span>Suelta los archivos para añadirlos a la galería</span>
+        </div>
+      ) : null}
 
       <div className="media-actions">
         <Button
