@@ -60,8 +60,7 @@ import { PlanPanel } from '@/components/editor/PlanPanel';
 import { LevelsPanel } from '@/components/editor/LevelsPanel';
 import { CatalogPanel } from '@/components/editor/CatalogPanel';
 import { ExhibitorsPanel } from '@/components/editor/ExhibitorsPanel';
-import { AccessesPanel } from '@/components/editor/AccessesPanel';
-import { EnvironmentPanel } from '@/components/editor/EnvironmentPanel';
+import { EnvironmentPanel, type EnvironmentSection } from '@/components/editor/EnvironmentPanel';
 import { Inspector } from '@/components/editor/Inspector';
 import { StairQuickEditor } from '@/components/editor/StairQuickEditor';
 import { PublishModal } from '@/components/editor/PublishModal';
@@ -73,16 +72,15 @@ import { edgeLength, formatArea, formatMeters, polygonArea, validatePolygon } fr
 import { getLevel, getSpace, levelBounds, sortedLevels } from '@/utils/levels';
 import { formatRelativeDate } from '@/utils/format';
 
-type SidebarTab = 'plan' | 'levels' | 'catalog' | 'exhibitors' | 'accesses' | 'environment';
+type SidebarTab = 'plan' | 'levels' | 'catalog' | 'exhibitors' | 'environment';
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; label: string; icon: ReactNode }> = [
   { id: 'plan', label: 'Planta', icon: <DraftingCompass size={16} /> },
   { id: 'levels', label: 'Niveles', icon: <Layers size={16} /> },
   { id: 'catalog', label: 'Catálogo', icon: <Boxes size={16} /> },
   { id: 'exhibitors', label: 'Expositores', icon: <Users size={16} /> },
-  { id: 'accesses', label: 'Accesos', icon: <Flag size={16} /> },
-  // Iluminación y cortes viven dentro de Entorno: son ajustes del espacio, y
-  // así la barra queda compacta sin que se traslapen las etiquetas.
+  // Iluminación, cortes, vistas y accesos viven dentro de Entorno: son ajustes del
+  // espacio, y así la barra queda en cinco pestañas sin que se traslapen las etiquetas.
   { id: 'environment', label: 'Entorno', icon: <Globe2 size={16} /> },
 ];
 
@@ -239,6 +237,7 @@ export function EditorPage() {
   const pasteObject = useEditorStore((state) => state.pasteObject);
 
   const [activeTab, setActiveTab] = useState<SidebarTab>('plan');
+  const [environmentSection, setEnvironmentSection] = useState<EnvironmentSection>('environment');
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 981px)').matches,
   );
@@ -370,6 +369,13 @@ export function EditorPage() {
     if (view !== '3d') setViewsOpen(false);
   }, [view]);
 
+  /** Abre el panel de entorno en la subpestaña indicada. */
+  const showEnvironmentSection = (nextSection: EnvironmentSection) => {
+    setEnvironmentSection(nextSection);
+    setActiveTab('environment');
+    setSidebarOpen(true);
+  };
+
   useEffect(() => {
     const isEditable = (target: EventTarget | null) => {
       const element = target as HTMLElement | null;
@@ -482,7 +488,7 @@ export function EditorPage() {
       if (key === 'u') { setView('plan'); setTool('stair'); return; }
       if (key === 'h') { setView('plan'); setPlanDrawMode('hole'); setTool('draw'); return; }
       if (key === 'e') { setTool('exhibitor'); return; }
-      if (key === 'a') { setTool('access'); return; }
+      if (key === 'a') { setTool('access'); showEnvironmentSection('environment'); return; }
       if (key === 't') { setView('3d'); toggleMeasureMode(); return; }
       if (key === 'g') { setTransformMode('translate'); return; }
       if (key === 'r') { setTransformMode('rotate'); return; }
@@ -510,6 +516,7 @@ export function EditorPage() {
     setTool,
     setTransformMode,
     setView,
+    showEnvironmentSection,
     toast,
     toggleMeasureMode,
     undo,
@@ -757,7 +764,11 @@ export function EditorPage() {
                 key={tab.id}
                 type="button"
                 className={activeTab === tab.id ? 'is-active' : ''}
-                onClick={() => { setActiveTab(tab.id); setSidebarOpen(true); }}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  if (tab.id === 'environment') setEnvironmentSection('environment');
+                  setSidebarOpen(true);
+                }}
               >
                 {tab.icon}
                 <span>{tab.label}</span>
@@ -771,9 +782,12 @@ export function EditorPage() {
             {activeTab === 'exhibitors' ? (
               <ExhibitorsPanel project={project} notionConfigured={Boolean(notionStatus?.configured)} />
             ) : null}
-            {activeTab === 'accesses' ? <AccessesPanel project={project} /> : null}
             {activeTab === 'environment' ? (
-              <EnvironmentPanel project={project} onApplyReaderView={applyReaderView} />
+              <EnvironmentPanel
+                project={project}
+                section={environmentSection}
+                onApplyReaderView={applyReaderView}
+              />
             ) : null}
           </div>
         </aside>
@@ -835,7 +849,7 @@ export function EditorPage() {
             <button type="button" className={`tool-btn${tool === 'exhibitor' ? ' is-active' : ''}`} title="Colocar expositor (E)" onClick={() => chooseTool('exhibitor')}>
               <UserPlus size={16} />
             </button>
-            <button type="button" className={`tool-btn${tool === 'access' ? ' is-active' : ''}`} title="Colocar entrada o salida (A)" onClick={() => chooseTool('access')}>
+            <button type="button" className={`tool-btn${tool === 'access' ? ' is-active' : ''}`} title="Colocar entrada o salida (A)" onClick={() => { chooseTool('access'); showEnvironmentSection('environment'); }}>
               <Flag size={16} />
             </button>
             <button type="button" className={`tool-btn${measureMode ? ' is-active' : ''}`} title="Medir (T)" onClick={() => { setView('3d'); toggleMeasureMode(); }}>

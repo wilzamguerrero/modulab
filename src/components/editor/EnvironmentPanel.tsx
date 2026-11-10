@@ -38,6 +38,7 @@ import { useUiStore } from '@/store/uiStore';
 import { detectSplatFormat, uploadSplatToNotion } from '@/services/assets/splatService';
 import { HolesPanel } from './HolesPanel';
 import { LightsPanel } from './LightsPanel';
+import { AccessesPanel } from './AccessesPanel';
 
 /** Secciones del panel de entorno: el propio splat y los ajustes del espacio. */
 export type EnvironmentSection = 'environment' | 'lights' | 'holes' | 'views';
@@ -1089,6 +1090,10 @@ function EnvironmentSectionPanel({ project }: { project: Project }) {
           Calibrar escala…
         </Button>
       </section>
+
+      {/* Entradas y salidas se colocan justo debajo de Medidas: son también una
+          forma de marcar el espacio, y así no ocupan otra subpestaña. */}
+      <AccessesPanel project={project} embedded />
 
       <Modal
         open={Boolean(calibrationMeasurement)}
