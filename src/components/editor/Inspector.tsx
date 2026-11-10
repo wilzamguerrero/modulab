@@ -67,6 +67,7 @@ import { formatDateTime } from '@/utils/format';
 import { edgeLength, formatArea, formatMeters, polygonArea, polygonBounds, snapValue } from '@/utils/geometry';
 import { levelPivot } from '@/utils/levelTransform';
 import { LevelReadout } from '@/components/editor/LevelReadout';
+import { EventImageField, MediaManager, mediaParentBlockId } from '@/components/editor/MediaSections';
 import { findWallInProject, getWallById, wallLength } from '@/utils/walls';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
 import {
@@ -245,6 +246,11 @@ function ProjectInspector({ project, onPublish }: { project: Project; onPublish:
             onChange={(event) => setProjectMeta({ description: event.target.value })}
           />
         </Field>
+        <EventImageField
+          project={project}
+          value={project.eventImage}
+          onChange={(eventImage) => setProjectMeta({ eventImage })}
+        />
       </Section>
 
       <Section title="Cámara inicial">
@@ -885,6 +891,32 @@ function ExhibitorInspector({
           accept="image/*"
           hidden
           onChange={(event) => uploadPhoto(event.target.files?.[0])}
+        />
+      </Section>
+
+      <Section
+        title="Galería del stand"
+        action={
+          <HelpButton title="Galería del stand">
+            <p>
+              Además de la fotografía de portada, puedes subir todas las imágenes, vídeos y PDF
+              que quieras. En la vista de lectura se muestran en una galería a pantalla completa.
+            </p>
+            <p>
+              Los archivos se guardan en Notion (también los grandes, por partes) y quedan
+              vinculados al proyecto: puedes seguir añadiendo o eliminando contenido al abrirlo en
+              otro equipo.
+            </p>
+          </HelpButton>
+        }
+      >
+        <MediaManager
+          items={exhibitor.media ?? []}
+          parentBlockId={mediaParentBlockId(project, exhibitor.notionBlockId)}
+          galleryTitle={exhibitor.name || 'Galería del stand'}
+          addLabel="Añadir imágenes, vídeos o PDF"
+          emptyHint="Sube imágenes, vídeos o documentos PDF de apoyo para este expositor."
+          onChange={(media) => updateExhibitor(exhibitor.id, { media })}
         />
       </Section>
 

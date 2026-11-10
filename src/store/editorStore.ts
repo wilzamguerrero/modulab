@@ -353,7 +353,7 @@ interface EditorState {
   updateLight: (id: string, patch: Partial<LightConfig>, options?: PatchOptions) => void;
   deleteLight: (id: string) => void;
 
-  setProjectMeta: (patch: Partial<Pick<Project, 'name' | 'description' | 'event'>>) => void;
+  setProjectMeta: (patch: Partial<Pick<Project, 'name' | 'description' | 'event' | 'eventImage'>>) => void;
   setProjectCamera: (camera: Partial<Project['camera']>) => void;
   setEnvironment: (patch: Partial<Project['environment']>) => void;
   /** Vista previa local (blob) del splat, no persistida en el proyecto. */
@@ -1868,6 +1868,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       if (typeof patch.name === 'string') draft.name = patch.name;
       if (typeof patch.description === 'string') draft.description = patch.description;
       if (typeof patch.event === 'string') draft.event = patch.event;
+      if ('eventImage' in patch) draft.eventImage = patch.eventImage ?? undefined;
     }, { coalesceKey: `meta:${Object.keys(patch).join(',')}` }),
 
   setProjectCamera: (camera) =>

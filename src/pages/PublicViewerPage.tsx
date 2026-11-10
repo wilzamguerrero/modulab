@@ -17,7 +17,9 @@ import {
   X,
 } from 'lucide-react';
 import type { Exhibitor, Project, ReaderView, Vec2 } from '@/types/project';
-import { Badge, IconButton, Spinner } from '@/components/ui';
+import { Badge, Button, IconButton, Spinner } from '@/components/ui';
+import { MediaGalleryModal, MediaThumb } from '@/components/media/MediaGallery';
+import { mediaItemUrl, mediaKindLabel } from '@/services/assets/mediaService';
 import { PublicScene, type ViewerCameraCommand } from '@/components/viewer/PublicScene';
 import { fetchPublished } from '@/services/publishing/publishService';
 import { notionPhotoUrl } from '@/services/notion/notionService';
@@ -176,6 +178,8 @@ function ExhibitorCard({
   onNext: () => void;
 }) {
   const photo = notionPhotoUrl(exhibitor);
+  const media = exhibitor.media ?? [];
+  const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
   const related = project.objects.filter(
     (object) =>
       object.exhibitorId === exhibitor.id || exhibitor.relatedObjectIds.includes(object.id),
@@ -233,6 +237,38 @@ function ExhibitorCard({
         {exhibitor.description || 'Este expositor todavía no tiene una descripción.'}
       </p>
 
+      {media.length ? (
+        <div className="viewer-media">
+          <div className="viewer-media-head">
+            <span>
+              Galería · {media.length} archivo{media.length === 1 ? '' : 's'}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setGalleryIndex(0)}
+              className="viewer-media-open"
+            >
+              Ver a pantalla completa
+            </Button>
+          </div>
+          <div className="viewer-media-grid">
+            {media.map((item, index) => (
+              <button
+                key={item.id}
+                type="button"
+                className="viewer-media-item"
+                onClick={() => setGalleryIndex(index)}
+                title={`${item.caption || item.name} · ${mediaKindLabel(item.kind)}`}
+              >
+                <MediaThumb item={item} size={64} />
+                <span className="viewer-media-kind">{mediaKindLabel(item.kind)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {related.length ? (
         <div className="viewer-info-objects">
           <span>En su espacio</span>
@@ -243,6 +279,15 @@ function ExhibitorCard({
             {related.length > 6 ? <Badge tone="neutral">+{related.length - 6}</Badge> : null}
           </div>
         </div>
+      ) : null}
+
+      {galleryIndex !== null ? (
+        <MediaGalleryModal
+          items={media}
+          initialIndex={galleryIndex}
+          title={exhibitor.name || 'Galería'}
+          onClose={() => setGalleryIndex(null)}
+        />
       ) : null}
     </aside>
   );
@@ -267,6 +312,7 @@ export function PublicViewerPage() {
   // elegida en el editor, no la cámara esquema del documento.
   const [cameraCommand, setCameraCommand] = useState<ViewerCameraCommand | null>(null);
   const [topTurns, setTopTurns] = useState(0);
+  const [eventGalleryOpen, setEventGalleryOpen] = useState(false);
 
   useEffect(() => {
     if (!publicId) {
@@ -310,6 +356,7 @@ export function PublicViewerPage() {
   );
 
   const visibleExhibitors = useMemo(() => publicProject?.exhibitors ?? [], [publicProject]);
+  const eventImage = mediaItemUrl(project?.eventImage);
 
   /**
    * Cámara de entrada: la vista de lectura activa del editor. Es la que se
@@ -473,6 +520,13 @@ export function PublicViewerPage() {
 
   return (
     <div className="viewer-page">
+      {eventGalleryOpen && project.eventImage ? (
+        <MediaGalleryModal
+          items={[project.eventImage]}
+          title={project.event || 'Imagen del evento'}
+          onClose={() => setEventGalleryOpen(false)}
+        />
+      ) : null}
       <header className="viewer-header">
         <div className="viewer-header-left">
           <Link to="/" className="brand viewer-brand" aria-label="Modulab">
@@ -482,6 +536,16 @@ export function PublicViewerPage() {
               <small>visor 3D</small>
             </span>
           </Link>
+          {eventImage ? (
+            <button
+              type="button"
+              className="viewer-event-image"
+              onClick={() => setEventGalleryOpen(true)}
+              title="Ver la imagen del evento"
+            >
+              <img src={eventImage} alt={project.event || project.name} />
+            </button>
+          ) : null}
           <span className="viewer-header-divider" />
           {/* Solo el nombre: el recuento de expositores ya está en el panel
               lateral y el evento lo cuenta cada ficha. */}

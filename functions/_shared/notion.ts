@@ -835,18 +835,29 @@ export async function completeFileUpload(uploadId: string, configOverride?: Noti
   }
 }
 
+export type UploadedMediaBlockType = 'file' | 'image' | 'video' | 'pdf';
+
+function fileUploadBlockPayload(uploadId: string, blockType: UploadedMediaBlockType) {
+  return {
+    object: 'block',
+    type: blockType,
+    [blockType]: { type: 'file_upload', file_upload: { id: uploadId } },
+  };
+}
+
 export async function appendFileUploadBlock(
   parentBlockId: string,
   uploadId: string,
   configOverride?: NotionConfig,
+  blockType: UploadedMediaBlockType = 'file',
 ): Promise<string> {
   const config = resolveConfig(configOverride);
   const [block] = await appendChildren(
     parentBlockId,
-    [{ object: 'block', type: 'file', file: { type: 'file_upload', file_upload: { id: uploadId } } }],
+    [fileUploadBlockPayload(uploadId, blockType)],
     config,
   );
-  if (!block?.id) throw new NotionError('Notion no devolvió el bloque de archivo.', 502);
+  if (!block?.id) throw new NotionError('Notion no devolvió el bloque del archivo.', 502);
   return block.id;
 }
 
@@ -860,6 +871,12 @@ export async function getFileBlockUrl(
     block.file?.external?.url ||
     block.image?.file?.url ||
     block.image?.external?.url ||
+    block.video?.file?.url ||
+    block.video?.external?.url ||
+    block.pdf?.file?.url ||
+    block.pdf?.external?.url ||
+    block.audio?.file?.url ||
+    block.audio?.external?.url ||
     null
   );
 }

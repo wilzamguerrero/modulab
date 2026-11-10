@@ -218,6 +218,7 @@ export function parseProject(raw: unknown): Project {
   project.exhibitors = project.exhibitors.map((exhibitor) => ({
     ...exhibitor,
     color: exhibitor.color || DEFAULT_EXHIBITOR_COLOR,
+    media: exhibitor.media ?? [],
     notionMissing: exhibitor.notionBlockId ? exhibitor.notionMissing : false,
   }));
   normalizeExhibitorLinks(project);

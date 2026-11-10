@@ -236,6 +236,28 @@ export const accessPointSchema = z.object({
   visible: z.boolean().default(true),
 });
 
+/** Tipo de contenido de la galería de un expositor o del evento. */
+export const mediaKindSchema = z.enum(['image', 'video', 'pdf', 'file']);
+
+/**
+ * Elemento de la galería. El binario no viaja dentro del proyecto: se guarda
+ * en Notion y aquí solo queda su bloque y unos metadatos para poder listarlo.
+ * `url` se usa cuando el archivo vive fuera de Notion.
+ */
+export const mediaItemSchema = z.object({
+  id: z.string().min(1),
+  kind: mediaKindSchema.default('file'),
+  /** Nombre visible (normalmente el nombre del archivo). */
+  name: z.string().default(''),
+  /** Pie de foto o descripción opcional. */
+  caption: z.string().default(''),
+  url: z.string().optional(),
+  notionBlockId: z.string().optional(),
+  mimeType: z.string().optional(),
+  sizeBytes: z.number().min(0).optional(),
+  createdAt: z.string().optional(),
+});
+
 export const exhibitorSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -245,6 +267,11 @@ export const exhibitorSchema = z.object({
   color: z.string().optional(),
   photoUrl: z.string().optional(),
   photoNotionBlockId: z.string().optional(),
+  /**
+   * Galería ampliada: varias imágenes, vídeos y documentos PDF. La fotografía
+   * principal de arriba se conserva como portada de la ficha.
+   */
+  media: z.array(mediaItemSchema).optional(),
   notionBlockId: z.string().optional(),
   notionUrl: z.string().optional(),
   position: vec2Schema.default({ x: 0, z: 0 }),
@@ -436,6 +463,11 @@ export const projectSchema = z
     name: z.string().min(1).default('Proyecto sin título'),
     description: z.string().default(''),
     event: z.string().default(''),
+    /**
+     * Imagen cuadrada del evento que se muestra junto al logo de Modulab en el
+     * visor público. Se recomienda una imagen 1:1.
+     */
+    eventImage: mediaItemSchema.optional(),
     createdAt: z.string().default(() => new Date().toISOString()),
     updatedAt: z.string().default(() => new Date().toISOString()),
     units: z.literal('m').default('m'),
@@ -504,6 +536,8 @@ export type LightConfig = z.infer<typeof lightConfigSchema>;
 export type AccessKind = z.infer<typeof accessKindSchema>;
 export type AccessPoint = z.infer<typeof accessPointSchema>;
 export type Exhibitor = z.infer<typeof exhibitorSchema>;
+export type MediaKind = z.infer<typeof mediaKindSchema>;
+export type MediaItem = z.infer<typeof mediaItemSchema>;
 export type ProjectCamera = z.infer<typeof projectCameraSchema>;
 export type Environment = z.infer<typeof environmentSchema>;
 export type EnvironmentFormat = z.infer<typeof environmentFormatSchema>;

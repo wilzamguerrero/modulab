@@ -445,6 +445,97 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return new Response(upstream.body, { status: upstream.status, headers });
     }
 
+    const fileMatch = path.match(/^\/notion\/file\/([^/]+)$/);
+    if (method === 'GET' && fileMatch) {
+      const blockId = fileMatch[1];
+      const config = await loadConfig(env);
+      const signedUrl = await notion.getFileBlockUrl(blockId, config);
+      if (!signedUrl) return jsonError(404, 'El archivo no existe en Notion.');
+      const range = request.headers.get('Range');
+      const upstream = await fetch(signedUrl, range ? { headers: { Range: range } } : undefined);
+      const headers = new Headers();
+      headers.set('Content-Type', upstream.headers.get('Content-Type') || 'application/octet-stream');
+      const length = upstream.headers.get('Content-Length');
+      if (length) headers.set('Content-Length', length);
+      headers.set('Accept-Ranges', upstream.headers.get('Accept-Ranges') || 'bytes');
+      const contentRange = upstream.headers.get('Content-Range');
+      if (contentRange) headers.set('Content-Range', contentRange);
+      headers.set('Content-Disposition', 'inline');
+      headers.set('Cache-Control', 'private, max-age=600');
+      return new Response(upstream.body, { status: upstream.status, headers });
+    }
+
+    // --- Multimedia del proyecto y de los expositores -----------------------
+    if (method === 'POST' && path === '/media/init') {
+      const body = await readJson(request);
+      const filename = typeof body?.filename === 'string' ? body.filename.trim() : '';
+      const sizeBytes = Number(body?.sizeBytes);
+      if (!filename) return jsonError(400, 'Falta el nombre del archivo.');
+      if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) return jsonError(400, 'Tamaño de archivo inválido.');
+      const config = await loadConfig(env);
+      if (!config.notionSecret) return jsonError(400, 'Notion no está configurado.');
+      const init = await notion.createFileUpload(
+        { filename, contentType: String(body?.contentType || 'application/octet-stream'), sizeBytes },
+        config,
+      );
+      return json({
+        success: true,
+        uploadId: init.id,
+        mode: init.mode,
+        numberOfParts: init.numberOfParts,
+        chunkSize: init.chunkSize,
+        filename: init.filename,
+      });
+    }
+
+    if (method === 'POST' && path === '/media/part') {
+      const url = new URL(request.url);
+      const uploadId = url.searchParams.get('upload_id');
+      if (!uploadId) return jsonError(400, 'Falta upload_id.');
+      const contentType = request.headers.get('Content-Type') || '';
+      if (!contentType.toLowerCase().includes('multipart/form-data')) {
+        return jsonError(400, 'Content-Type debe ser multipart/form-data.');
+      }
+      if (!request.body) return jsonError(400, 'Cuerpo vacío.');
+      const config = await loadConfig(env);
+      if (!config.notionSecret) return jsonError(400, 'Notion no está configurado.');
+      await notion.sendFileUploadPart(uploadId, contentType, request.body, config);
+      return json({ success: true });
+    }
+
+    if (method === 'POST' && path === '/media/complete') {
+      const body = await readJson(request);
+      const uploadId = typeof body?.uploadId === 'string' ? body.uploadId : '';
+      if (!uploadId) return jsonError(400, 'Falta uploadId.');
+      const config = await loadConfig(env);
+      if (!config.notionSecret) return jsonError(400, 'Notion no está configurado.');
+      if (body?.mode !== 'single_part') {
+        await notion.completeFileUpload(uploadId, config);
+      }
+      const parent = String(body?.parentBlockId || '').trim() || config.parentPageId;
+      if (!parent) {
+        return jsonError(
+          400,
+          'Falta el destino en Notion. Vincula el proyecto o el expositor antes de subir archivos.',
+        );
+      }
+      const rawKind = String(body?.kind || '').toLowerCase();
+      const kind = (['image', 'video', 'pdf'].includes(rawKind) ? rawKind : 'file') as
+        | 'image'
+        | 'video'
+        | 'pdf'
+        | 'file';
+      const blockId = await notion.appendFileUploadBlock(parent, uploadId, config, kind);
+      return json({ success: true, blockId, kind });
+    }
+
+    const mediaMatch = path.match(/^\/media\/([^/]+)$/);
+    if (method === 'DELETE' && mediaMatch) {
+      const blockId = mediaMatch[1];
+      await notion.archiveBlock(blockId);
+      return json({ success: true });
+    }
+
     return jsonError(404, 'Ruta de API no encontrada.');
   } catch (error) {
     const status = Number((error as any)?.status) || 500;

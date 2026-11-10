@@ -373,4 +373,79 @@ describe('project data', () => {
     const parsed = parseProject(project);
     expect(parsed.objects[0].levelId).toBe(parsed.levels[0].id);
   });
+
+  it('conserva la galería del expositor y la imagen del evento al guardar y releer', () => {
+    const project = createProject({ name: 'Galería' });
+    // Se escribe como dato plano porque parseProject acepta un documento sin
+    // normalizar (igual que el JSON que llega de Notion).
+    (project as { exhibitors: unknown }).exhibitors = [
+      {
+        id: 'exp_galeria',
+        name: 'Galería',
+        standCode: 'A1',
+        description: '',
+        position: { x: 0, z: 0 },
+        rotation: 0,
+        cameraPosition: [4, 2, 4],
+        cameraTarget: [0, 1, 0],
+        relatedObjectIds: [],
+        media: [
+          {
+            id: 'media_img',
+            kind: 'image',
+            name: 'stand.jpg',
+            caption: 'Vista del stand',
+            notionBlockId: 'block-1',
+          },
+          {
+            id: 'media_pdf',
+            kind: 'pdf',
+            name: 'catalogo.pdf',
+            caption: '',
+            notionBlockId: 'block-2',
+            sizeBytes: 2048,
+          },
+        ],
+      },
+    ];
+    project.eventImage = {
+      id: 'media_evento',
+      kind: 'image',
+      name: 'evento.png',
+      caption: '',
+      notionBlockId: 'block-3',
+    };
+
+    // Simula el viaje por Notion/JSON: sólo quedan datos planos.
+    const roundTrip = JSON.parse(JSON.stringify(project));
+    const parsed = parseProject(roundTrip);
+
+    expect(parsed.eventImage?.notionBlockId).toBe('block-3');
+    expect(parsed.exhibitors[0].media).toHaveLength(2);
+    expect(parsed.exhibitors[0].media?.[1]).toMatchObject({
+      kind: 'pdf',
+      notionBlockId: 'block-2',
+      caption: '',
+    });
+  });
+
+  it('normaliza los expositores antiguos sin galería a una lista vacía', () => {
+    const project = createProject({ name: 'Antiguo' });
+    (project as { exhibitors: unknown }).exhibitors = [
+      {
+        id: 'exp_viejo',
+        name: 'Antiguo',
+        standCode: '',
+        description: '',
+        position: { x: 0, z: 0 },
+        rotation: 0,
+        cameraPosition: [4, 2, 4],
+        cameraTarget: [0, 1, 0],
+        relatedObjectIds: [],
+      },
+    ];
+    const parsed = parseProject(JSON.parse(JSON.stringify(project)));
+    expect(parsed.exhibitors[0].media).toEqual([]);
+    expect(parsed.eventImage).toBeUndefined();
+  });
 });

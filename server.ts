@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import {
   DIST_DIR,
   clearNotionConfig,
@@ -348,6 +349,40 @@ app.get(
 );
 
 // ---------------------------------------------------------------------------
+// Archivos multimedia servidos desde Notion (vídeos, PDF y adjuntos)
+// ---------------------------------------------------------------------------
+
+async function serveNotionFile(req: Request, res: Response, disposition: 'inline' | 'attachment') {
+  const config = loadNotionConfig();
+  const signedUrl = await getFileBlockUrl(req.params.blockId, config);
+  if (!signedUrl) return jsonError(res, 404, 'El archivo no existe en Notion.');
+  const range = req.headers.range;
+  const upstream = await fetch(signedUrl, range ? { headers: { Range: range } } : undefined);
+  if (!upstream.ok && upstream.status !== 206) {
+    return jsonError(res, 502, 'No se pudo descargar el archivo desde Notion.');
+  }
+  res.status(upstream.status);
+  res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/octet-stream');
+  const length = upstream.headers.get('content-length');
+  if (length) res.setHeader('Content-Length', length);
+  res.setHeader('Accept-Ranges', upstream.headers.get('accept-ranges') || 'bytes');
+  const contentRange = upstream.headers.get('content-range');
+  if (contentRange) res.setHeader('Content-Range', contentRange);
+  res.setHeader('Content-Disposition', disposition);
+  res.setHeader('Cache-Control', 'private, max-age=600');
+  if (!upstream.body) return res.end();
+  // Se transmite por partes para no cargar en memoria vídeos o PDF grandes.
+  Readable.fromWeb(upstream.body as any).pipe(res);
+}
+
+app.get(
+  '/api/notion/file/:blockId',
+  asyncRoute(async (req, res) => {
+    await serveNotionFile(req, res, 'inline');
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Publicaciones
 // ---------------------------------------------------------------------------
 
@@ -485,6 +520,94 @@ app.get(
     if (contentRange) res.setHeader('Content-Range', contentRange);
     res.setHeader('Cache-Control', 'private, max-age=600');
     res.send(Buffer.from(await upstream.arrayBuffer()));
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Multimedia del proyecto y de los expositores (imágenes, vídeos y PDF)
+// ---------------------------------------------------------------------------
+
+const MEDIA_BLOCK_TYPES = new Set(['image', 'video', 'pdf', 'file']);
+
+function normalizeMediaKind(value: unknown): 'image' | 'video' | 'pdf' | 'file' {
+  const kind = String(value || '').toLowerCase();
+  return MEDIA_BLOCK_TYPES.has(kind) ? (kind as 'image' | 'video' | 'pdf' | 'file') : 'file';
+}
+
+app.post(
+  '/api/media/init',
+  asyncRoute(async (req, res) => {
+    const { filename, contentType, sizeBytes } = req.body || {};
+    if (!filename || typeof filename !== 'string') {
+      return jsonError(res, 400, 'Falta el nombre del archivo.');
+    }
+    const size = Number(sizeBytes);
+    if (!Number.isFinite(size) || size <= 0) return jsonError(res, 400, 'Tamaño de archivo inválido.');
+    const config = loadNotionConfig();
+    if (!config.notionSecret) return jsonError(res, 400, 'Notion no está configurado.');
+    const init = await createFileUpload(
+      { filename, contentType: String(contentType || 'application/octet-stream'), sizeBytes: size },
+      config,
+    );
+    res.json({
+      success: true,
+      uploadId: init.id,
+      mode: init.mode,
+      numberOfParts: init.numberOfParts,
+      chunkSize: init.chunkSize,
+      filename: init.filename,
+    });
+  }),
+);
+
+app.post(
+  '/api/media/part',
+  express.raw({ type: () => true, limit: '512mb' }),
+  asyncRoute(async (req, res) => {
+    const uploadId = String(req.query.upload_id || '').trim();
+    if (!uploadId) return jsonError(res, 400, 'Falta upload_id.');
+    const contentType = req.headers['content-type'] || '';
+    if (!contentType.toLowerCase().includes('multipart/form-data')) {
+      return jsonError(res, 400, 'Content-Type debe ser multipart/form-data.');
+    }
+    const body = req.body as Buffer;
+    if (!body || !body.length) return jsonError(res, 400, 'Cuerpo vacío.');
+    const config = loadNotionConfig();
+    if (!config.notionSecret) return jsonError(res, 400, 'Notion no está configurado.');
+    await sendFileUploadPart(uploadId, contentType, body, config);
+    res.json({ success: true });
+  }),
+);
+
+app.post(
+  '/api/media/complete',
+  asyncRoute(async (req, res) => {
+    const { uploadId, mode, parentBlockId, kind } = req.body || {};
+    if (!uploadId || typeof uploadId !== 'string') return jsonError(res, 400, 'Falta uploadId.');
+    const config = loadNotionConfig();
+    if (!config.notionSecret) return jsonError(res, 400, 'Notion no está configurado.');
+    if (mode !== 'single_part') {
+      await completeFileUpload(uploadId, config);
+    }
+    const parent = String(parentBlockId || '').trim() || config.parentPageId;
+    if (!parent) {
+      return jsonError(
+        res,
+        400,
+        'Falta el destino en Notion. Vincula el proyecto o el expositor antes de subir archivos.',
+      );
+    }
+    const blockType = normalizeMediaKind(kind);
+    const blockId = await appendFileUploadBlock(parent, uploadId, config, blockType);
+    res.json({ success: true, blockId, kind: blockType });
+  }),
+);
+
+app.delete(
+  '/api/media/:blockId',
+  asyncRoute(async (req, res) => {
+    await archiveBlock(req.params.blockId);
+    res.json({ success: true });
   }),
 );
 
