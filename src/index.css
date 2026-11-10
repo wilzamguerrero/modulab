@@ -4455,6 +4455,35 @@ input[type="range"] {
   border-radius: 6px;
   border: 1px solid var(--border);
   background: #0b0e11;
+  /* Fundido al terminar la descarga: la miniatura no aparece a medio pintar. */
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.media-thumb.is-loaded {
+  opacity: 1;
+}
+
+/* Hueco de la miniatura mientras llega la imagen, con el mismo tamano final. */
+.media-thumb-frame {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.media-thumb-skeleton {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: linear-gradient(100deg, #12161b 30%, #1b2129 50%, #12161b 70%);
+  background-size: 200% 100%;
+  animation: media-skeleton 1.2s ease-in-out infinite;
+}
+
+@keyframes media-skeleton {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
 }
 
 .media-thumb-icon {
@@ -4703,6 +4732,31 @@ input[type="range"] {
   object-fit: contain;
   border-radius: 9px;
   border: 1px solid var(--border);
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+
+.media-viewer-image.is-loaded {
+  opacity: 1;
+}
+
+.media-viewer-image-frame {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 220px;
+  min-height: 160px;
+}
+
+.media-viewer-skeleton {
+  position: absolute;
+  inset: 0;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: linear-gradient(100deg, #12161b 30%, #1b2129 50%, #12161b 70%);
+  background-size: 200% 100%;
+  animation: media-skeleton 1.2s ease-in-out infinite;
 }
 
 .media-viewer-video {
@@ -4710,6 +4764,12 @@ input[type="range"] {
   max-height: 66vh;
   border-radius: 9px;
   background: #000;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+
+.media-viewer-video.is-loaded {
+  opacity: 1;
 }
 
 .media-viewer-frame {

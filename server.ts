@@ -405,7 +405,11 @@ app.get(
     if (!upstream.ok) return jsonError(res, 502, 'No se pudo descargar la imagen desde Notion.');
     const buffer = Buffer.from(await upstream.arrayBuffer());
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'image/jpeg');
-    res.setHeader('Cache-Control', 'private, max-age=3600');
+    // Cacheable en el navegador y en la CDN: el `blockId` identifica un contenido
+    // inmutable. Con `private` cada visita volvía a descargar la imagen de
+    // Notion, lo que provocaba que la galería cargara de forma intermitente.
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('CDN-Cache-Control', 'public, max-age=31536000, immutable');
     res.send(buffer);
   }),
 );

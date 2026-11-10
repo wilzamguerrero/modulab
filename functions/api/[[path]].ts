@@ -378,7 +378,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         status: 200,
         headers: {
           'Content-Type': upstream.headers.get('content-type') || 'image/jpeg',
-          'Cache-Control': 'private, max-age=3600',
+          // El `blockId` es estable y su contenido inmutable, así que la imagen
+          // puede cachearse en el navegador Y en la CDN de Cloudflare.
+          //
+          // Antes era `private, max-age=3600`: la CDN no podía guardarla, así
+          // que cada visita volvía a descargarla desde Notion (lento y con el
+          // enlace firmado caducando). Eso causaba la intermitencia de «a veces
+          // sí, a veces no» al abrir la galería.
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'CDN-Cache-Control': 'public, max-age=31536000, immutable',
         },
       });
     }

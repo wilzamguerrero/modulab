@@ -14,15 +14,21 @@ export function MediaKindIcon({ kind, size = 13 }: { kind: MediaItem['kind']; si
 /** Miniatura cuadrada de un elemento multimedia (imágenes) o un icono. */
 export function MediaThumb({ item, size = 56 }: { item: MediaItem; size?: number }) {
   const url = mediaItemUrl(item);
+  const [loaded, setLoaded] = useState(false);
   if (item.kind === 'image' && url) {
     return (
-      <img
-        className="media-thumb"
-        src={url}
-        alt={item.caption || item.name}
-        loading="lazy"
-        style={{ width: size, height: size }}
-      />
+      <span className="media-thumb-frame" style={{ width: size, height: size }}>
+        {!loaded ? <span className="media-thumb-skeleton" aria-hidden /> : null}
+        <img
+          className={`media-thumb${loaded ? ' is-loaded' : ''}`}
+          src={url}
+          alt={item.caption || item.name}
+          loading="lazy"
+          decoding="async"
+          onLoad={() => setLoaded(true)}
+          style={{ width: size, height: size }}
+        />
+      </span>
     );
   }
   return (
@@ -42,17 +48,45 @@ export function MediaThumb({ item, size = 56 }: { item: MediaItem; size?: number
  */
 function MediaViewer({ item }: { item: MediaItem }) {
   const url = mediaItemUrl(item);
+  const [loaded, setLoaded] = useState(false);
   if (!url) {
     return <div className="media-viewer-empty">Este archivo no está disponible.</div>;
   }
   if (item.kind === 'image') {
-    return <img className="media-viewer-image" src={url} alt={item.caption || item.name} />;
+    // Fundido al terminar la descarga: evita el salto de una imagen a medio
+    // pintar y deja claro que está cargando.
+    return (
+      <span className="media-viewer-image-frame">
+        {!loaded ? <span className="media-viewer-skeleton" aria-hidden /> : null}
+        <img
+          className={`media-viewer-image${loaded ? ' is-loaded' : ''}`}
+          src={url}
+          alt={item.caption || item.name}
+          decoding="async"
+          onLoad={() => setLoaded(true)}
+        />
+      </span>
+    );
   }
   if (item.kind === 'video') {
+    // `preload="metadata"` solo trae la cabecera: el vídeo se descarga al pulsar
+    // reproducir. Sin esto el navegador intenta bajar el archivo entero (los
+    // vídeos de este proyecto llegan a 566 MB) y el proxy de Notion se satura.
     return (
-      <video className="media-viewer-video" src={url} controls playsInline preload="metadata">
-        Tu navegador no puede reproducir este vídeo.
-      </video>
+      <span className="media-viewer-image-frame">
+        {!loaded ? <span className="media-viewer-skeleton" aria-hidden /> : null}
+        <video
+          className={`media-viewer-video${loaded ? ' is-loaded' : ''}`}
+          src={url}
+          controls
+          playsInline
+          preload="metadata"
+          onLoadedMetadata={() => setLoaded(true)}
+          onError={() => setLoaded(true)}
+        >
+          Tu navegador no puede reproducir este vídeo.
+        </video>
+      </span>
     );
   }
   if (item.kind === 'pdf') {
