@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { Html, TransformControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
@@ -28,6 +28,46 @@ const MARKER_Y = 0.02;
  */
 const ARROW_SIZE = 0.2;
 const ARROW_INSET = 0.3;
+
+/**
+ * Etiqueta flotante sobre un marcador.
+ *
+ * `<Html>` de drei crea su raíz de React en un efecto que solo corre al
+ * montarse: si en ese instante el grupo del marcador todavía no existe, el
+ * efecto sale sin crear nada y no vuelve a intentarlo. Eso dejaba **siempre al
+ * primer expositor de la lista** con su hueco en el DOM pero vacío (el resto
+ * se montaba cuando el grupo ya estaba listo).
+ *
+ * Para evitarlo, la etiqueta se monta en dos pasos: el primer render solo
+ * dibuja el grupo, y en cuanto React lo ha montado se sube `ready` y el
+ * `<Html>` aparece con el grupo ya disponible. Así todas las etiquetas, la
+ * primera incluida, se crean en las mismas condiciones.
+ */
+function FloatingLabel({
+  position,
+  visible,
+  children,
+}: {
+  position: [number, number, number];
+  visible: boolean;
+  children: ReactNode;
+}) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    setReady(true);
+  }, []);
+  if (!ready) return null;
+  return (
+    <Html
+      center
+      position={position}
+      zIndexRange={[100, 0]}
+      style={{ pointerEvents: 'none' }}
+    >
+      {visible ? children : null}
+    </Html>
+  );
+}
 
 function ExhibitorMarker({
   exhibitor,
@@ -102,30 +142,28 @@ function ExhibitorMarker({
     if (controls) controls.enabled = true;
   };
 
-  const nameLabel =
-    showLabels && showNameLabel ? (
-      <Html
-        center
-        position={[0, 2.05, 0]}
-        zIndexRange={[100, 0]}
-        style={{ pointerEvents: 'none' }}
-      >
-        <div
-          className={`marker-label${selected ? ' is-selected' : ''}`}
-          style={{ borderColor: color }}
-        >
-          <strong style={{ color }}>{exhibitor.name || 'Expositor'}</strong>
-          {exhibitor.standCode ? <span>{exhibitor.standCode}</span> : null}
-        </div>
-      </Html>
-    ) : null;
+  const labelContent = (
+    <div
+      className={`marker-label${selected ? ' is-selected' : ''}`}
+      style={{ borderColor: color }}
+    >
+      <strong style={{ color }}>{exhibitor.name || 'Expositor'}</strong>
+      {exhibitor.standCode ? <span>{exhibitor.standCode}</span> : null}
+    </div>
+  );
+  const showLabelContent = showLabels && showNameLabel;
+  const nameLabel = (
+    <FloatingLabel position={[0, 2.05, 0]} visible={showLabelContent}>
+      {labelContent}
+    </FloatingLabel>
+  );
 
   return (
     <>
       {hidden ? (
         // «Nombres siempre visibles»: el marcador desaparece pero su nombre
         // sigue flotando en la escena.
-        keepLabelWhenHidden && nameLabel ? (
+        keepLabelWhenHidden && showLabelContent ? (
           <group position={[exhibitor.position.x, markerY, exhibitor.position.z]}>
             {nameLabel}
           </group>
