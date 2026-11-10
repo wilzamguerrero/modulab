@@ -186,6 +186,13 @@ export function cloneModelScene(scene: THREE.Object3D): THREE.Object3D {
     }
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    // Las mallas de dos caras se sombrean a sí mismas aunque el sesgo sea
+    // grande (la cara trasera apunta hacia la luz). Se quedan proyectando
+    // sombra, pero dejan de recibirla para evitar el rayado en los GLB.
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    if (materials.some((material) => material?.side === THREE.DoubleSide)) {
+      mesh.receiveShadow = false;
+    }
   });
   return clone;
 }

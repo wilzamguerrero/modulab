@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import type { LightConfig, ShadowQuality } from '@/types/project';
-import { shadowMapSize } from '@/data/shadows';
+import { shadowMapSize, shadowNormalBias, SHADOW_DEPTH_BIAS } from '@/data/shadows';
 import type { Bounds2D } from '@/utils/geometry';
 
 function useTarget(position: LightConfig['target']) {
@@ -86,15 +86,28 @@ function DirectionalLight({
         shadow-camera-bottom={-shadow.half}
         shadow-camera-near={shadow.near}
         shadow-camera-far={shadow.far}
-        shadow-bias={0}
-        shadow-normalBias={0.025}
+        shadow-bias={SHADOW_DEPTH_BIAS}
+        shadow-normalBias={shadowNormalBias(shadow.half, mapSize)}
       />
     </>
   );
 }
 
+/**
+ * Sesgo para luces de cono (spot) y puntuales. Su frustum es en perspectiva,
+ * así que el texel crece con la distancia: se toma el radio del cono a la
+ * distancia máxima útil como extensión equivalente.
+ */
+function spotNormalBiasFor(light: LightConfig, mapSize: number): number {
+  const angle = light.angle ?? Math.PI / 5;
+  const reach = Math.max(1, light.distance || 20);
+  const halfExtent = Math.tan(angle) * reach;
+  return shadowNormalBias(halfExtent, mapSize);
+}
+
 function SpotLight({ light, mapSize }: { light: LightConfig; mapSize: number }) {
   const target = useTarget(light.target);
+  const normalBias = spotNormalBiasFor(light, mapSize);
   return (
     <>
       <primitive object={target} />
@@ -112,8 +125,8 @@ function SpotLight({ light, mapSize }: { light: LightConfig; mapSize: number }) 
         shadow-mapSize-height={mapSize}
         shadow-camera-near={0.1}
         shadow-camera-far={light.distance ? Math.max(light.distance, 1) : 100}
-        shadow-bias={0}
-        shadow-normalBias={0.025}
+        shadow-bias={SHADOW_DEPTH_BIAS}
+        shadow-normalBias={normalBias}
       />
     </>
   );
@@ -156,8 +169,8 @@ function LightSource({
           shadow-mapSize-height={Math.min(mapSize, 2048)}
           shadow-camera-near={0.1}
           shadow-camera-far={light.distance ? Math.max(light.distance, 1) : 100}
-          shadow-bias={0}
-          shadow-normalBias={0.025}
+          shadow-bias={SHADOW_DEPTH_BIAS}
+          shadow-normalBias={spotNormalBiasFor(light, mapSize)}
         />
       );
     case 'spot':
