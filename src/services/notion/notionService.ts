@@ -5,7 +5,7 @@ import type {
   NotionPagesResponse,
   NotionPerson,
 } from '@/types/notion';
-import { apiDelete, apiGet, apiPost, notionSessionToken } from '@/services/api';
+import { apiDelete, apiGet, apiPost } from '@/services/api';
 import { defaultExhibitorCamera } from '@/data/defaults';
 import { createId } from '@/utils/id';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
@@ -140,11 +140,9 @@ export async function fetchNotionPeople(pageId: string): Promise<NotionExhibitor
 
 export function notionPhotoUrl(exhibitor: Pick<Exhibitor, 'photoNotionBlockId' | 'photoUrl'>): string | undefined {
   if (exhibitor.photoNotionBlockId) {
-    const base = `/api/notion/image/${encodeURIComponent(exhibitor.photoNotionBlockId)}`;
-    // Un `<img>` no envía cabeceras propias: el token viaja en la URL para que
-    // la imagen funcione aunque la cookie no acompañe a la petición.
-    const token = notionSessionToken();
-    return token ? `${base}?k=${encodeURIComponent(token)}` : base;
+    // Sin token: la lectura es pública, así la CDN comparte la caché entre todos
+    // los visitantes (con `?k=` cada navegador generaba su propia entrada).
+    return `/api/notion/image/${encodeURIComponent(exhibitor.photoNotionBlockId)}`;
   }
   return exhibitor.photoUrl;
 }

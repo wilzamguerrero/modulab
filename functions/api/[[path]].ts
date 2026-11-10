@@ -20,7 +20,12 @@ import {
   searchPages,
   selectParentPage,
 } from '../_shared/notionOAuth';
-import { deletePublished, getPublishedDocument, publishDocument } from '../_shared/publishing';
+import {
+  deletePublished,
+  getPublishedDocument,
+  publishDocument,
+  withDirectVideoUrls,
+} from '../_shared/publishing';
 import { scanCatalog } from '../_shared/catalog';
 import {
   clearSessionCookieHeader,
@@ -429,7 +434,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (method === 'GET') {
         const document = await getPublishedDocument(env, publicId);
         if (!document) return jsonError(404, 'Esta publicación no existe o todavía no se ha publicado.');
-        return json(document, 200, { 'Cache-Control': 'no-cache' });
+        // Los vídeos viajan con un enlace firmado directo a S3: el navegador los
+        // descarga sin pasar por la Function, como en un visor de galería.
+        const hydrated = await withDirectVideoUrls(env, document);
+        return json(hydrated, 200, { 'Cache-Control': 'no-cache' });
       }
       if (method === 'DELETE') {
         await deletePublished(env, publicId);
@@ -501,7 +509,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       // vista compartida. Subir (`/splat/init|part|complete`) sigue exigiendo sesión.
       const blockId = splatMatch[1];
       const config = await loadConfig(env);
-      const signedUrl = await notion.getFileBlockUrl(blockId, config);
+      const signedUrl = await notion.getFileBlockUrlCached(blockId, config);
       if (!signedUrl) return jsonError(404, 'El entorno no existe en Notion.');
       const range = request.headers.get('Range');
       const upstream = await fetch(signedUrl, range ? { headers: { Range: range } } : undefined);
@@ -512,7 +520,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       headers.set('Accept-Ranges', upstream.headers.get('Accept-Ranges') || 'bytes');
       const contentRange = upstream.headers.get('Content-Range');
       if (contentRange) headers.set('Content-Range', contentRange);
-      headers.set('Cache-Control', 'private, max-age=600');
+      // El `blockId` identifica un contenido inmutable; `public` permite que la
+      // CDN de Cloudflare lo guarde y que el segundo visitante no toque Notion.
+      headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+      headers.set('CDN-Cache-Control', 'public, max-age=31536000, immutable');
       return new Response(upstream.body, { status: upstream.status, headers });
     }
 
@@ -521,7 +532,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       // Público: los vídeos y PDF forman parte del proyecto publicado.
       const blockId = fileMatch[1];
       const config = await loadConfig(env);
-      const signedUrl = await notion.getFileBlockUrl(blockId, config);
+      const signedUrl = await notion.getFileBlockUrlCached(blockId, config);
       if (!signedUrl) return jsonError(404, 'El archivo no existe en Notion.');
       const range = request.headers.get('Range');
       const upstream = await fetch(signedUrl, range ? { headers: { Range: range } } : undefined);
@@ -533,7 +544,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const contentRange = upstream.headers.get('Content-Range');
       if (contentRange) headers.set('Content-Range', contentRange);
       headers.set('Content-Disposition', 'inline');
-      headers.set('Cache-Control', 'private, max-age=600');
+      // Igual que las imágenes: cacheable en CDN. Sin esto, cada `Range` de un
+      // vídeo vuelve a salir a Notion, y con varios espectadores se agota el
+      // límite de Notion (~3 req/s).
+      headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+      headers.set('CDN-Cache-Control', 'public, max-age=31536000, immutable');
       return new Response(upstream.body, { status: upstream.status, headers });
     }
 

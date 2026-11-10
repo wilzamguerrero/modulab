@@ -32,6 +32,7 @@ import {
   createFileUpload,
   createProject,
   getFileBlockUrl,
+  getFileBlockUrlCached,
   getImageBlockUrl,
   getPageTitle,
   invalidatePeopleCache,
@@ -42,7 +43,12 @@ import {
   saveProject,
   sendFileUploadPart,
 } from './server/notion';
-import { deletePublished, getPublishedDocument, publishDocument } from './server/publishing';
+import {
+  deletePublished,
+  getPublishedDocument,
+  publishDocument,
+  withDirectVideoUrls,
+} from './server/publishing';
 import {
   NOT_CONNECTED_MESSAGE,
   clearSessionCookie,
@@ -420,7 +426,7 @@ app.get(
 
 async function serveNotionFile(req: Request, res: Response, disposition: 'inline' | 'attachment') {
   const config = loadNotionConfig();
-  const signedUrl = await getFileBlockUrl(req.params.blockId, config);
+  const signedUrl = await getFileBlockUrlCached(req.params.blockId, config);
   if (!signedUrl) return jsonError(res, 404, 'El archivo no existe en Notion.');
   const range = req.headers.range;
   const upstream = await fetch(signedUrl, range ? { headers: { Range: range } } : undefined);
@@ -435,7 +441,11 @@ async function serveNotionFile(req: Request, res: Response, disposition: 'inline
   const contentRange = upstream.headers.get('content-range');
   if (contentRange) res.setHeader('Content-Range', contentRange);
   res.setHeader('Content-Disposition', disposition);
-  res.setHeader('Cache-Control', 'private, max-age=600');
+  // Cacheable en CDN: el `blockId` identifica un contenido inmutable. Sin esto,
+  // cada `Range` de un vídeo vuelve a salir a Notion y con varios espectadores
+  // se agota el límite de Notion (~3 peticiones por segundo).
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.setHeader('CDN-Cache-Control', 'public, max-age=31536000, immutable');
   if (!upstream.body) return res.end();
   // Se transmite por partes para no cargar en memoria vídeos o PDF grandes.
   Readable.fromWeb(upstream.body as any).pipe(res);
@@ -487,7 +497,9 @@ app.get(
     const document = await getPublishedDocument(req.params.publicId);
     if (!document) return jsonError(res, 404, 'Esta publicación no existe o todavía no se ha publicado.');
     res.setHeader('Cache-Control', 'no-cache');
-    res.json(document);
+    // Los vídeos viajan con enlace firmado directo a S3: el navegador los
+    // descarga sin pasar por el servidor.
+    res.json(await withDirectVideoUrls(document));
   }),
 );
 
@@ -581,7 +593,7 @@ app.get(
     // Público: el entorno se carga en la vista compartida. Subir sigue
     // exigiendo sesión en /api/splat/init|part|complete.
     const config = loadNotionConfig();
-    const signedUrl = await getFileBlockUrl(req.params.blockId, config);
+    const signedUrl = await getFileBlockUrlCached(req.params.blockId, config);
     if (!signedUrl) return jsonError(res, 404, 'El entorno no existe en Notion.');
     const range = req.headers.range;
     const upstream = await fetch(signedUrl, range ? { headers: { Range: range } } : undefined);
@@ -592,7 +604,8 @@ app.get(
     res.setHeader('Accept-Ranges', upstream.headers.get('accept-ranges') || 'bytes');
     const contentRange = upstream.headers.get('content-range');
     if (contentRange) res.setHeader('Content-Range', contentRange);
-    res.setHeader('Cache-Control', 'private, max-age=600');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('CDN-Cache-Control', 'public, max-age=31536000, immutable');
     res.send(Buffer.from(await upstream.arrayBuffer()));
   }),
 );

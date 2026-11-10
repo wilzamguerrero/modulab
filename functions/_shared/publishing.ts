@@ -1,6 +1,11 @@
 import { ApiError, type Env } from './env';
 import { loadConfig } from './config';
-import { listProjects, loadPublishedSnapshot, savePublishedSnapshot } from './notion';
+import {
+  getFileBlockUrlCached,
+  listProjects,
+  loadPublishedSnapshot,
+  savePublishedSnapshot,
+} from './notion';
 
 export interface PublishedDocument {
   publicId: string;
@@ -115,4 +120,71 @@ export async function getPublishedDocument(env: Env, publicId: string): Promise<
   const local = await readPublished(env, publicId);
   if (local) return local;
   return findPublishedInNotion(env, publicId);
+}
+
+/**
+ * Sustituye las referencias a bloques de Notion por enlaces firmados directos
+ * en los VÍDEOS del documento publicado.
+ *
+ * Motivo: un vídeo servido a través del proxy obliga a Cloudflare a reenviar
+ * cada petición `Range` desde Notion (decenas por espectador, y Notion limita a
+ * ~3 req/s). Con la URL firmada, el navegador descarga directamente de S3 sin
+ * pasar por la Function: es lo que hacen los visores de galería rápidos.
+ *
+ * Solo se hidratan los vídeos. Las imágenes siguen por el proxy porque así la
+ * CDN las cachea y se benefician de `immutable`; un vídeo, en cambio, se sirve
+ * por rangos y aprovecha más la descarga directa.
+ *
+ * Los enlaces de Notion caducan a la hora, por eso se piden en cada lectura del
+ * documento: el navegador siempre recibe uno vigente.
+ */
+export async function withDirectVideoUrls(env: Env, document: PublishedDocument): Promise<PublishedDocument> {
+  const project = document?.project;
+  const exhibitors = Array.isArray(project?.exhibitors) ? project.exhibitors : [];
+  const videos: Array<{ blockId: string; item: any }> = [];
+  for (const exhibitor of exhibitors) {
+    for (const item of Array.isArray(exhibitor?.media) ? exhibitor.media : []) {
+      if (item?.kind === 'video' && item?.notionBlockId) {
+        videos.push({ blockId: String(item.notionBlockId), item });
+      }
+    }
+  }
+  if (!videos.length) return document;
+
+  const config = await loadConfig(env);
+  if (!config.notionSecret) return document;
+
+  const resolved = await Promise.all(
+    videos.map(async ({ blockId, item }) => {
+      try {
+        const url = await getFileBlockUrlCached(blockId, config);
+        return url ? { item, url } : null;
+      } catch {
+        // Si falla, el elemento conserva su `notionBlockId` y el proxy responde.
+        return null;
+      }
+    }),
+  );
+
+  const byBlock = new Map<string, string>();
+  for (const entry of resolved) {
+    if (!entry) continue;
+    byBlock.set(String(entry.item.notionBlockId), entry.url);
+  }
+  if (!byBlock.size) return document;
+
+  return {
+    ...document,
+    project: {
+      ...project,
+      exhibitors: exhibitors.map((exhibitor: any) => ({
+        ...exhibitor,
+        media: (Array.isArray(exhibitor?.media) ? exhibitor.media : []).map((item: any) =>
+          item?.kind === 'video' && byBlock.has(String(item.notionBlockId))
+            ? { ...item, url: byBlock.get(String(item.notionBlockId)), notionBlockId: undefined }
+            : item,
+        ),
+      })),
+    },
+  };
 }

@@ -36,7 +36,6 @@ import {
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { detectSplatFormat, uploadSplatToNotion } from '@/services/assets/splatService';
-import { notionSessionToken } from '@/services/api';
 import { HolesPanel } from './HolesPanel';
 import { LightsPanel } from './LightsPanel';
 import { AccessesPanel } from './AccessesPanel';
@@ -781,11 +780,9 @@ function EnvironmentSectionPanel({ project }: { project: Project }) {
     clearPreview();
     let url = env.url;
     if (!url && env.blockId) {
-      const base = `/api/splat/${encodeURIComponent(env.blockId)}`;
-      // El visor carga esta URL sin cabeceras propias: el token viaja en `?k=`
-      // para que el servidor no responda 409 en producción.
-      const token = notionSessionToken();
-      url = token ? `${base}?k=${encodeURIComponent(token)}` : base;
+      // Sin token en la URL: la lectura del entorno es pública y así la CDN
+      // guarda una sola copia compartida por todos los visitantes.
+      url = `/api/splat/${encodeURIComponent(env.blockId)}`;
     }
     if (url) {
       setEnvironment({ url, visible: true });

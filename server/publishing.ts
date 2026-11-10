@@ -1,7 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PUBLISHED_DIR, ensureDataDirs, loadNotionConfig } from './config';
-import { listProjects, loadPublishedSnapshot, savePublishedSnapshot } from './notion';
+import {
+  getFileBlockUrlCached,
+  listProjects,
+  loadPublishedSnapshot,
+  savePublishedSnapshot,
+} from './notion';
 
 export interface PublishedDocument {
   publicId: string;
@@ -103,6 +108,68 @@ export async function publishDocument(
       console.warn('[modulab] La publicación quedó local, pero no se pudo guardar en Notion:', (error as Error).message);
     }
   }
+}
+
+/**
+ * Sustituye las referencias a bloques de Notion por enlaces firmados directos
+ * en los VÍDEOS del documento publicado.
+ *
+ * Un vídeo servido por el proxy obliga al servidor a reenviar cada petición
+ * `Range` desde Notion (decenas por espectador). Con la URL firmada, el
+ * navegador descarga directamente de S3 sin pasar por aquí. Las imágenes siguen
+ * por el proxy porque así la CDN las cachea de forma compartida.
+ *
+ * Los enlaces caducan a la hora, por eso se piden en cada lectura: el cliente
+ * recibe siempre uno vigente.
+ */
+export async function withDirectVideoUrls(document: PublishedDocument): Promise<PublishedDocument> {
+  const project = document?.project;
+  const exhibitors = Array.isArray(project?.exhibitors) ? project.exhibitors : [];
+  const videos: Array<{ blockId: string; item: any }> = [];
+  for (const exhibitor of exhibitors) {
+    for (const item of Array.isArray(exhibitor?.media) ? exhibitor.media : []) {
+      if (item?.kind === 'video' && item?.notionBlockId) {
+        videos.push({ blockId: String(item.notionBlockId), item });
+      }
+    }
+  }
+  if (!videos.length) return document;
+
+  const config = loadNotionConfig();
+  if (!config.notionSecret) return document;
+
+  const resolved = await Promise.all(
+    videos.map(async ({ blockId, item }) => {
+      try {
+        const url = await getFileBlockUrlCached(blockId, config);
+        return url ? { item, url } : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const byBlock = new Map<string, string>();
+  for (const entry of resolved) {
+    if (!entry) continue;
+    byBlock.set(String(entry.item.notionBlockId), entry.url);
+  }
+  if (!byBlock.size) return document;
+
+  return {
+    ...document,
+    project: {
+      ...project,
+      exhibitors: exhibitors.map((exhibitor: any) => ({
+        ...exhibitor,
+        media: (Array.isArray(exhibitor?.media) ? exhibitor.media : []).map((item: any) =>
+          item?.kind === 'video' && byBlock.has(String(item.notionBlockId))
+            ? { ...item, url: byBlock.get(String(item.notionBlockId)), notionBlockId: undefined }
+            : item,
+        ),
+      })),
+    },
+  };
 }
 
 export async function getPublishedDocument(publicId: string): Promise<PublishedDocument | null> {

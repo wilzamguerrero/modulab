@@ -921,3 +921,45 @@ export async function getFileBlockUrl(
     null
   );
 }
+
+/**
+ * Caché de enlaces firmados de archivos.
+ *
+ * Los enlaces que devuelve Notion caducan a la hora (`X-Amz-Expires=3600`).
+ * Sin caché, cada petición del navegador (`Range` de un vídeo, por ejemplo)
+ * hacía un `GET /blocks/<id>` extra a Notion solo para obtener la URL; al
+ * reproducir un vídeo grande eso son decenas de llamadas por persona, y Notion
+ * limita a ~3 req/s. Cachear la URL 50 minutos elimina casi todas: el vídeo se
+ * sirve desde el proxy sin volver a preguntar a Notion.
+ */
+const FILE_URL_TTL_MS = 50 * 60 * 1000;
+const fileUrlCache = new Map<string, { url: string; at: number }>();
+
+/** Devuelve la URL firmada, reutilizando la cacheada mientras siga vigente. */
+export function getCachedFileUrl(blockId: string): string | null {
+  const entry = fileUrlCache.get(blockId);
+  if (!entry) return null;
+  if (Date.now() - entry.at > FILE_URL_TTL_MS) {
+    fileUrlCache.delete(blockId);
+    return null;
+  }
+  return entry.url;
+}
+
+export function rememberFileUrl(blockId: string, url: string): void {
+  // Tope simple para no crecer sin límite en un isolate de larga vida.
+  if (fileUrlCache.size > 500) fileUrlCache.clear();
+  fileUrlCache.set(blockId, { url, at: Date.now() });
+}
+
+/** Igual que `getFileBlockUrl`, pero evita ir a Notion si la URL sigue vigente. */
+export async function getFileBlockUrlCached(
+  blockId: string,
+  configOverride?: NotionConfig,
+): Promise<string | null> {
+  const cached = getCachedFileUrl(blockId);
+  if (cached) return cached;
+  const url = await getFileBlockUrl(blockId, configOverride);
+  if (url) rememberFileUrl(blockId, url);
+  return url;
+}

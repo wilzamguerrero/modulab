@@ -1,5 +1,5 @@
 import type { MediaItem, MediaKind } from '@/types/project';
-import { apiDelete, apiPost, notionSessionHeaders, notionSessionToken } from '@/services/api';
+import { apiDelete, apiPost, notionSessionHeaders } from '@/services/api';
 import { createId } from '@/utils/id';
 
 interface InitResponse {
@@ -34,25 +34,25 @@ export function mediaKindForFile(file: Pick<File, 'name' | 'type'>): MediaKind {
 }
 
 /**
- * URL con la que se sirve el contenido. Los archivos de Notion se piden a
- * través del proxy del servidor porque sus enlaces firmados caducan.
+ * URL con la que se sirve el contenido.
  *
- * El proxy exige la marca de conexión de Notion del navegador y estas URLs se
- * entregan a etiquetas (`<img>`, `<video>`) que no envían cabeceras propias, así
- * que el token viaja en `?k=`. Sin él, el servidor responde 409 y la imagen no
- * se ve en producción aunque el proyecto tenga la referencia guardada.
+ * Orden de preferencia:
+ * 1. `url` — enlace directo. En los vídeos de una publicación llega firmado por
+ *    Notion/S3, así el navegador descarga sin pasar por la Function (más rápido
+ *    y sin gastar CPU del Worker).
+ * 2. `notionBlockId` — proxy del servidor, para las imágenes: así la CDN las
+ *    cachea de forma compartida y se sirven instantáneas a todos los visitantes.
  */
 export function mediaItemUrl(
   item: Pick<MediaItem, 'kind' | 'notionBlockId' | 'url'> | null | undefined,
 ): string | undefined {
   if (!item) return undefined;
+  if (item.url) return item.url;
   if (item.notionBlockId) {
     const endpoint = item.kind === 'image' ? 'image' : 'file';
-    const base = `/api/notion/${endpoint}/${encodeURIComponent(item.notionBlockId)}`;
-    const token = notionSessionToken();
-    return token ? `${base}?k=${encodeURIComponent(token)}` : base;
+    return `/api/notion/${endpoint}/${encodeURIComponent(item.notionBlockId)}`;
   }
-  return item.url;
+  return undefined;
 }
 
 export function mediaKindLabel(kind: MediaKind): string {

@@ -814,3 +814,38 @@ export async function getFileBlockUrl(
     null
   );
 }
+
+/**
+ * Caché de enlaces firmados. Notion los emite con `X-Amz-Expires=3600`, así que
+ * se reutilizan 50 minutos. Evita un `GET /blocks/<id>` extra por cada petición
+ * `Range` del navegador al reproducir un vídeo.
+ */
+const FILE_URL_TTL_MS = 50 * 60 * 1000;
+const fileUrlCache = new Map<string, { url: string; at: number }>();
+
+export function getCachedFileUrl(blockId: string): string | null {
+  const entry = fileUrlCache.get(blockId);
+  if (!entry) return null;
+  if (Date.now() - entry.at > FILE_URL_TTL_MS) {
+    fileUrlCache.delete(blockId);
+    return null;
+  }
+  return entry.url;
+}
+
+export function rememberFileUrl(blockId: string, url: string): void {
+  if (fileUrlCache.size > 500) fileUrlCache.clear();
+  fileUrlCache.set(blockId, { url, at: Date.now() });
+}
+
+/** Igual que `getFileBlockUrl`, pero sin ir a Notion si la URL sigue vigente. */
+export async function getFileBlockUrlCached(
+  blockId: string,
+  configOverride?: NotionConfig,
+): Promise<string | null> {
+  const cached = getCachedFileUrl(blockId);
+  if (cached) return cached;
+  const url = await getFileBlockUrl(blockId, configOverride);
+  if (url) rememberFileUrl(blockId, url);
+  return url;
+}
