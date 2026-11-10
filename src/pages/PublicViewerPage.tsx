@@ -585,23 +585,34 @@ export function PublicViewerPage() {
           </div>
 
           <div className="viewer-controls">
-            <button type="button" onClick={resetCamera} title="Volver a la vista inicial">
+            <button
+              type="button"
+              onClick={resetCamera}
+              title="Volver a la vista inicial"
+              aria-label="Volver a la vista inicial"
+            >
               <Compass size={14} />
-              Vista general
+              <span>Vista general</span>
             </button>
-            <button type="button" onClick={topCamera} title="Ver la planta desde arriba">
+            <button
+              type="button"
+              onClick={topCamera}
+              title="Ver la planta desde arriba"
+              aria-label="Ver la planta desde arriba"
+            >
               <Maximize2 size={14} />
-              Vista superior
+              <span>Vista superior</span>
             </button>
             <button
               type="button"
               className={showLabels ? 'is-active' : ''}
               onClick={() => setShowLabels((value) => !value)}
               title={showLabels ? 'Ocultar las etiquetas' : 'Mostrar las etiquetas de los objetos'}
+              aria-label={showLabels ? 'Ocultar las etiquetas' : 'Mostrar las etiquetas'}
               aria-pressed={showLabels}
             >
               <Tags size={14} />
-              Etiquetas
+              <span>Etiquetas</span>
             </button>
             <button
               type="button"
@@ -612,10 +623,13 @@ export function PublicViewerPage() {
                   ? 'Ocultar los nombres de los expositores'
                   : 'Ver solo los nombres de los expositores'
               }
+              aria-label={
+                showExhibitorNames ? 'Ocultar los nombres' : 'Mostrar los nombres de los expositores'
+              }
               aria-pressed={showExhibitorNames}
             >
               <Users size={14} />
-              Nombres
+              <span>Nombres</span>
             </button>
             <button
               type="button"
@@ -626,10 +640,11 @@ export function PublicViewerPage() {
                   ? 'Ocultar las cotas de los objetos'
                   : 'Ver las cotas de los objetos del expositor seleccionado'
               }
+              aria-label={showMeasurements ? 'Ocultar las medidas' : 'Mostrar las medidas'}
               aria-pressed={showMeasurements}
             >
               <Ruler size={14} />
-              Medidas
+              <span>Medidas</span>
             </button>
             {publicProject.environment.url || publicProject.environment.blockId ? (
               <button
@@ -637,9 +652,11 @@ export function PublicViewerPage() {
                 className={showSplat ? 'is-active' : ''}
                 onClick={() => setShowSplat((value) => !value)}
                 title={showSplat ? 'Ocultar el Gaussian splat' : 'Mostrar el Gaussian splat'}
+                aria-label={showSplat ? 'Ocultar el Gaussian splat' : 'Mostrar el Gaussian splat'}
+                aria-pressed={showSplat}
               >
                 <Sparkles size={14} />
-                Gaussian
+                <span>Gaussian</span>
               </button>
             ) : null}
           </div>
