@@ -82,13 +82,26 @@ function sameString(a: string, b: string): boolean {
   return crypto.timingSafeEqual(left, right);
 }
 
-export function createState(redirectUri: string): string {
-  const payload = Buffer.from(JSON.stringify({ r: redirectUri, t: Date.now() })).toString('base64url');
+/**
+ * El `state` viaja firmado con el client secret y lleva, además de la URI de
+ * retorno, el token de sesión del navegador que inició el flujo. Así, cuando
+ * Notion devuelve el `code`, se sabe a qué cliente pertenece la autorización y
+ * solo ese navegador recibe la marca de conexión.
+ */
+export function createState(redirectUri: string, sessionToken = ''): string {
+  const payload = Buffer.from(
+    JSON.stringify({ r: redirectUri, t: Date.now(), s: sessionToken || undefined }),
+  ).toString('base64url');
   return `${payload}.${sign(payload)}`;
 }
 
-/** Devuelve la URI de retorno firmada, o `null` si el `state` no es válido. */
-export function verifyState(state: string): string | null {
+export interface VerifiedState {
+  redirectUri: string;
+  sessionToken: string;
+}
+
+/** Devuelve el `state` verificado, o `null` si no es válido o caducó. */
+export function verifyState(state: string): VerifiedState | null {
   if (!state || !oauthConfigured()) return null;
   const [payload, signature] = state.split('.');
   if (!payload || !signature) return null;
@@ -97,23 +110,27 @@ export function verifyState(state: string): string | null {
     const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
       r?: string;
       t?: number;
+      s?: string;
     };
     if (!parsed?.r || typeof parsed.t !== 'number') return null;
     if (Date.now() - parsed.t > STATE_TTL_MS) return null;
     if (!allowedRedirectUris().includes(parsed.r)) return null;
-    return parsed.r;
+    return {
+      redirectUri: parsed.r,
+      sessionToken: typeof parsed.s === 'string' ? parsed.s : '',
+    };
   } catch {
     return null;
   }
 }
 
-export function buildAuthorizeUrl(redirectUri: string): string {
+export function buildAuthorizeUrl(redirectUri: string, sessionToken = ''): string {
   const params = new URLSearchParams({
     client_id: oauthClientId(),
     response_type: 'code',
     owner: 'user',
     redirect_uri: redirectUri,
-    state: createState(redirectUri),
+    state: createState(redirectUri, sessionToken),
   });
   return `${NOTION_BASE}/oauth/authorize?${params.toString()}`;
 }
@@ -200,14 +217,19 @@ export function persistOAuthToken(token: NotionOAuthTokenResponse): void {
 export async function completeAuthorization(
   code: string,
   state: string,
-): Promise<{ workspaceName?: string; workspaceId?: string }> {
-  const redirectUri = verifyState(state);
-  if (!redirectUri) {
+): Promise<{ workspaceName?: string; workspaceId?: string; sessionToken: string }> {
+  const verified = verifyState(state);
+  if (!verified) {
     throw new NotionError('La autorización caducó o no es válida. Vuelve a intentarlo.', 400);
   }
-  const token = await exchangeCode(code, redirectUri);
+  const token = await exchangeCode(code, verified.redirectUri);
   persistOAuthToken(token);
-  return { workspaceName: token.workspace_name, workspaceId: token.workspace_id };
+  return {
+    workspaceName: token.workspace_name,
+    workspaceId: token.workspace_id,
+    // El navegador que inició el flujo recibe la marca de conexión.
+    sessionToken: verified.sessionToken,
+  };
 }
 
 export interface NotionPageOption {

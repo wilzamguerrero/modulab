@@ -1,5 +1,5 @@
 import type { MediaItem, MediaKind } from '@/types/project';
-import { apiDelete, apiPost } from '@/services/api';
+import { apiDelete, apiPost, notionSessionHeaders } from '@/services/api';
 import { createId } from '@/utils/id';
 
 interface InitResponse {
@@ -115,6 +115,8 @@ export async function uploadMediaFile(
 
     const response = await fetch(`/api/media/part?upload_id=${encodeURIComponent(init.uploadId)}`, {
       method: 'POST',
+      // La subida por partes no pasa por `apiFetch`: la marca de sesión se añade aquí.
+      headers: notionSessionHeaders(),
       body: form,
     });
     if (!response.ok) {

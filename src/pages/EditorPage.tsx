@@ -67,7 +67,7 @@ import { PublishModal } from '@/components/editor/PublishModal';
 import { useEditorStore } from '@/store/editorStore';
 import { useUiStore } from '@/store/uiStore';
 import { loadProject, refreshProjectFromNotion, saveProjectLocal, saveProjectToNotion } from '@/services/projects/projectService';
-import { getNotionStatus } from '@/services/notion/notionService';
+import { getNotionStatus, hasLocalNotionSession } from '@/services/notion/notionService';
 import { edgeLength, formatArea, formatMeters, polygonArea, validatePolygon } from '@/utils/geometry';
 import { getLevel, getSpace, levelBounds, sortedLevels } from '@/utils/levels';
 import { formatRelativeDate } from '@/utils/format';
@@ -303,6 +303,12 @@ export function EditorPage() {
   }, [projectId, loadProjectData, setLoading, setLoadError]);
 
   const refreshNotionStatus = useCallback(() => {
+    // Sin autorización en este navegador no se consulta el estado: la conexión
+    // de otra persona no debe aparecer como propia.
+    if (!hasLocalNotionSession()) {
+      setNotionStatus({ configured: false, hasToken: false, parentPageId: '', connected: false });
+      return;
+    }
     getNotionStatus()
       .then(setNotionStatus)
       .catch(() => setNotionStatus({ configured: false, hasToken: false, parentPageId: '' }));

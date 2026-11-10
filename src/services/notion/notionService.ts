@@ -5,7 +5,7 @@ import type {
   NotionPagesResponse,
   NotionPerson,
 } from '@/types/notion';
-import { apiDelete, apiGet, apiPost } from '@/services/api';
+import { apiDelete, apiGet, apiPost, notionSessionToken } from '@/services/api';
 import { defaultExhibitorCamera } from '@/data/defaults';
 import { createId } from '@/utils/id';
 import { DEFAULT_EXHIBITOR_COLOR } from '@/utils/exhibitorColors';
@@ -16,6 +16,39 @@ export function getNotionStatus(): Promise<NotionConfigStatus> {
   return apiGet<NotionConfigStatus>('/api/notion/config');
 }
 
+/**
+ * Marca de conexión de ESTE navegador. El servidor la guarda en una cookie
+ * HttpOnly de sesión; aquí se replica el token para enviarlo también como
+ * cabecera, de modo que las llamadas funcionan incluso si la cookie no viaja
+ * (por ejemplo, entornos que no la reenvían).
+ */
+const SESSION_STORAGE_KEY = 'modulab:notion-session';
+
+function sessionToken(): string {
+  try {
+    return window.sessionStorage.getItem(SESSION_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function rememberSessionToken(token: string): void {
+  try {
+    if (token) window.sessionStorage.setItem(SESSION_STORAGE_KEY, token);
+    else window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    // sessionStorage puede estar bloqueado; la cookie sigue bastando.
+  }
+}
+
+/** True cuando este navegador ya autorizó Notion (marca local). */
+export function hasLocalNotionSession(): boolean {
+  return Boolean(sessionToken());
+}
+
+/** Cabeceras de sesión para las llamadas a la API de Notion. */
+export { notionSessionHeaders } from '@/services/api';
+
 export function saveNotionConfig(input: {
   notionSecret?: string;
   parentPageId?: string;
@@ -24,6 +57,7 @@ export function saveNotionConfig(input: {
 }
 
 export function clearNotionConfig(): Promise<{ success: boolean }> {
+  rememberSessionToken('');
   return apiDelete('/api/notion/config');
 }
 
@@ -76,8 +110,14 @@ export function clearNotionOAuthQuery(): void {
 export function exchangeNotionOAuthCode(input: {
   code: string;
   state: string;
-}): Promise<{ workspaceName?: string; workspaceId?: string }> {
-  return apiPost('/api/notion/oauth/exchange', input);
+}): Promise<{ workspaceName?: string; workspaceId?: string; sessionToken?: string }> {
+  return apiPost<{ workspaceName?: string; workspaceId?: string; sessionToken?: string }>(
+    '/api/notion/oauth/exchange',
+    input,
+  ).then((result) => {
+    if (result?.sessionToken) rememberSessionToken(result.sessionToken);
+    return result;
+  });
 }
 
 export function listNotionPages(): Promise<NotionPagesResponse> {
@@ -100,7 +140,11 @@ export async function fetchNotionPeople(pageId: string): Promise<NotionExhibitor
 
 export function notionPhotoUrl(exhibitor: Pick<Exhibitor, 'photoNotionBlockId' | 'photoUrl'>): string | undefined {
   if (exhibitor.photoNotionBlockId) {
-    return `/api/notion/image/${encodeURIComponent(exhibitor.photoNotionBlockId)}`;
+    const base = `/api/notion/image/${encodeURIComponent(exhibitor.photoNotionBlockId)}`;
+    // Un `<img>` no envía cabeceras propias: el token viaja en la URL para que
+    // la imagen funcione aunque la cookie no acompañe a la petición.
+    const token = notionSessionToken();
+    return token ? `${base}?k=${encodeURIComponent(token)}` : base;
   }
   return exhibitor.photoUrl;
 }

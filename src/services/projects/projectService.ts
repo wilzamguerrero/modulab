@@ -9,7 +9,7 @@ import { duplicateProject, parseProject } from '@/data/projectSchema';
 import { createProject } from '@/data/defaults';
 import type { TemplateId } from '@/data/templates';
 import { createId } from '@/utils/id';
-import { apiGet, apiPost, apiPut } from '@/services/api';
+import { apiGet, apiPost, apiPut, notionSessionHeaders } from '@/services/api';
 import type {
   NotionProjectListItem,
   NotionProjectResponse,
@@ -124,7 +124,11 @@ export async function refreshProjectFromNotion(project: Project): Promise<Projec
 }
 
 export async function archiveNotionProject(blockId: string): Promise<void> {
-  await fetch(`/api/notion/projects/${encodeURIComponent(blockId)}`, { method: 'DELETE' }).then((res) => {
+  await fetch(`/api/notion/projects/${encodeURIComponent(blockId)}`, {
+    method: 'DELETE',
+    // Petición directa: necesita la marca de sesión para no recibir 409.
+    headers: notionSessionHeaders(),
+  }).then((res) => {
     if (!res.ok) throw new Error('No se pudo archivar el proyecto en Notion.');
   });
 }

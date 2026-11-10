@@ -1,4 +1,4 @@
-import { apiPost } from '@/services/api';
+import { apiPost, notionSessionHeaders } from '@/services/api';
 
 export type SplatFormat = 'ply' | 'splat' | 'ksplat';
 
@@ -50,6 +50,9 @@ export async function uploadSplatToNotion(
 
     const response = await fetch(`/api/splat/part?upload_id=${encodeURIComponent(init.uploadId)}`, {
       method: 'POST',
+      // Sin esta marca el servidor responde 409: la subida en tres pasos no usa
+      // `apiFetch` y por eso añade la cabecera de sesión a mano.
+      headers: notionSessionHeaders(),
       body: form,
     });
     if (!response.ok) {

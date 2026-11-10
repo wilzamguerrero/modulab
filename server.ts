@@ -43,6 +43,14 @@ import {
   sendFileUploadPart,
 } from './server/notion';
 import { deletePublished, getPublishedDocument, publishDocument } from './server/publishing';
+import {
+  NOT_CONNECTED_MESSAGE,
+  clearSessionCookie,
+  createSessionToken,
+  hasBrowserSession,
+  issueSessionCookie,
+  readSessionToken,
+} from './server/browserSession';
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -65,6 +73,18 @@ function asyncRoute(
 
 function jsonError(res: Response, status: number, message: string, details?: unknown) {
   res.status(status).json({ error: message, details });
+}
+
+/**
+ * La credencial de Notion vive en el servidor, pero solo se expone a un
+ * navegador que haya completado la autorización. Sin esa marca, los datos se
+ * responden como «no conectado» para que nadie que entre por primera vez vea
+ * la conexión de otra persona.
+ */
+function requireNotionSession(req: Request, res: Response): boolean {
+  if (hasBrowserSession(req)) return true;
+  jsonError(res, 409, NOT_CONNECTED_MESSAGE, { code: 'notion_not_connected' });
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +144,21 @@ app.use('/uploads', express.static(uploadsDir(), { maxAge: '1h', fallthrough: tr
 
 app.get(
   '/api/notion/config',
-  asyncRoute(async (_req, res) => {
+  asyncRoute(async (req, res) => {
+    // Sin autorización en este navegador se responde como si no hubiera nada:
+    // ni token, ni página, ni workspace, ni los últimos 4 caracteres del token.
+    if (!hasBrowserSession(req)) {
+      res.json({
+        configured: false,
+        hasToken: false,
+        parentPageId: '',
+        authMode: 'none',
+        oauthAvailable: oauthConfigured(),
+        connected: false,
+      });
+      return;
+    }
+
     const config = loadNotionConfig();
     const configured = Boolean(config.notionSecret && config.parentPageId);
     let parentPageTitle: string | undefined;
@@ -139,6 +173,7 @@ app.get(
     const oauth = loadOAuthMeta();
     res.json({
       configured,
+      connected: true,
       hasToken: Boolean(config.notionSecret),
       parentPageId: config.parentPageId,
       parentPageTitle,
@@ -161,6 +196,8 @@ app.post(
     const config = saveNotionConfig({ notionSecret, parentPageId });
     // Un token pegado a mano deja de ser una sesión OAuth.
     if (typeof notionSecret === 'string' && notionSecret.trim()) clearOAuthMeta();
+    // Quien guarda un token a mano pasa a estar conectado en este navegador.
+    if (config.notionSecret && config.parentPageId) issueSessionCookie(req, res);
     let parentPageTitle: string | undefined;
     let error: string | undefined;
     if (config.notionSecret && config.parentPageId) {
@@ -176,6 +213,7 @@ app.post(
     res.json({
       success: true,
       configured: Boolean(config.notionSecret && config.parentPageId),
+      connected: true,
       parentPageId: config.parentPageId,
       parentPageTitle,
       maskedToken: maskedToken(config.notionSecret),
@@ -184,8 +222,9 @@ app.post(
   }),
 );
 
-app.delete('/api/notion/config', (_req, res) => {
+app.delete('/api/notion/config', (req, res) => {
   clearNotionConfig();
+  clearSessionCookie(req, res);
   res.json({ success: true });
 });
 
@@ -203,7 +242,11 @@ app.get('/api/notion/oauth/start', (req, res) => {
   }
   const origin = `${req.protocol}://${req.get('host')}`;
   const redirectUri = resolveRedirectUri(origin);
-  res.redirect(buildAuthorizeUrl(redirectUri));
+  // El token de sesión viaja firmado dentro del `state`: al volver de Notion se
+  // sabe que el navegador que autorizó es este y solo a él se le marca.
+  const sessionToken = readSessionToken(req) || createSessionToken();
+  issueSessionCookie(req, res, sessionToken);
+  res.redirect(buildAuthorizeUrl(redirectUri, sessionToken));
 });
 
 // Notion vuelve a la URI registrada (la raíz del sitio). La página recibe
@@ -216,7 +259,17 @@ app.post(
     if (!code || !state) {
       return jsonError(res, 400, 'La autorización llegó incompleta. Vuelve a intentarlo.');
     }
-    res.json(await completeAuthorization(code, state));
+    const result = await completeAuthorization(code, state);
+    // La cookie se confirma aquí: desde este momento el navegador está conectado.
+    issueSessionCookie(req, res, result.sessionToken);
+    // El cliente guarda el token en `sessionStorage` para enviarlo también como
+    // cabecera. Sin devolverlo, este navegador quedaría con cookie pero sin
+    // marca local y la interfaz seguiría pidiendo autorizar.
+    res.json({
+      workspaceName: result.workspaceName,
+      workspaceId: result.workspaceId,
+      sessionToken: result.sessionToken,
+    });
   }),
 );
 
@@ -238,6 +291,7 @@ app.get(
 
     try {
       const result = await completeAuthorization(code, state);
+      issueSessionCookie(req, res, result.sessionToken);
       const workspace = encodeURIComponent(result.workspaceName || '');
       res.redirect(`${fallback}?notion=connected&workspace=${workspace}`);
     } catch (error) {
@@ -275,7 +329,8 @@ app.post(
 
 app.get(
   '/api/notion/projects',
-  asyncRoute(async (_req, res) => {
+  asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const result = await listProjects();
     res.json(result);
   }),
@@ -284,6 +339,7 @@ app.get(
 app.post(
   '/api/notion/projects',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const { name, project } = req.body || {};
     if (!name || typeof name !== 'string') return jsonError(res, 400, 'Falta el nombre del proyecto.');
     if (!project || typeof project !== 'object') return jsonError(res, 400, 'Faltan los datos del proyecto.');
@@ -299,6 +355,7 @@ app.post(
 app.get(
   '/api/notion/projects/:blockId',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const result = await loadProject(req.params.blockId);
     res.json(result);
   }),
@@ -307,6 +364,7 @@ app.get(
 app.put(
   '/api/notion/projects/:blockId',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const { name, project } = req.body || {};
     if (!project || typeof project !== 'object') return jsonError(res, 400, 'Faltan los datos del proyecto.');
     await saveProject(req.params.blockId, typeof name === 'string' ? name : '', project);
@@ -317,6 +375,7 @@ app.put(
 app.delete(
   '/api/notion/projects/:blockId',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     await archiveBlock(req.params.blockId);
     invalidateProjectsCache();
     res.json({ success: true });
@@ -326,6 +385,7 @@ app.delete(
 app.get(
   '/api/notion/people',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const pageId = String(req.query.pageId || '').trim();
     if (!pageId) return jsonError(res, 400, 'Falta el ID de la página de expositores.');
     if (req.query.refresh === '1') invalidatePeopleCache();
@@ -337,6 +397,7 @@ app.get(
 app.get(
   '/api/notion/image/:blockId',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const url = await getImageBlockUrl(req.params.blockId);
     if (!url) return jsonError(res, 404, 'La imagen no existe en Notion.');
     const upstream = await fetch(url);
@@ -378,6 +439,7 @@ async function serveNotionFile(req: Request, res: Response, disposition: 'inline
 app.get(
   '/api/notion/file/:blockId',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     await serveNotionFile(req, res, 'inline');
   }),
 );
@@ -389,6 +451,7 @@ app.get(
 app.post(
   '/api/publish',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const { publicId, project, notionBlockId, version, publishedAt } = req.body || {};
     if (!publicId || typeof publicId !== 'string') return jsonError(res, 400, 'Falta el identificador público.');
     if (!/^[a-z0-9][a-z0-9-]{2,120}$/.test(publicId)) {
@@ -426,6 +489,7 @@ app.get(
 app.delete(
   '/api/published/:publicId',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     deletePublished(req.params.publicId);
     res.json({ success: true });
   }),
@@ -438,6 +502,7 @@ app.delete(
 app.post(
   '/api/splat/init',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const { filename, contentType, sizeBytes } = req.body || {};
     if (!filename || typeof filename !== 'string') {
       return jsonError(res, 400, 'Falta el nombre del archivo.');
@@ -469,6 +534,7 @@ app.post(
   '/api/splat/part',
   express.raw({ type: () => true, limit: '512mb' }),
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const uploadId = String(req.query.upload_id || '').trim();
     if (!uploadId) return jsonError(res, 400, 'Falta upload_id.');
     const contentType = req.headers['content-type'] || '';
@@ -487,6 +553,7 @@ app.post(
 app.post(
   '/api/splat/complete',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const { uploadId, mode, parentBlockId } = req.body || {};
     if (!uploadId || typeof uploadId !== 'string') return jsonError(res, 400, 'Falta uploadId.');
     const config = loadNotionConfig();
@@ -506,6 +573,7 @@ app.post(
 app.get(
   '/api/splat/:blockId',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const config = loadNotionConfig();
     const signedUrl = await getFileBlockUrl(req.params.blockId, config);
     if (!signedUrl) return jsonError(res, 404, 'El entorno no existe en Notion.');
@@ -537,6 +605,7 @@ function normalizeMediaKind(value: unknown): 'image' | 'video' | 'pdf' | 'file' 
 app.post(
   '/api/media/init',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const { filename, contentType, sizeBytes } = req.body || {};
     if (!filename || typeof filename !== 'string') {
       return jsonError(res, 400, 'Falta el nombre del archivo.');
@@ -564,6 +633,7 @@ app.post(
   '/api/media/part',
   express.raw({ type: () => true, limit: '512mb' }),
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const uploadId = String(req.query.upload_id || '').trim();
     if (!uploadId) return jsonError(res, 400, 'Falta upload_id.');
     const contentType = req.headers['content-type'] || '';
@@ -582,6 +652,7 @@ app.post(
 app.post(
   '/api/media/complete',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     const { uploadId, mode, parentBlockId, kind } = req.body || {};
     if (!uploadId || typeof uploadId !== 'string') return jsonError(res, 400, 'Falta uploadId.');
     const config = loadNotionConfig();
@@ -606,6 +677,7 @@ app.post(
 app.delete(
   '/api/media/:blockId',
   asyncRoute(async (req, res) => {
+    if (!requireNotionSession(req, res)) return;
     await archiveBlock(req.params.blockId);
     res.json({ success: true });
   }),

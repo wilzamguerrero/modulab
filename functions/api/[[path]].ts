@@ -22,6 +22,15 @@ import {
 } from '../_shared/notionOAuth';
 import { deletePublished, getPublishedDocument, publishDocument } from '../_shared/publishing';
 import { scanCatalog } from '../_shared/catalog';
+import {
+  clearSessionCookieHeader,
+  createSessionToken,
+  hasBrowserSession,
+  notConnectedResponse,
+  readSessionToken,
+  sessionCookieHeader,
+  withSessionCookie,
+} from '../_shared/session';
 import { photoKey, sanitizePhotoName } from '../_shared/uploads';
 
 const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
@@ -107,6 +116,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     // --- Notion: configuración ---------------------------------------------
     if (path === '/notion/config') {
       if (method === 'GET') {
+        // Sin autorización en este navegador se responde como si no hubiera
+        // nada: ni token, ni página, ni workspace. Así nadie que entre por
+        // primera vez ve la conexión de otra persona.
+        if (!hasBrowserSession(request)) {
+          return json({
+            configured: false,
+            connected: false,
+            hasToken: false,
+            parentPageId: '',
+            authMode: 'none',
+            oauthAvailable: oauthConfigured(env),
+          });
+        }
         const config = await loadConfig(env);
         let configured = Boolean(config.notionSecret && config.parentPageId);
         let parentPageTitle: string | undefined;
@@ -126,6 +148,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const oauth = await loadOAuthMeta(env);
         return json({
           configured,
+          connected: true,
           hasToken: Boolean(config.notionSecret),
           parentPageId: config.parentPageId,
           parentPageTitle,
@@ -161,19 +184,32 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             if (status === 401 || status === 403) configured = false;
           }
         }
-        return json({
+        const payload = {
           success: true,
           configured,
+          connected: true,
           parentPageId: config.parentPageId,
           parentPageTitle,
           maskedToken: maskedToken(config.notionSecret),
           error,
-        });
+        };
+        // Quien guarda un token a mano pasa a estar conectado en este navegador.
+        if (config.notionSecret && config.parentPageId) {
+          return withSessionCookie(payload, request, readSessionToken(request) || createSessionToken());
+        }
+        return json(payload);
       }
 
       if (method === 'DELETE') {
         await clearConfig(env);
-        return json({ success: true });
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Set-Cookie': clearSessionCookieHeader(request),
+            'Cache-Control': 'no-store',
+          },
+        });
       }
     }
 
@@ -188,11 +224,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         );
       }
       const redirectUri = resolveRedirectUri(env, originOf(request));
-      const state = await createState(env, redirectUri);
+      // El token de sesión viaja firmado dentro del `state`: al volver de
+      // Notion se sabe que el navegador que autorizó es este.
+      const sessionToken = readSessionToken(request) || createSessionToken();
+      const state = await createState(env, redirectUri, sessionToken);
       return new Response(null, {
         status: 302,
         headers: {
           Location: buildAuthorizeUrl(oauthClientId(env), redirectUri, state),
+          'Set-Cookie': sessionCookieHeader(request, sessionToken),
           'Cache-Control': 'no-store',
         },
       });
@@ -205,7 +245,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (!code || !state) {
         return jsonError(400, 'La autorización llegó incompleta. Vuelve a intentarlo.');
       }
-      return json(await completeAuthorization(env, code, state));
+      const result = await completeAuthorization(env, code, state);
+      // La cookie se confirma aquí: este navegador pasa a estar conectado.
+      return withSessionCookie(result, request, result.sessionToken);
     }
 
     // Callback de servidor: solo aplica si la integración registra esta ruta.
@@ -227,18 +269,28 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       try {
         const result = await completeAuthorization(env, code, state);
-        return redirect(`notion=connected&workspace=${encodeURIComponent(result.workspaceName || '')}`);
+        const location = `${fallback}?notion=connected&workspace=${encodeURIComponent(result.workspaceName || '')}`;
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: location,
+            'Set-Cookie': sessionCookieHeader(request, result.sessionToken),
+            'Cache-Control': 'no-store',
+          },
+        });
       } catch (error) {
         return redirect(`notion=error&reason=${encodeURIComponent((error as Error).message)}`);
       }
     }
 
     if (path === '/notion/oauth/pages' && method === 'GET') {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const config = await loadConfig(env);
       return json({ pages: await searchPages(env, config) });
     }
 
     if (path === '/notion/oauth/select' && method === 'POST') {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const body = await readJson(request);
       const pageId = String(body?.pageId || '').trim();
       if (!pageId) return jsonError(400, 'Falta el ID de la página de Notion.');
@@ -258,6 +310,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // --- Notion: proyectos --------------------------------------------------
     if (path === '/notion/projects') {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const config = await loadConfig(env);
       if (method === 'GET') {
         return json(await notion.listProjects(config.parentPageId, config));
@@ -277,6 +330,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const projectMatch = path.match(/^\/notion\/projects\/([^/]+)$/);
     if (projectMatch) {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const blockId = projectMatch[1];
       const config = await loadConfig(env);
       if (method === 'GET') {
@@ -298,6 +352,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // --- Notion: expositores -----------------------------------------------
     if (method === 'GET' && path === '/notion/people') {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const url = new URL(request.url);
       const pageId = String(url.searchParams.get('pageId') || '').trim();
       if (!pageId) return jsonError(400, 'Falta el ID de la página de expositores.');
@@ -310,6 +365,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     // --- Notion: proxy de imagen -------------------------------------------
     const imageMatch = path.match(/^\/notion\/image\/([^/]+)$/);
     if (method === 'GET' && imageMatch) {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const blockId = imageMatch[1];
       const config = await loadConfig(env);
       const url = await notion.getImageBlockUrl(blockId, config);
@@ -373,6 +429,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // --- Entorno Gaussian splat (subida a Notion + proxy) -------------------
     if (method === 'POST' && path === '/splat/init') {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const body = await readJson(request);
       const filename = typeof body?.filename === 'string' ? body.filename : '';
       const sizeBytes = Number(body?.sizeBytes);
@@ -395,6 +452,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     if (method === 'POST' && path === '/splat/part') {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const url = new URL(request.url);
       const uploadId = url.searchParams.get('upload_id');
       if (!uploadId) return jsonError(400, 'Falta upload_id.');
@@ -410,6 +468,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     if (method === 'POST' && path === '/splat/complete') {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const body = await readJson(request);
       const uploadId = typeof body?.uploadId === 'string' ? body.uploadId : '';
       if (!uploadId) return jsonError(400, 'Falta uploadId.');
@@ -428,6 +487,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const splatMatch = path.match(/^\/splat\/([^/]+)$/);
     if (method === 'GET' && splatMatch) {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const blockId = splatMatch[1];
       const config = await loadConfig(env);
       const signedUrl = await notion.getFileBlockUrl(blockId, config);
@@ -447,6 +507,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const fileMatch = path.match(/^\/notion\/file\/([^/]+)$/);
     if (method === 'GET' && fileMatch) {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const blockId = fileMatch[1];
       const config = await loadConfig(env);
       const signedUrl = await notion.getFileBlockUrl(blockId, config);
@@ -467,6 +528,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // --- Multimedia del proyecto y de los expositores -----------------------
     if (method === 'POST' && path === '/media/init') {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const body = await readJson(request);
       const filename = typeof body?.filename === 'string' ? body.filename.trim() : '';
       const sizeBytes = Number(body?.sizeBytes);
@@ -489,6 +551,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     if (method === 'POST' && path === '/media/part') {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const url = new URL(request.url);
       const uploadId = url.searchParams.get('upload_id');
       if (!uploadId) return jsonError(400, 'Falta upload_id.');
@@ -504,6 +567,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     if (method === 'POST' && path === '/media/complete') {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const body = await readJson(request);
       const uploadId = typeof body?.uploadId === 'string' ? body.uploadId : '';
       if (!uploadId) return jsonError(400, 'Falta uploadId.');
@@ -531,6 +595,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const mediaMatch = path.match(/^\/media\/([^/]+)$/);
     if (method === 'DELETE' && mediaMatch) {
+      if (!hasBrowserSession(request)) return notConnectedResponse();
       const blockId = mediaMatch[1];
       await notion.archiveBlock(blockId);
       return json({ success: true });

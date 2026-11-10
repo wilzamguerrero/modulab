@@ -12,6 +12,11 @@ export const notionConfigStatusSchema = z.object({
   authMode: z.enum(['oauth', 'manual']).optional(),
   /** El servidor tiene NOTION_CLIENT_ID/SECRET y puede iniciar el flujo OAuth. */
   oauthAvailable: z.boolean().optional(),
+  /**
+   * False cuando este navegador no ha autorizado Notion: el servidor oculta la
+   * conexión para que no se muestre la de otra persona.
+   */
+  connected: z.boolean().optional(),
   error: z.string().optional(),
 });
 

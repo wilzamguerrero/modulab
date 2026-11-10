@@ -119,24 +119,34 @@ function sameString(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export async function createState(env: Env, redirectUri: string): Promise<string> {
-  const payload = b64urlEncode(JSON.stringify({ r: redirectUri, t: Date.now() }));
+export async function createState(env: Env, redirectUri: string, sessionToken = ''): Promise<string> {
+  const payload = b64urlEncode(
+    JSON.stringify({ r: redirectUri, t: Date.now(), s: sessionToken || undefined }),
+  );
   return `${payload}.${await sign(oauthClientSecret(env), payload)}`;
 }
 
-/** Devuelve la URI de retorno firmada, o `null` si el `state` no es válido. */
-export async function verifyState(env: Env, state: string): Promise<string | null> {
+export interface VerifiedState {
+  redirectUri: string;
+  sessionToken: string;
+}
+
+/** Devuelve el `state` verificado, o `null` si no es válido o caducó. */
+export async function verifyState(env: Env, state: string): Promise<VerifiedState | null> {
   if (!state || !oauthConfigured(env)) return null;
   const [payload, signature] = state.split('.');
   if (!payload || !signature) return null;
   const expected = await sign(oauthClientSecret(env), payload);
   if (!sameString(signature, expected)) return null;
   try {
-    const parsed = JSON.parse(b64urlDecode(payload)) as { r?: string; t?: number };
+    const parsed = JSON.parse(b64urlDecode(payload)) as { r?: string; t?: number; s?: string };
     if (!parsed?.r || typeof parsed.t !== 'number') return null;
     if (Date.now() - parsed.t > STATE_TTL_MS) return null;
     if (!allowedRedirectUris(env).includes(parsed.r)) return null;
-    return parsed.r;
+    return {
+      redirectUri: parsed.r,
+      sessionToken: typeof parsed.s === 'string' ? parsed.s : '',
+    };
   } catch {
     return null;
   }
@@ -229,14 +239,19 @@ export async function completeAuthorization(
   env: Env,
   code: string,
   state: string,
-): Promise<{ workspaceName?: string; workspaceId?: string }> {
-  const redirectUri = await verifyState(env, state);
-  if (!redirectUri) {
+): Promise<{ workspaceName?: string; workspaceId?: string; sessionToken: string }> {
+  const verified = await verifyState(env, state);
+  if (!verified) {
     throw new ApiError('La autorización caducó o no es válida. Vuelve a intentarlo.', 400);
   }
-  const token = await exchangeCode(env, code, redirectUri);
+  const token = await exchangeCode(env, code, verified.redirectUri);
   await persistOAuthToken(env, token);
-  return { workspaceName: token.workspace_name, workspaceId: token.workspace_id };
+  return {
+    workspaceName: token.workspace_name,
+    workspaceId: token.workspace_id,
+    // El navegador que inició el flujo recibe la marca de conexión.
+    sessionToken: verified.sessionToken,
+  };
 }
 
 export interface NotionPageOption {

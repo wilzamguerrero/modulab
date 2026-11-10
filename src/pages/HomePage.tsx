@@ -45,6 +45,7 @@ import {
   clearNotionOAuthQuery,
   exchangeNotionOAuthCode,
   getNotionStatus,
+  hasLocalNotionSession,
   readNotionOAuthReturn,
   startNotionOAuth,
 } from '@/services/notion/notionService';
@@ -131,10 +132,16 @@ export function HomePage() {
           toast((error as Error).message || 'No se pudo completar la autorización.', 'error');
         }
       }
+      // Sin autorización en esta pestaña no se consulta el estado: así la
+      // conexión de otra persona nunca aparece como propia al entrar.
+      if (!hasLocalNotionSession()) {
+        setNotionStatus({ configured: false, hasToken: false, parentPageId: '', connected: false });
+        return;
+      }
       try {
         setNotionStatus(await getNotionStatus());
       } catch {
-        setNotionStatus({ configured: false, hasToken: false, parentPageId: '' });
+        setNotionStatus({ configured: false, hasToken: false, parentPageId: '', connected: false });
       }
     };
 
