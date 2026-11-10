@@ -13,6 +13,10 @@ import {
   uploadMediaFile,
 } from '@/services/assets/mediaService';
 import { MediaGalleryModal, MediaKindIcon, MediaThumb } from '@/components/media/MediaGallery';
+import {
+  MediaLoadContext,
+  useProgressiveStream,
+} from '@/components/media/useProgressiveStream';
 
 const MEDIA_ACCEPT = 'image/*,video/*,application/pdf,.pdf,.glb,.gltf,.zip,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,application/octet-stream';
 
@@ -149,6 +153,13 @@ export function MediaManager({
     onChange(items.map((entry) => (entry.id === id ? { ...entry, ...changes } : entry)));
   };
 
+  // Flujo progresivo: las miniaturas entran poco a poco, con un cupo de
+  // descargas simultáneas. Se reinicia al cambiar de galería.
+  const stream = useProgressiveStream({
+    total: items.length,
+    resetKey: parentBlockId || 'galeria',
+  });
+
   const move = (id: string, direction: -1 | 1) => {
     const index = items.findIndex((entry) => entry.id === id);
     const target = index + direction;
@@ -168,8 +179,11 @@ export function MediaManager({
       onDrop={onDrop}
     >
       {items.length ? (
+        <MediaLoadContext.Provider value={stream.loadApi}>
         <div className="media-list">
-          {items.map((item, index) => (
+          {/* Solo se pintan las tarjetas admitidas por el flujo: las imágenes
+              entran en cascada regulada en vez de pedirse todas de golpe. */}
+          {items.slice(0, stream.visibleCount).map((item, index) => (
             <div key={item.id} className="media-row">
               <button
                 type="button"
@@ -234,7 +248,11 @@ export function MediaManager({
               />
             </div>
           ))}
+          {/* Al asomarse este centinela, el flujo acelera para que el usuario
+              nunca se encuentre con huecos al desplazarse. */}
+          {!stream.isComplete ? <div ref={stream.sentinelRef} className="media-stream-sentinel" /> : null}
         </div>
+        </MediaLoadContext.Provider>
       ) : (
         <div className="media-empty" role="button" tabIndex={0}
           onClick={() => inputRef.current?.click()}

@@ -1,8 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, FileText, Film, Image as ImageIcon } from 'lucide-react';
 import type { MediaItem } from '@/types/project';
 import { Button, IconButton, Modal } from '@/components/ui';
 import { formatBytes, mediaItemUrl, mediaKindLabel } from '@/services/assets/mediaService';
+import {
+  FALLBACK_IMAGE_RATIO,
+  FALLBACK_VIDEO_RATIO,
+  getRatio,
+  rememberRatio,
+} from './aspectRatioStore';
+import { useMediaSettle } from './useProgressiveStream';
 
 /** Icono que representa el tipo de archivo en las listas. */
 export function MediaKindIcon({ kind, size = 13 }: { kind: MediaItem['kind']; size?: number }) {
@@ -11,11 +18,25 @@ export function MediaKindIcon({ kind, size = 13 }: { kind: MediaItem['kind']; si
   return <FileText size={size} />;
 }
 
-/** Miniatura cuadrada de un elemento multimedia (imágenes) o un icono. */
+/**
+ * Miniatura de un elemento multimedia.
+ *
+ * Reserva el hueco desde el primer frame para que la lista no salte cuando
+ * llegan las imágenes, y avisa al flujo progresivo (`useMediaSettle`) cuando
+ * termina, de modo que entre la siguiente sin saturar la conexión.
+ */
 export function MediaThumb({ item, size = 56 }: { item: MediaItem; size?: number }) {
   const url = mediaItemUrl(item);
   const [loaded, setLoaded] = useState(false);
+  const settle = useMediaSettle(item.id, item.kind === 'image' && Boolean(url));
+
   if (item.kind === 'image' && url) {
+    const handleLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
+      const img = event.currentTarget;
+      rememberRatio(item.id, img.naturalWidth, img.naturalHeight);
+      setLoaded(true);
+      settle();
+    };
     return (
       <span className="media-thumb-frame" style={{ width: size, height: size }}>
         {!loaded ? <span className="media-thumb-skeleton" aria-hidden /> : null}
@@ -25,7 +46,12 @@ export function MediaThumb({ item, size = 56 }: { item: MediaItem; size?: number
           alt={item.caption || item.name}
           loading="lazy"
           decoding="async"
-          onLoad={() => setLoaded(true)}
+          onLoad={handleLoad}
+          onError={() => {
+            // Un fallo no debe congelar el flujo: se libera el cupo igualmente.
+            setLoaded(true);
+            settle();
+          }}
           style={{ width: size, height: size }}
         />
       </span>
@@ -49,6 +75,13 @@ export function MediaThumb({ item, size = 56 }: { item: MediaItem; size?: number
 function MediaViewer({ item }: { item: MediaItem }) {
   const url = mediaItemUrl(item);
   const [loaded, setLoaded] = useState(false);
+
+  // Proporción conocida (de esta visita o de una anterior) para reservar el
+  // hueco y que la imagen no empuje el contenido al aparecer.
+  const [ratio, setRatio] = useState<number | undefined>(() => getRatio(item.id));
+  const fallback = item.kind === 'video' ? FALLBACK_VIDEO_RATIO : FALLBACK_IMAGE_RATIO;
+  const reservedRatio = ratio ?? fallback;
+
   if (!url) {
     return <div className="media-viewer-empty">Este archivo no está disponible.</div>;
   }
@@ -56,14 +89,20 @@ function MediaViewer({ item }: { item: MediaItem }) {
     // Fundido al terminar la descarga: evita el salto de una imagen a medio
     // pintar y deja claro que está cargando.
     return (
-      <span className="media-viewer-image-frame">
+      <span className="media-viewer-image-frame" style={{ aspectRatio: String(reservedRatio) }}>
         {!loaded ? <span className="media-viewer-skeleton" aria-hidden /> : null}
         <img
           className={`media-viewer-image${loaded ? ' is-loaded' : ''}`}
           src={url}
           alt={item.caption || item.name}
           decoding="async"
-          onLoad={() => setLoaded(true)}
+          onLoad={(event) => {
+            const img = event.currentTarget;
+            const learned = rememberRatio(item.id, img.naturalWidth, img.naturalHeight);
+            if (learned) setRatio(learned);
+            setLoaded(true);
+          }}
+          onError={() => setLoaded(true)}
         />
       </span>
     );
@@ -71,9 +110,12 @@ function MediaViewer({ item }: { item: MediaItem }) {
   if (item.kind === 'video') {
     // `preload="metadata"` solo trae la cabecera: el vídeo se descarga al pulsar
     // reproducir. Sin esto el navegador intenta bajar el archivo entero (los
-    // vídeos de este proyecto llegan a 566 MB) y el proxy de Notion se satura.
+    // vídeos de este proyecto llegan a 566 MB).
+    //
+    // El hueco se reserva con la proporción aprendida (16:9 por defecto) para
+    // que el reproductor no cambie de altura cuando llegan los metadatos.
     return (
-      <span className="media-viewer-image-frame">
+      <span className="media-viewer-image-frame" style={{ aspectRatio: String(reservedRatio) }}>
         {!loaded ? <span className="media-viewer-skeleton" aria-hidden /> : null}
         <video
           className={`media-viewer-video${loaded ? ' is-loaded' : ''}`}
@@ -81,7 +123,12 @@ function MediaViewer({ item }: { item: MediaItem }) {
           controls
           playsInline
           preload="metadata"
-          onLoadedMetadata={() => setLoaded(true)}
+          onLoadedMetadata={(event) => {
+            const video = event.currentTarget;
+            const learned = rememberRatio(item.id, video.videoWidth, video.videoHeight);
+            if (learned) setRatio(learned);
+            setLoaded(true);
+          }}
           onError={() => setLoaded(true)}
         >
           Tu navegador no puede reproducir este vídeo.

@@ -5376,3 +5376,9 @@ input[type="range"] {
   text-transform: uppercase;
   color: var(--accent);
 }
+
+/* Centinela del flujo progresivo: al asomarse, entran más miniaturas. */
+.media-stream-sentinel {
+  height: 1px;
+  width: 100%;
+}
