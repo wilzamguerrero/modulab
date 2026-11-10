@@ -397,7 +397,8 @@ app.get(
 app.get(
   '/api/notion/image/:blockId',
   asyncRoute(async (req, res) => {
-    if (!requireNotionSession(req, res)) return;
+    // Lectura pública a propósito: las imágenes viajan dentro de un proyecto
+    // publicado (`/e/<id>`), que se abre sin sesión de Notion.
     const url = await getImageBlockUrl(req.params.blockId);
     if (!url) return jsonError(res, 404, 'La imagen no existe en Notion.');
     const upstream = await fetch(url);
@@ -439,7 +440,7 @@ async function serveNotionFile(req: Request, res: Response, disposition: 'inline
 app.get(
   '/api/notion/file/:blockId',
   asyncRoute(async (req, res) => {
-    if (!requireNotionSession(req, res)) return;
+    // Público: los vídeos y PDF forman parte del proyecto publicado.
     await serveNotionFile(req, res, 'inline');
   }),
 );
@@ -573,7 +574,8 @@ app.post(
 app.get(
   '/api/splat/:blockId',
   asyncRoute(async (req, res) => {
-    if (!requireNotionSession(req, res)) return;
+    // Público: el entorno se carga en la vista compartida. Subir sigue
+    // exigiendo sesión en /api/splat/init|part|complete.
     const config = loadNotionConfig();
     const signedUrl = await getFileBlockUrl(req.params.blockId, config);
     if (!signedUrl) return jsonError(res, 404, 'El entorno no existe en Notion.');

@@ -363,9 +363,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     // --- Notion: proxy de imagen -------------------------------------------
+    // Lectura pública a propósito: las imágenes viajan dentro de un proyecto
+    // publicado (`/e/<id>`), que se abre sin sesión de Notion. Exigir sesión
+    // aquí rompía las galerías del visor público con un 409.
     const imageMatch = path.match(/^\/notion\/image\/([^/]+)$/);
     if (method === 'GET' && imageMatch) {
-      if (!hasBrowserSession(request)) return notConnectedResponse();
       const blockId = imageMatch[1];
       const config = await loadConfig(env);
       const url = await notion.getImageBlockUrl(blockId, config);
@@ -487,7 +489,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const splatMatch = path.match(/^\/splat\/([^/]+)$/);
     if (method === 'GET' && splatMatch) {
-      if (!hasBrowserSession(request)) return notConnectedResponse();
+      // Público por la misma razón que las imágenes: el entorno se carga en la
+      // vista compartida. Subir (`/splat/init|part|complete`) sigue exigiendo sesión.
       const blockId = splatMatch[1];
       const config = await loadConfig(env);
       const signedUrl = await notion.getFileBlockUrl(blockId, config);
@@ -507,7 +510,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const fileMatch = path.match(/^\/notion\/file\/([^/]+)$/);
     if (method === 'GET' && fileMatch) {
-      if (!hasBrowserSession(request)) return notConnectedResponse();
+      // Público: los vídeos y PDF forman parte del proyecto publicado.
       const blockId = fileMatch[1];
       const config = await loadConfig(env);
       const signedUrl = await notion.getFileBlockUrl(blockId, config);
