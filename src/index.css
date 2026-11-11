@@ -2764,7 +2764,9 @@ input[type="range"] {
 /* ------------------------------------------------------------------ */
 
 .viewer-page {
-  height: 100vh;
+  /* 100dvh en vez de 100vh: con la barra del navegador móvil, 100vh es más
+     alto que la pantalla visible y el pie queda inalcanzable. */
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2812,6 +2814,8 @@ input[type="range"] {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .viewer-sidebar {
@@ -4140,6 +4144,19 @@ input[type="range"] {
   .viewer-body {
     grid-template-columns: 270px minmax(0, 1fr);
   }
+  /* Etiquetas 3D de una sola línea: con nombres largos desbordan el lienzo en
+     pantallas estrechas (tablet incluida). */
+  .marker-label {
+    max-width: 150px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .marker-label strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 @media (max-width: 720px) {
@@ -4261,14 +4278,27 @@ input[type="range"] {
     display: none;
   }
   .viewer-body {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
   }
   .viewer-sidebar {
     order: 2;
     border-right: 0;
     border-top: 1px solid var(--border);
-    max-height: 36vh;
+    /* Más bajo que antes: el visor 3D necesita la mayor parte de la pantalla
+       en un móvil. */
+    max-height: 30vh;
+    /* Sin esto el grid toma el min-content de la lista (710 px con nombres
+       largos) y todo el panel se sale por la derecha del móvil. */
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  .viewer-list {
+    min-width: 0;
+  }
+  .viewer-card {
+    min-width: 0;
   }
   .viewer-stage {
     order: 1;
@@ -4309,12 +4339,72 @@ input[type="range"] {
   .viewer-credit {
     display: none;
   }
+  /* La ficha ocupa el ancho real del móvil y nunca se sale: se ancla con
+     left y right en lugar de width: calc(100% - 20px), que heredaba el ancho
+     inflado del panel lateral. */
   .viewer-info-card {
+    left: 10px;
     right: 10px;
     bottom: 10px;
-    width: calc(100% - 20px);
-    max-height: 52vh;
+    width: auto;
+    top: auto;
+    /* En móvil es una hoja inferior: ocupa lo justo para leerse y deja el
+       lienzo 3D a la vista arriba. */
+    max-height: 52%;
     overflow-y: auto;
+    overflow-x: hidden;
+    padding: 12px;
+    border-radius: 14px;
+  }
+  .viewer-info-head {
+    gap: 8px;
+    align-items: flex-start;
+  }
+  /* Los botones de la ficha (prev, next, cerrar) siempre visibles y juntos. */
+  .viewer-info-actions {
+    flex: 0 0 auto;
+    gap: 2px;
+  }
+  .viewer-info-actions .btn-icon {
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+  }
+  .viewer-info-card h3 {
+    font-size: 14px;
+  }
+  .viewer-info-card p {
+    max-height: none;
+    font-size: 12px;
+  }
+  /* Rejilla de galería adaptable al ancho disponible. */
+  .viewer-media-grid {
+    max-width: 100%;
+  }
+  .viewer-media-item .media-thumb {
+    width: 58px;
+    height: 58px;
+  }
+  .viewer-media-head {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .viewer-media-open {
+    width: 100%;
+    justify-content: center;
+  }
+  /* Etiquetas 3D: con nombres largos el nowrap las saca de la pantalla. En
+     móvil se limitan a un ancho legible y se recortan con puntos suspensivos. */
+  .marker-label {
+    max-width: 132px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .marker-label strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .viewer-controls {
     left: 10px;
