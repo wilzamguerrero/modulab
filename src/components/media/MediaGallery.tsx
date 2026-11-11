@@ -8,9 +8,15 @@ import {
   Image as ImageIcon,
   Play,
 } from 'lucide-react';
-import type { MediaItem } from '@/types/project';
+import type { MediaItem, MediaKind } from '@/types/project';
 import { Button, IconButton, Modal } from '@/components/ui';
-import { formatBytes, mediaItemUrl, mediaKindLabel } from '@/services/assets/mediaService';
+import {
+  formatBytes,
+  mediaDisplayLabel,
+  mediaItemUrl,
+  mediaKindLabel,
+  mediaOrdinals,
+} from '@/services/assets/mediaService';
 import {
   FALLBACK_IMAGE_RATIO,
   FALLBACK_VIDEO_RATIO,
@@ -18,6 +24,14 @@ import {
   rememberRatio,
 } from './aspectRatioStore';
 import { useMediaSettle } from './useProgressiveStream';
+
+/** Icono de cada tipo, compartido por la ficha y el selector del modal. */
+export const MEDIA_KIND_TILE_ICON: Record<MediaKind, typeof ImageIcon> = {
+  image: ImageIcon,
+  video: Film,
+  pdf: FileText,
+  file: FileText,
+};
 
 /** Icono que representa el tipo de archivo en las listas. */
 export function MediaKindIcon({ kind, size = 13 }: { kind: MediaItem['kind']; size?: number }) {
@@ -88,7 +102,7 @@ export function MediaThumb({ item, size = 56 }: { item: MediaItem; size?: number
           ref={imgRef}
           className={`media-thumb${loaded ? ' is-loaded' : ''}`}
           src={url}
-          alt={item.caption || item.name}
+          alt={mediaDisplayLabel(item, 1)}
           loading="lazy"
           decoding="async"
           onLoad={(event) => finish(event.currentTarget)}
@@ -151,7 +165,7 @@ function MediaViewer({ item }: { item: MediaItem }) {
         <img
           className={`media-viewer-image${loaded ? ' is-loaded' : ''}`}
           src={url}
-          alt={item.caption || item.name}
+          alt={mediaDisplayLabel(item, 1)}
           decoding="async"
           onLoad={(event) => {
             const img = event.currentTarget;
@@ -196,12 +210,18 @@ function MediaViewer({ item }: { item: MediaItem }) {
     );
   }
   if (item.kind === 'pdf') {
-    return <iframe className="media-viewer-frame" src={`${url}#toolbar=1&view=FitH`} title={item.name} />;
+    return (
+      <iframe
+        className="media-viewer-frame"
+        src={`${url}#toolbar=1&view=FitH`}
+        title={mediaDisplayLabel(item, 1)}
+      />
+    );
   }
   return (
     <div className="media-viewer-empty">
       <MediaKindIcon kind={item.kind} size={30} />
-      <p>{item.name || 'Archivo'} </p>
+      <p>{mediaDisplayLabel(item, 1)}</p>
       <Button variant="secondary" onClick={() => window.open(url, '_blank', 'noopener')} icon={<ExternalLink size={14} />}>
         Abrir archivo
       </Button>
@@ -241,18 +261,72 @@ export function MediaGalleryModal({
   if (!items.length) return null;
   const item = items[index];
   const url = mediaItemUrl(item);
+  // Numero de cada archivo dentro de su tipo: «Imagen 3». Si el autor escribio
+  // un pie, ese texto manda; si no, se evita mostrar el nombre del archivo.
+  const ordinals = mediaOrdinals(items);
+  // Cuantos archivos hay de cada tipo: el numero solo se pinta si hay varios.
+  const kindTotals = new Map<MediaKind, number>();
+  for (const entry of items) kindTotals.set(entry.kind, (kindTotals.get(entry.kind) ?? 0) + 1);
+  const label = mediaDisplayLabel(item, ordinals.get(item.id) ?? 1);
 
   return (
     <Modal
       open
       onClose={onClose}
-      title={item.caption || item.name || mediaKindLabel(item.kind)}
+      title={label}
       subtitle={`${title} · ${index + 1} de ${items.length}${item.sizeBytes ? ` · ${formatBytes(item.sizeBytes)}` : ''}`}
       size="xl"
       footer={
-        <>
-          <span className="media-gallery-kind">{mediaKindLabel(item.kind)}</span>
+        <div className="media-gallery-foot">
+          {/* Selector de archivos: los mismos iconos numerados de la ficha.
+              No se piden miniaturas, asi que cambiar de imagen no descarga
+              nada extra hasta que se muestra el archivo. */}
+          {items.length > 1 ? (
+            <div className="media-gallery-picker">
+              {items.map((entry, position) => {
+                const Icon = MEDIA_KIND_TILE_ICON[entry.kind];
+                const ordinal = ordinals.get(entry.id) ?? 1;
+                const multi = kindTotals.get(entry.kind)! > 1;
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    className={`media-gallery-pick${position === index ? ' is-active' : ''}`}
+                    onClick={() => setIndex(position)}
+                    title={mediaDisplayLabel(entry, ordinal)}
+                    aria-label={mediaDisplayLabel(entry, ordinal)}
+                    aria-current={position === index}
+                  >
+                    <Icon size={16} />
+                    {multi ? (
+                      <span className="media-gallery-pick-badge" aria-hidden>
+                        {ordinal}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <span className="media-gallery-kind">{mediaKindLabel(item.kind)}</span>
+          )}
           <div className="media-gallery-actions">
+            {items.length > 1 ? (
+              <div className="media-gallery-arrows">
+                <IconButton
+                  label="Anterior"
+                  icon={<ChevronLeft size={15} />}
+                  onClick={() => setIndex((current) => Math.max(0, current - 1))}
+                  disabled={index === 0}
+                />
+                <IconButton
+                  label="Siguiente"
+                  icon={<ChevronRight size={15} />}
+                  onClick={() => setIndex((current) => Math.min(items.length - 1, current + 1))}
+                  disabled={index === items.length - 1}
+                />
+              </div>
+            ) : null}
             {url ? (
               <Button
                 variant="ghost"
@@ -264,48 +338,15 @@ export function MediaGalleryModal({
               </Button>
             ) : null}
           </div>
-        </>
+        </div>
       }
     >
       <div className="media-gallery-body">
-        {items.length > 1 ? (
-          <IconButton
-            className="media-gallery-nav is-prev"
-            label="Anterior"
-            icon={<ChevronLeft size={18} />}
-            onClick={() => setIndex((current) => Math.max(0, current - 1))}
-            disabled={index === 0}
-          />
-        ) : null}
         <div className="media-gallery-stage">
           <MediaViewer item={item} />
           {item.caption ? <p className="media-gallery-caption">{item.caption}</p> : null}
         </div>
-        {items.length > 1 ? (
-          <IconButton
-            className="media-gallery-nav is-next"
-            label="Siguiente"
-            icon={<ChevronRight size={18} />}
-            onClick={() => setIndex((current) => Math.min(items.length - 1, current + 1))}
-            disabled={index === items.length - 1}
-          />
-        ) : null}
       </div>
-      {items.length > 1 ? (
-        <div className="media-gallery-strip">
-          {items.map((entry, position) => (
-            <button
-              key={entry.id}
-              type="button"
-              className={`media-gallery-chip${position === index ? ' is-active' : ''}`}
-              onClick={() => setIndex(position)}
-              title={entry.caption || entry.name}
-            >
-              <MediaThumb item={entry} size={38} />
-            </button>
-          ))}
-        </div>
-      ) : null}
     </Modal>
   );
 }

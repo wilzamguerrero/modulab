@@ -4833,70 +4833,6 @@ input[type="range"] {
   transform: scale(1.04);
 }
 
-/* Galería en la ficha del expositor */
-.viewer-media {
-  margin-top: 10px;
-  border-top: 1px solid var(--border);
-  padding-top: 9px;
-}
-
-.viewer-media-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 7px;
-}
-
-.viewer-media-head span {
-  font-size: 10px;
-  color: var(--muted);
-}
-
-.viewer-media-open {
-  font-size: 10px;
-}
-
-.viewer-media-grid {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  max-height: 172px;
-  overflow-y: auto;
-}
-
-.viewer-media-item {
-  position: relative;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  border-radius: 7px;
-}
-
-.viewer-media-item .media-thumb {
-  width: 64px;
-  height: 64px;
-}
-
-.viewer-media-kind {
-  position: absolute;
-  left: 2px;
-  right: 2px;
-  bottom: 2px;
-  font-size: 8px;
-  text-align: center;
-  padding: 1px 0;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.62);
-  color: #fff;
-  pointer-events: none;
-}
-
-.viewer-media-item:hover {
-  outline: 1px solid var(--accent);
-}
-
 /* Modal de galería a pantalla completa */
 .media-gallery-body {
   display: flex;
@@ -4991,30 +4927,6 @@ input[type="range"] {
   max-width: 640px;
 }
 
-.media-gallery-strip {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-top: 4px;
-}
-
-.media-gallery-chip {
-  flex: 0 0 auto;
-  padding: 2px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: none;
-  cursor: pointer;
-}
-
-.media-gallery-chip.is-active {
-  border-color: var(--accent);
-}
-
-.media-gallery-chip .media-thumb {
-  width: 38px;
-  height: 38px;
-}
 
 .media-gallery-kind {
   font-size: 10px;
@@ -5348,44 +5260,637 @@ input[type="range"] {
   font-size: 10px;
 }
 
+/* Agrupacion por tipo en el modo lectura.
+   No se descarga ninguna miniatura: cada grupo es una fila que se despliega
+   con la lista de archivos («Imagen 1», «Imagen 2»...). */
+/* Material del expositor en modo lectura.
+   Solo iconos: no se descarga ninguna miniatura, por eso la ficha abre al
+   instante aunque el expositor tenga decenas de fotos. */
 .viewer-media-grid {
   display: flex;
-  gap: 6px;
   flex-wrap: wrap;
-  max-height: 172px;
+  gap: 6px;
+}
+
+.viewer-media-tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.viewer-media-tile:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Numero del archivo dentro de su tipo, en la esquina. */
+.viewer-media-tile-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 99px;
+  border: 1px solid var(--bg);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 9px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* Nombre del tipo, discreto, bajo el icono. */
+.viewer-media-tile-kind {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 3px;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+  color: var(--muted-2);
+  pointer-events: none;
+}
+
+.viewer-media-tile:hover .viewer-media-tile-kind {
+  color: var(--accent);
+}
+
+/* Modal de galería a pantalla completa */
+.media-gallery-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 320px;
+}
+
+.media-gallery-stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.media-gallery-nav {
+  flex: 0 0 auto;
+}
+
+.media-viewer-image {
+  max-width: 100%;
+  max-height: 66vh;
+  object-fit: contain;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+
+.media-viewer-image.is-loaded {
+  opacity: 1;
+}
+
+.media-viewer-image-frame {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 220px;
+  min-height: 160px;
+}
+
+.media-viewer-skeleton {
+  position: absolute;
+  inset: 0;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: linear-gradient(100deg, #12161b 30%, #1b2129 50%, #12161b 70%);
+  background-size: 200% 100%;
+  animation: media-skeleton 1.2s ease-in-out infinite;
+}
+
+.media-viewer-video {
+  width: 100%;
+  max-height: 66vh;
+  border-radius: 9px;
+  background: #000;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+
+.media-viewer-video.is-loaded {
+  opacity: 1;
+}
+
+.media-viewer-frame {
+  width: 100%;
+  height: 66vh;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.media-viewer-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.media-gallery-caption {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.5;
+  max-width: 640px;
+}
+
+
+.media-gallery-kind {
+  font-size: 10px;
+  color: var(--muted-2);
+}
+
+.media-gallery-actions {
+  display: flex;
+  gap: 6px;
+}
+
+@media (max-width: 760px) {
+  .media-gallery-body {
+    min-height: 220px;
+  }
+  .viewer-event-image {
+    width: 26px;
+    height: 26px;
+  }
+  .event-image-preview {
+    width: 78px;
+    height: 78px;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Multimedia: imagen del evento, galería y visor                       */
+/* ------------------------------------------------------------------ */
+
+.media-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.media-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
   overflow-y: auto;
 }
 
-.viewer-media-item {
+.media-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  padding: 7px;
+}
+
+.media-row-thumb {
   position: relative;
+  flex: 0 0 auto;
   padding: 0;
   border: 0;
   background: none;
   cursor: pointer;
-  border-radius: 7px;
+  border-radius: 6px;
+  overflow: hidden;
 }
 
-.viewer-media-item .media-thumb {
-  width: 64px;
-  height: 64px;
-}
-
-.viewer-media-kind {
+.media-row-zoom {
   position: absolute;
-  left: 2px;
-  right: 2px;
-  bottom: 2px;
-  font-size: 8px;
-  text-align: center;
-  padding: 1px 0;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.62);
-  color: #fff;
-  pointer-events: none;
+  right: 3px;
+  bottom: 3px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 3px;
+  padding: 1px;
 }
 
-.viewer-media-item:hover {
-  outline: 1px solid var(--accent);
+.media-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.media-row-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.media-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.media-row-size {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--muted-2);
+}
+
+.media-row-caption {
+  font-size: 11px;
+  padding: 4px 7px !important;
+  min-height: 0;
+}
+
+.media-row-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.media-row-links a,
+.media-row-links button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--cyan, #7fd0da);
+  font-size: 10px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.media-row-links button:disabled {
+  color: var(--muted-2);
+  cursor: default;
+  opacity: 0.6;
+}
+
+.media-row-warning {
+  color: var(--warning, #d9a441);
+  font-size: 10px;
+}
+
+.media-row-links button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.media-thumb {
+  display: block;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #0b0e11;
+}
+
+.media-thumb-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-soft);
+}
+
+.media-thumb-icon.is-pdf {
+  color: #d9705b;
+}
+
+.media-thumb-icon.is-video {
+  color: #7fb0d0;
+}
+
+.media-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--muted-2);
+  text-align: center;
+}
+
+.media-empty p {
+  font-size: 10px;
+  line-height: 1.5;
+  max-width: 220px;
+}
+
+.media-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.media-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Imagen cuadrada del evento en el inspector */
+.event-image-field {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.event-image-preview {
+  position: relative;
+  flex: 0 0 auto;
+  width: 96px;
+  height: 96px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--bg-soft);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.event-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.event-image-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  color: var(--muted-2);
+  font-size: 10px;
+}
+
+.event-image-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 10px;
+}
+
+.event-image-side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.event-image-hint {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.event-image-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Imagen del evento junto al logo (visor público) */
+.viewer-event-image {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--bg-soft);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.viewer-event-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.viewer-event-image:hover {
+  border-color: var(--accent);
+  transform: scale(1.04);
+}
+
+/* Galería en la ficha del expositor */
+.viewer-media {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 9px;
+}
+
+.viewer-media-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.viewer-media-head span {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.viewer-media-open {
+  font-size: 10px;
+}
+
+/* Agrupacion por tipo en el modo lectura.
+   No se descarga ninguna miniatura: cada grupo es una fila que se despliega
+   con la lista de archivos («Imagen 1», «Imagen 2»...). */
+.viewer-media-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.viewer-media-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  overflow: hidden;
+}
+
+.viewer-media-group.is-open {
+  border-color: var(--border-strong);
+}
+
+.viewer-media-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.viewer-media-group-head:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.viewer-media-group.is-single {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.viewer-media-group.is-single:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.viewer-media-group-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.viewer-media-group-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Recuento: cuantos archivos hay de ese tipo. */
+.viewer-media-group-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--panel-3);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer-media-group-chevron {
+  flex: 0 0 auto;
+  color: var(--muted-2);
+  transition: transform 0.15s ease;
+}
+
+.viewer-media-group.is-open .viewer-media-group-chevron {
+  transform: rotate(180deg);
+}
+
+.viewer-media-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 4px 4px;
+  max-height: 178px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.viewer-media-group-item {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.viewer-media-group-item:hover {
+  background: var(--accent-soft);
+  color: var(--text);
 }
 
 /* Modal de galería a pantalla completa */
@@ -5452,30 +5957,6 @@ input[type="range"] {
   max-width: 640px;
 }
 
-.media-gallery-strip {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-top: 4px;
-}
-
-.media-gallery-chip {
-  flex: 0 0 auto;
-  padding: 2px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: none;
-  cursor: pointer;
-}
-
-.media-gallery-chip.is-active {
-  border-color: var(--accent);
-}
-
-.media-gallery-chip .media-thumb {
-  width: 38px;
-  height: 38px;
-}
 
 @media (max-width: 760px) {
   .media-gallery-body {
@@ -5705,5 +6186,102 @@ input[type="range"] {
   .viewer-intro.is-leaving,
   .viewer-intro-mark {
     animation-duration: 1ms;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Pie del modal de galería                                            */
+/* ------------------------------------------------------------------ */
+
+/* El selector de archivos va abajo, junto a «Abrir original», con los mismos
+   iconos numerados de la ficha: cambiar de imagen no descarga miniaturas. */
+.media-gallery-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.media-gallery-picker {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  /* Sin overflow-x: auto no aparece la barra de desplazamiento bajo los
+     iconos. Los badges sobresalen 5 px, asi que el contenedor reserva ese
+     margen en vez de recortarlos o crear scroll. */
+  padding: 6px 6px 6px 3px;
+  margin: -3px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.media-gallery-pick {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.media-gallery-pick:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.media-gallery-pick.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.media-gallery-pick-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 99px;
+  border: 1px solid var(--bg);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 8px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.media-gallery-arrows {
+  display: flex;
+  gap: 2px;
+}
+
+.media-gallery-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 760px) {
+  .media-gallery-foot {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .media-gallery-actions {
+    justify-content: space-between;
   }
 }

@@ -68,6 +68,42 @@ export function mediaKindLabel(kind: MediaKind): string {
   }
 }
 
+/**
+ * Etiqueta visible de un archivo.
+ *
+ * Si el autor escribió un pie/título se usa tal cual. Si no, se genera
+ * «Imagen 3», «Vídeo 2», «PDF 1»… a partir de la posición dentro de su propio
+ * tipo. Nunca se muestra el nombre técnico del archivo subido
+ * (`foto_2026_final.jpg`), que no aporta nada al visitante.
+ *
+ * @param item    Archivo a etiquetar.
+ * @param ordinal Posición 1-based entre los archivos del mismo tipo.
+ */
+export function mediaDisplayLabel(
+  item: Pick<MediaItem, 'kind' | 'caption'>,
+  ordinal: number,
+): string {
+  const caption = item.caption?.trim();
+  if (caption) return caption;
+  return `${mediaKindLabel(item.kind)} ${ordinal}`;
+}
+
+/**
+ * Calcula el número que corresponde a cada archivo dentro de su tipo, en el
+ * mismo orden en que aparecen. Con `[img, video, img, img]` devuelve los
+ * ordinales `[1, 1, 2, 3]`: la tercera imagen es «Imagen 2».
+ */
+export function mediaOrdinals(items: readonly Pick<MediaItem, 'id' | 'kind'>[]): Map<string, number> {
+  const counters = new Map<string, number>();
+  const result = new Map<string, number>();
+  for (const item of items) {
+    const next = (counters.get(item.kind) ?? 0) + 1;
+    counters.set(item.kind, next);
+    result.set(item.id, next);
+  }
+  return result;
+}
+
 export function formatBytes(bytes: number | undefined): string {
   if (!bytes || !Number.isFinite(bytes)) return '';
   if (bytes < 1024) return `${bytes} B`;
