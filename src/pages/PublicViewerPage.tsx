@@ -307,6 +307,14 @@ export function PublicViewerPage() {
   const { publicId } = useParams<{ publicId: string }>();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+  /**
+   * Portada de entrada. El logo se muestra centrado sobre un fondo del entorno
+   * y se retira con un desvanecido suave en cuanto el espacio está listo, para
+   * que la escena 3D no aparezca de golpe.
+   *
+   * Tres fases: 'visible' → 'leaving' (se desvanece) → 'gone' (desmontada).
+   */
+  const [intro, setIntro] = useState<'visible' | 'leaving' | 'gone'>('visible');
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Estado de la barra de vistas. Arranca apagado y toma los valores del
@@ -322,8 +330,6 @@ export function PublicViewerPage() {
   // elegida en el editor, no la cámara esquema del documento.
   const [cameraCommand, setCameraCommand] = useState<ViewerCameraCommand | null>(null);
   const [topTurns, setTopTurns] = useState(0);
-  const [eventGalleryOpen, setEventGalleryOpen] = useState(false);
-
   useEffect(() => {
     if (!publicId) {
       setError('La dirección no incluye un identificador de publicación.');
@@ -475,6 +481,24 @@ export function PublicViewerPage() {
     if (next) selectExhibitor(next);
   };
 
+  // La portada se retira cuando el documento ya está montado y la escena ha
+  // tenido un frame para dibujarse. Sin esa pausa el desvanecido dejaría ver un
+  // lienzo vacío.
+  useEffect(() => {
+    if (loading || !publicProject || intro !== 'visible') return;
+    const timer = window.setTimeout(() => setIntro('leaving'), 260);
+    return () => clearTimeout(timer);
+  }, [loading, publicProject, intro]);
+
+  // Red de seguridad: si la animación de salida no llega a disparar su evento
+  // (pestaña en segundo plano, movimiento reducido), la portada se desmonta
+  // igualmente. Nunca debe quedar tapando la escena.
+  useEffect(() => {
+    if (intro !== 'leaving') return;
+    const timer = window.setTimeout(() => setIntro('gone'), 1200);
+    return () => clearTimeout(timer);
+  }, [intro]);
+
   const resetCamera = () => {
     setSelectedId(null);
     // «Inicio» vuelve a la vista de lectura publicada, no a una cámara genérica.
@@ -502,10 +526,20 @@ export function PublicViewerPage() {
     }));
   };
 
+  // La portada cubre también la carga del documento: muestra el logo centrado
+  // en lugar de una pantalla en blanco con un texto de espera.
   if (loading) {
     return (
-      <div className="viewer-loading">
-        <Spinner label="Abriendo el espacio publicado…" />
+      <div className="viewer-intro">
+        <div className="viewer-intro-backdrop" aria-hidden />
+        <div className="viewer-intro-mark">
+          <span className="brand-mark"><Layers size={15} /></span>
+          <span className="brand-text">
+            modulab
+            <small>visor 3D</small>
+          </span>
+        </div>
+        <p className="viewer-intro-hint">Abriendo el espacio publicado…</p>
       </div>
     );
   }
@@ -530,15 +564,45 @@ export function PublicViewerPage() {
 
   return (
     <div className="viewer-page">
-      {eventGalleryOpen && project.eventImage ? (
-        <MediaGalleryModal
-          items={[project.eventImage]}
-          title={project.event || 'Imagen del evento'}
-          onClose={() => setEventGalleryOpen(false)}
-        />
+      {intro !== 'gone' ? (
+        <div
+          className={`viewer-intro${intro === 'leaving' ? ' is-leaving' : ''}`}
+          aria-hidden={intro === 'leaving'}
+          onAnimationEnd={(event) => {
+            // Sólo la salida de la portada la desmonta. La animación del logo
+            // burbujea hasta aquí y no debe cerrarla.
+            if (event.target !== event.currentTarget) return;
+            setIntro('gone');
+          }}
+        >
+          <div className="viewer-intro-backdrop" aria-hidden />
+          {/* En el centro va la imagen del evento cargada en el editor (Planta →
+              «Imagen del evento (cuadrada)»). Si el proyecto no tiene una, se
+              mantiene la marca de Modulab como respaldo. */}
+          <div className="viewer-intro-mark">
+            {eventImage ? (
+              <img
+                className="viewer-intro-event"
+                src={eventImage}
+                alt={project.event || project.name}
+              />
+            ) : (
+              <>
+                <span className="brand-mark"><Layers size={15} /></span>
+                <span className="brand-text">
+                  modulab
+                  <small>visor 3D</small>
+                </span>
+              </>
+            )}
+          </div>
+        </div>
       ) : null}
       <header className="viewer-header">
         <div className="viewer-header-left">
+          {/* Logo de Modulab antes de la palabra, como en las versiones
+              anteriores. La imagen del evento ya no se repite aquí: solo
+              aparece centrada en la portada de entrada. */}
           <Link to="/" className="brand viewer-brand" aria-label="Modulab">
             <span className="brand-mark"><Layers size={15} /></span>
             <span className="brand-text">
@@ -546,16 +610,6 @@ export function PublicViewerPage() {
               <small>visor 3D</small>
             </span>
           </Link>
-          {eventImage ? (
-            <button
-              type="button"
-              className="viewer-event-image"
-              onClick={() => setEventGalleryOpen(true)}
-              title="Ver la imagen del evento"
-            >
-              <img src={eventImage} alt={project.event || project.name} />
-            </button>
-          ) : null}
           <span className="viewer-header-divider" />
           {/* Solo el nombre: el recuento de expositores ya está en el panel
               lateral y el evento lo cuenta cada ficha. */}

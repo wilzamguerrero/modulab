@@ -2560,6 +2560,11 @@ input[type="range"] {
   place-items: center;
   padding: 22px;
   animation: fade-in 0.15s ease;
+  /* dvh en vez de vh: en móvil la barra del navegador se come el alto y el
+     modal quedaría más alto que el área visible. */
+  min-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 @keyframes fade-in {
@@ -2569,7 +2574,7 @@ input[type="range"] {
 
 .modal {
   width: 100%;
-  max-height: min(88vh, 900px);
+  max-height: min(88dvh, 900px);
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-strong);
@@ -2577,6 +2582,9 @@ input[type="range"] {
   background: var(--panel);
   box-shadow: 0 30px 100px rgba(0, 0, 0, 0.55);
   animation: modal-in 0.18s ease;
+  /* El cuerpo hace scroll, no la cabecera: la X de cerrar siempre se alcanza. */
+  overflow: hidden;
+  margin: auto;
 }
 
 @keyframes modal-in {
@@ -2596,6 +2604,12 @@ input[type="range"] {
   gap: 16px;
   padding: 18px 20px 14px;
   border-bottom: 1px solid var(--border);
+  /* Fija arriba: el botón de cerrar no se va al hacer scroll en móvil. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
+  flex: 0 0 auto;
 }
 
 .modal-head h2 {
@@ -2615,6 +2629,10 @@ input[type="range"] {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* Deja que este sea el único contenedor con scroll. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 
 .modal-foot {
@@ -2624,6 +2642,8 @@ input[type="range"] {
   gap: 8px;
   padding: 13px 20px;
   border-top: 1px solid var(--border);
+  flex: 0 0 auto;
+  flex-wrap: wrap;
 }
 
 .confirm-message {
@@ -4129,14 +4149,85 @@ input[type="range"] {
     padding-left: 18px;
     padding-right: 18px;
   }
+  /* La cabecera pasa a dos filas: marca arriba, acciones debajo. Así los
+     botones no desbordan el ancho ni obligan a scroll horizontal. */
+  .home-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding-top: 16px;
+  }
+  .home-header nav {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .home-header nav .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-width: 0;
+  }
   .home-header nav .btn span {
-    display: none;
+    display: inline;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .hero-title {
     font-size: 42px;
   }
+  .hero-actions .btn {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
   .project-grid {
     grid-template-columns: 1fr;
+  }
+  /* Los listados largos (proyectos, expositores, catálogo) se apilan. */
+  .section-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .section-actions {
+    flex-wrap: wrap;
+  }
+  .home-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    text-align: left;
+  }
+  .home-footer > span {
+    flex-wrap: wrap;
+  }
+  /* Modal a pantalla casi completa, con la cabecera siempre visible. */
+  .modal-backdrop {
+    padding: 10px;
+  }
+  .modal {
+    max-height: 92dvh;
+    border-radius: 14px;
+  }
+  .modal-head,
+  .modal-body {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .modal-head {
+    align-items: center;
+    padding-top: 12px;
+    padding-bottom: 10px;
+  }
+  .modal-head h2 {
+    font-size: 15px;
+  }
+  .modal-foot {
+    padding: 10px 14px;
+    justify-content: stretch;
+  }
+  .modal-foot .btn {
+    flex: 1 1 auto;
+    justify-content: center;
   }
   .editor-main {
     grid-template-columns: 1fr;
@@ -4186,10 +4277,21 @@ input[type="range"] {
     padding: 0 10px;
     gap: 8px;
   }
-  .viewer-brand .brand-text,
+  /* El logo de Modulab se conserva en móvil: solo se oculta el divisor y el
+     subtítulo, que robarían ancho al nombre del proyecto. */
+  .viewer-brand .brand-text small,
   .viewer-header-divider,
   .viewer-header-actions .badge {
     display: none;
+  }
+  .viewer-brand {
+    font-size: 13px;
+    gap: 6px;
+  }
+  .viewer-brand .brand-mark {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
   }
   .viewer-header-info h1 {
     font-size: 12px;
@@ -5381,4 +5483,137 @@ input[type="range"] {
 .media-stream-sentinel {
   height: 1px;
   width: 100%;
+}
+
+/* Miniatura de vídeo: fondo oscuro con botón de reproducción centrado, para
+   que se distinga de un vistazo del resto de archivos de la galería. */
+.media-thumb-icon.is-video {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(150deg, #2b3a45 0%, #1c262e 100%);
+  border-color: rgba(127, 176, 208, 0.45);
+  color: #cfe3ef;
+}
+
+.media-thumb-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 58%;
+  height: 58%;
+  border-radius: 999px;
+  background: rgba(207, 227, 239, 0.16);
+  border: 1px solid rgba(207, 227, 239, 0.55);
+  color: #eaf4fa;
+  padding-left: 1px;
+}
+
+/* Portada de entrada del visor de lectura.
+   El logo se muestra centrado sobre un fondo que evoca el entorno y se retira
+   con un desvanecido suave en cuanto la escena 3D está lista. */
+.viewer-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  /* Sin fondo propio: el degradado lo pone la capa .viewer-intro-backdrop, que
+     es la que se desvanece por separado. */
+  background: var(--bg, #0e1113);
+  animation: viewer-intro-out 620ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* La capa del entorno queda quieta mientras el logo aparece. Aquí se mantiene
+   visible hasta que la clase `is-leaving` marca la salida. */
+.viewer-intro:not(.is-leaving) {
+  animation: none;
+}
+
+.viewer-intro.is-leaving {
+  animation: viewer-intro-out 620ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes viewer-intro-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+/* Fondo plano oscuro: el mismo color de la interfaz, sin degradado. */
+.viewer-intro-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+}
+
+/* La imagen del evento se muestra cuadrada y centrada, sin borde: el fondo
+   plano ya la separa de la interfaz. */
+.viewer-intro-event {
+  display: block;
+  width: min(46vw, 260px);
+  height: min(46vw, 260px);
+  object-fit: cover;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+}
+
+/* El logo conserva su tamaño real: sólo aparece con un leve aumento. */
+.viewer-intro-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  font-size: 20px;
+  color: var(--text);
+  animation: viewer-intro-mark-in 540ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+@keyframes viewer-intro-mark-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.viewer-intro-mark .brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.viewer-intro-mark .brand-text small {
+  color: var(--muted-2);
+}
+
+.viewer-intro-hint {
+  position: relative;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted-2);
+  letter-spacing: 0.02em;
+}
+
+/* Con movimiento reducido no hay animación: la portada aparece y se va sin
+   transición, para no marear. */
+@media (prefers-reduced-motion: reduce) {
+  .viewer-intro,
+  .viewer-intro.is-leaving,
+  .viewer-intro-mark {
+    animation-duration: 1ms;
+  }
 }

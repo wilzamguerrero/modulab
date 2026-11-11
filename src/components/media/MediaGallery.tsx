@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, ExternalLink, FileText, Film, Image as ImageIcon } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  Film,
+  Image as ImageIcon,
+  Play,
+} from 'lucide-react';
 import type { MediaItem } from '@/types/project';
 import { Button, IconButton, Modal } from '@/components/ui';
 import { formatBytes, mediaItemUrl, mediaKindLabel } from '@/services/assets/mediaService';
@@ -87,6 +95,22 @@ export function MediaThumb({ item, size = 56 }: { item: MediaItem; size?: number
           onError={() => finish(null)}
           style={{ width: size, height: size }}
         />
+      </span>
+    );
+  }
+  // Los vídeos y los PDF no tienen miniatura de imagen: se dibuja un icono
+  // reconocible. El vídeo lleva además un botón de reproducción encima para
+  // que no se confunda con un archivo cualquiera.
+  if (item.kind === 'video') {
+    return (
+      <span
+        className="media-thumb media-thumb-icon is-video"
+        style={{ width: size, height: size }}
+        aria-hidden
+      >
+        <span className="media-thumb-play">
+          <Play size={Math.max(9, Math.round(size / 4.4))} fill="currentColor" />
+        </span>
       </span>
     );
   }
